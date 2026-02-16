@@ -30,6 +30,8 @@ final class ScanViewModel: ObservableObject {
     @Published var todayCount: Int = 0
     @Published var todayTotal: Decimal = 0
     @Published var pendingCount: Int = 0
+    @Published var submittedCount: Int = 0
+    @Published var failedCount: Int = 0
     @Published var mostRecentSummary: RecentSummary?
 
     init(environment: AppEnvironment) {
@@ -106,7 +108,14 @@ final class ScanViewModel: ObservableObject {
 
         Task(priority: .userInitiated) {
             let context = container.newBackgroundContext()
-            let metrics = await context.perform { () -> (count: Int, pending: Int, total: Decimal, recent: RecentSummary?) in
+            let metrics = await context.perform { () -> (
+                count: Int,
+                pending: Int,
+                submitted: Int,
+                failed: Int,
+                total: Decimal,
+                recent: RecentSummary?
+            ) in
                 let startOfDay = Calendar.current.startOfDay(for: Date())
 
                 let request: NSFetchRequest<PurchaseOrder> = PurchaseOrder.fetchRequest()
@@ -116,6 +125,8 @@ final class ScanViewModel: ObservableObject {
                 let results = (try? context.fetch(request)) ?? []
                 let count = results.count
                 let pending = results.filter { $0.status.lowercased() == "submitting" }.count
+                let submitted = results.filter { $0.status.lowercased() == "submitted" }.count
+                let failed = results.filter { $0.status.lowercased() == "failed" }.count
                 let total = results.reduce(Decimal.zero) { partial, order in
                     partial + Decimal(order.totalAmount)
                 }
@@ -138,12 +149,14 @@ final class ScanViewModel: ObservableObject {
                     return RecentSummary(vendor: vendor, total: totalText, date: dateText)
                 }
 
-                return (count, pending, total, recent)
+                return (count, pending, submitted, failed, total, recent)
             }
 
             todayCount = metrics.count
             todayTotal = metrics.total
             pendingCount = metrics.pending
+            submittedCount = metrics.submitted
+            failedCount = metrics.failed
             mostRecentSummary = metrics.recent
         }
     }
@@ -151,6 +164,14 @@ final class ScanViewModel: ObservableObject {
     var todayTotalFormatted: String {
         let number = NSDecimalNumber(decimal: todayTotal)
         return Self.currencyFormatter.string(from: number) ?? "0.00"
+    }
+
+    var todayAverageFormatted: String {
+        guard todayCount > 0 else { return "$0.00" }
+        let total = NSDecimalNumber(decimal: todayTotal)
+        let count = NSDecimalNumber(value: todayCount)
+        let average = total.dividing(by: count)
+        return Self.currencyFormatter.string(from: average) ?? "$0.00"
     }
 
     private static let currencyFormatter: NumberFormatter = {

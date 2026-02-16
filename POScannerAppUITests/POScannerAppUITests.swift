@@ -12,7 +12,11 @@ final class POScannerAppUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.navigationBars["Purchase Orders"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["scan.dashboardTitle"].exists)
         XCTAssertTrue(app.buttons["scan.scanButton"].exists)
+        XCTAssertTrue(app.switches["scan.ignoreTaxToggle"].exists)
+        XCTAssertTrue(app.buttons["scan.quickHistory"].exists)
+        XCTAssertTrue(app.buttons["scan.quickSettings"].exists)
 
         app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))

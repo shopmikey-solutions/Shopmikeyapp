@@ -7,6 +7,7 @@ import SwiftUI
 
 enum AppSurfaceStyle {
     static let accent: Color = Color(red: 0.98, green: 0.84, blue: 0.10)
+    static let listCardFill: Color = Color(red: 0.22, green: 0.28, blue: 0.40).opacity(0.94)
     static let cardFill: LinearGradient = LinearGradient(
         colors: [
             Color(red: 0.20, green: 0.25, blue: 0.34).opacity(0.92),
@@ -52,7 +53,7 @@ struct AppFormChromeModifier: ViewModifier {
 private struct AppListRowBackground: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(AppSurfaceStyle.cardFill)
+            .fill(AppSurfaceStyle.listCardFill)
             .overlay(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .stroke(AppSurfaceStyle.cardStroke)

@@ -31,5 +31,6 @@ struct RootTabView: View {
                 Label("Settings", systemImage: "gearshape")
             }
         }
+        .tint(AppSurfaceStyle.accent)
     }
 }

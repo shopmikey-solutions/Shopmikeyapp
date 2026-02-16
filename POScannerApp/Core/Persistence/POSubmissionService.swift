@@ -462,7 +462,7 @@ final class POSubmissionService {
 
         if normalizedDesc.contains("tire")
             || normalizedDesc.range(
-                of: #"\b\d{3}/\d{2,3}(?:zr|r|-)?\d{2}\b"#,
+                of: #"\b\d{3}/\d{2,3}(?:/\d{2}|(?:zr|r|-)?\d{2})\b"#,
                 options: [.regularExpression, .caseInsensitive]
             ) != nil {
             return .tire

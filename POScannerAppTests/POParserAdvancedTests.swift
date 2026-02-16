@@ -82,4 +82,46 @@ struct POParserAdvancedTests {
         #expect(item.kind == .fee)
         #expect(item.kindConfidence >= 0.55)
     }
+
+    @Test func parsesTableRowUnitPricesAndDocumentIdentifiers() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        METRO AUTO PARTS SUPPLY
+        Invoice #: PO-99012 PO Number: MAP-45821
+        ACD-41-993 Front Brake Pad Set - Ceramic 6 $68.00 $408.00
+        MOOG-K750012 Front Sway Bar Link Kit 4 $45.00 $180.00
+        FRM-PH7317 Engine Oil Filter 12 $9.50 $114.00
+        DENSO-471-1635 A/C Compressor Assembly 2 $385.00 $770.00
+        MICH-123 225/60/16 Primacy Michelin 4 $180.00 $720.00
+        Shipping: $45.00
+        Tax (8.5%): $125.12
+        Total Amount Due: $1,642.12
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.invoiceNumber == "MAP-45821")
+        #expect(parsed.poNumber == "PO-99012")
+        #expect(parsed.items.count == 6)
+
+        guard let brakePads = parsed.items.first(where: { $0.partNumber == "ACD-41-993" }) else {
+            Issue.record("Missing brake pad row")
+            return
+        }
+        #expect(brakePads.quantity == 6)
+        #expect(brakePads.costCents == 6800)
+
+        guard let tire = parsed.items.first(where: { $0.partNumber == "MICH-123" }) else {
+            Issue.record("Missing tire row")
+            return
+        }
+        #expect(tire.quantity == 4)
+        #expect(tire.costCents == 18000)
+        #expect(tire.kind == .tire)
+
+        guard let shipping = parsed.items.first(where: { $0.name.lowercased().contains("shipping") }) else {
+            Issue.record("Missing shipping row")
+            return
+        }
+        #expect(shipping.costCents == 4500)
+        #expect(shipping.kind == .fee)
+    }
 }

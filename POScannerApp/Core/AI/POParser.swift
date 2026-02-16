@@ -20,8 +20,11 @@ final class POParser {
             vendorName = nil
         }
 
-        let poNumber = extractPONumber(from: text)
-        let invoiceNumber = extractInvoiceNumber(from: text)
+        var poNumber = extractPONumber(from: text)
+        var invoiceNumber = extractInvoiceNumber(from: text)
+        if shouldSwapDocumentIdentifiers(invoiceNumber: invoiceNumber, poNumber: poNumber) {
+            swap(&poNumber, &invoiceNumber)
+        }
         let items = extractLineItems(
             from: text,
             skippingFirstNonEmptyLine: vendorName != nil,
@@ -103,6 +106,7 @@ final class POParser {
     ]
 
     private let costPattern: String = #"\$?\s?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)"#
+    private let monetaryTokenPattern: String = #"\$?\s*\d{1,3}(?:,\d{3})*\.\d{2}\b"#
 
     private let partPattern: String = #"(?i)(pn|p\/n|part#?)[:\s]*([A-Z0-9\-]+)"#
 
@@ -303,7 +307,7 @@ private extension POParser {
         let descriptionLine = preferredDescriptionLine(from: lines)
 
         let qtyResult = extractQuantity(from: combined)
-        let costResult = extractCost(from: combined)
+        let costResult = extractCost(from: combined, quantityHint: qtyResult.found ? qtyResult.value : nil)
         let partResult = extractPartNumber(from: combined)
 
         let name = cleanItemName(
@@ -387,6 +391,17 @@ private extension POParser {
             }
         }
 
+        // Fallback for table-style rows:
+        // infer quantity from the numeric token immediately before the first monetary value.
+        if let moneyRange = firstMonetaryTokenRange(in: text) {
+            let prefix = text[..<moneyRange.lowerBound]
+            if let lastToken = prefix.split(whereSeparator: \.isWhitespace).last,
+               let value = Int(lastToken),
+               (1...200).contains(value) {
+                return (value, true)
+            }
+        }
+
         // Fallback: leading quantity like "2 Brake Pads ..."
         let leadingPattern = #"^\s*(\d+)\s+"#
         if let regex = try? NSRegularExpression(pattern: leadingPattern) {
@@ -403,7 +418,7 @@ private extension POParser {
         return (1, false)
     }
 
-    func extractCost(from text: String) -> (cents: Int, found: Bool, hadCurrencySymbol: Bool) {
+    func extractCost(from text: String, quantityHint: Int? = nil) -> (cents: Int, found: Bool, hadCurrencySymbol: Bool) {
         guard let regex = try? NSRegularExpression(pattern: costPattern) else {
             return (0, false, false)
         }
@@ -511,6 +526,22 @@ private extension POParser {
             ))
         }
 
+        if let quantityHint, quantityHint > 1, !candidates.isEmpty {
+            // When both unit and line-total values are present, prefer the unit value.
+            let ascendingByAmount = candidates.sorted { $0.cents < $1.cents }
+            for unitCandidate in ascendingByAmount where unitCandidate.cents > 0 {
+                let expectedTotal = unitCandidate.cents * quantityHint
+                if candidates.contains(where: { $0.cents == expectedTotal }) {
+                    return (unitCandidate.cents, true, unitCandidate.hadCurrency)
+                }
+            }
+
+            // Fallback for tabular OCR rows where unit price appears first.
+            if let firstByLocation = candidates.min(by: { $0.location < $1.location }) {
+                return (firstByLocation.cents, true, firstByLocation.hadCurrency)
+            }
+        }
+
         guard let best = candidates.sorted(by: { a, b in
             if a.hadCurrency != b.hadCurrency { return a.hadCurrency && !b.hadCurrency }
             if a.hadDecimal != b.hadDecimal { return a.hadDecimal && !b.hadDecimal }
@@ -579,8 +610,8 @@ private extension POParser {
             }
         }
 
-        // Remove obvious cost tokens.
-        if let regex = try? NSRegularExpression(pattern: costPattern) {
+        // Remove monetary tokens while preserving sizes such as "225/60/16".
+        if let regex = try? NSRegularExpression(pattern: monetaryTokenPattern) {
             let range = NSRange(name.startIndex..<name.endIndex, in: name)
             name = regex.stringByReplacingMatches(in: name, options: [], range: range, withTemplate: "")
         }
@@ -588,8 +619,14 @@ private extension POParser {
         // As a last touch, remove "x{qty}" if present.
         let xQty = "x\(quantity)"
         name = name.replacingOccurrences(of: xQty, with: "", options: [.caseInsensitive])
+        if quantity > 1 {
+            let escapedQuantity = NSRegularExpression.escapedPattern(for: String(quantity))
+            let qtySuffixPattern = "\\s+\(escapedQuantity)\\s*$"
+            name = name.replacingOccurrences(of: qtySuffixPattern, with: "", options: .regularExpression)
+        }
 
         name = name
+            .replacingOccurrences(of: #"^[\s/|:;,\-]+"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -618,6 +655,52 @@ private extension POParser {
                 return updated
             }
             .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    func firstMonetaryTokenRange(in text: String) -> Range<String.Index>? {
+        guard let regex = try? NSRegularExpression(pattern: monetaryTokenPattern) else {
+            return nil
+        }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range),
+              let matchRange = Range(match.range, in: text) else {
+            return nil
+        }
+
+        return matchRange
+    }
+
+    func shouldSwapDocumentIdentifiers(invoiceNumber: String?, poNumber: String?) -> Bool {
+        guard let invoiceNumber = normalizedIdentifier(invoiceNumber),
+              let poNumber = normalizedIdentifier(poNumber) else {
+            return false
+        }
+
+        let invoiceUpper = invoiceNumber.uppercased()
+        let poUpper = poNumber.uppercased()
+
+        let invoiceLooksLikePO = invoiceUpper.hasPrefix("PO")
+        let poLooksLikePO = poUpper.hasPrefix("PO")
+
+        guard invoiceLooksLikePO, !poLooksLikePO else {
+            return false
+        }
+
+        if poUpper.hasPrefix("INV")
+            || poUpper.hasPrefix("MAP-")
+            || poUpper.hasPrefix("BILL-")
+            || poUpper.range(of: #"^[A-Z]{2,6}-\d{3,}$"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        return false
+    }
+
+    func normalizedIdentifier(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

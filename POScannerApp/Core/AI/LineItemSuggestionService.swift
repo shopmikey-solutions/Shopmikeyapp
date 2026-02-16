@@ -71,6 +71,13 @@ final class LineItemSuggestionService {
             addScore(.fee, amount: 0.30, reason: "contains fee term '\(term)'")
         }
 
+        if loweredDescription.range(
+            of: #"^\s*(shipping|freight|shop supplies|environmental|env fee|hazmat|disposal|surcharge|tax)\b"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil {
+            addScore(.fee, amount: 0.35, reason: "starts with fee term")
+        }
+
         if joinedContext.range(of: #"(?i)\b(tax|vat|gst|hst)\b"#, options: .regularExpression) != nil {
             addScore(.fee, amount: 0.22, reason: "contains tax keyword")
         }
@@ -350,6 +357,7 @@ private extension LineItemSuggestionService {
 
     static func firstTireSize(in text: String) -> String? {
         let patterns = [
+            #"\b\d{3}/\d{2,3}/\d{2}\b"#,
             #"\b\d{3}/\d{2,3}(?:zr|r|-)?\d{2}\b"#,
             #"\b\d{2,3}/\d{2}zr\d{2}\b"#,
             #"\b\d{2,3}/\d{2}r\d{2}\b"#

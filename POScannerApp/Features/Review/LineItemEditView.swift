@@ -22,7 +22,7 @@ struct LineItemEditView: View {
                 summaryCard
             }
 
-            Section("Type") {
+            Section {
                 Picker("Line Type", selection: $item.kind) {
                     Text(POItemKind.part.displayName).tag(POItemKind.part)
                     Text(POItemKind.tire.displayName).tag(POItemKind.tire)
@@ -52,16 +52,22 @@ struct LineItemEditView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+            } header: {
+                Text("Type")
+                    .appSectionHeaderStyle()
             }
 
-            Section("Line Item") {
+            Section {
                 TextField("SKU / Part #", text: $item.sku)
                     .textInputAutocapitalization(.characters)
 
                 TextField("Description", text: $item.description)
+            } header: {
+                Text("Line Item")
+                    .appSectionHeaderStyle()
             }
 
-            Section("Quantity & Cost") {
+            Section {
                 TextField("Quantity", value: $item.quantity, format: .number)
                     .keyboardType(.decimalPad)
 
@@ -69,15 +75,24 @@ struct LineItemEditView: View {
                     .keyboardType(.decimalPad)
 
                 Toggle("Taxable", isOn: $item.isTaxable)
+            } header: {
+                Text("Quantity & Cost")
+                    .appSectionHeaderStyle()
             }
 
-            Section("Subtotal") {
+            Section {
                 LabeledContent("Subtotal", value: item.subtotalFormatted)
                     .font(.headline)
+            } header: {
+                Text("Subtotal")
+                    .appSectionHeaderStyle()
             }
         }
-        .scrollContentBackground(.hidden)
+        .appFormChrome()
         .background(backgroundLayer)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 84)
+        }
         .navigationTitle("Line Item")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: item.kind) { oldValue, newValue in
@@ -93,7 +108,7 @@ struct LineItemEditView: View {
     private var summaryCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Line Snapshot")
-                .font(.headline)
+                .font(AppSurfaceStyle.cardTitleFont)
 
             HStack(spacing: 8) {
                 statusChip(title: item.kind.displayName, color: item.kind == .unknown ? .orange : .green)

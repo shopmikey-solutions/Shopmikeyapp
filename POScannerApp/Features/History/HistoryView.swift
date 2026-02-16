@@ -63,7 +63,7 @@ struct HistoryView: View {
                             .accessibilityIdentifier("history.scopePicker")
                         }
 
-                        Section("Orders") {
+                        Section {
                             if filteredOrders.isEmpty {
                                 Text("No orders in this scope.")
                                     .foregroundStyle(.secondary)
@@ -92,13 +92,20 @@ struct HistoryView: View {
                                     }
                                 }
                             }
+                        } header: {
+                            Text("Orders")
+                                .appSectionHeaderStyle()
                         }
                     }
-                    .scrollContentBackground(.hidden)
+                    .appFormChrome()
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 84)
+        }
         .navigationTitle("History")
+        .navigationBarTitleDisplayMode(.inline)
         .alert("Retry Failed", isPresented: $isRetryErrorPresented) {
             Button("OK") {}
         } message: {
@@ -133,7 +140,7 @@ struct HistoryView: View {
     private var historyOverviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("History Snapshot")
-                .font(.headline)
+                .font(AppSurfaceStyle.cardTitleFont)
 
             HStack(spacing: 8) {
                 summaryChip(title: "\(viewModel.orders.count) total", color: .blue)
@@ -150,7 +157,7 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text(totalValueFormatted)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
             }
         }
         .padding(.vertical, 4)
@@ -177,7 +184,7 @@ struct HistoryView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(row.vendorName)
-                    .font(.headline)
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
                 Spacer()
                 StatusBadge(status: row.status)
             }

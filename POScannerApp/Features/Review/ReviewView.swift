@@ -27,14 +27,16 @@ struct ReviewView: View {
                 reviewHealthCard
             }
 
-            Section("Vendor") {
+            Section {
                 vendorSection
+            } header: {
+                sectionHeader("Vendor")
             }
 
             Section {
                 identifierSection
             } header: {
-                Text("Invoice & PO")
+                sectionHeader("Invoice & PO")
             } footer: {
                 if viewModel.confidenceScore < 0.75 {
                     Label("Some fields may need review.", systemImage: "exclamationmark.triangle.fill")
@@ -42,7 +44,7 @@ struct ReviewView: View {
                 }
             }
 
-            Section("Line Items") {
+            Section {
                 if canFilterNeedsReview {
                     Toggle("Focus on items needing review", isOn: $focusNeedsReviewOnly)
                         .accessibilityIdentifier("review.focusNeedsReviewToggle")
@@ -55,15 +57,19 @@ struct ReviewView: View {
                 } label: {
                     Label("Add Line Item", systemImage: "plus")
                 }
+            } header: {
+                sectionHeader("Line Items")
             }
 
-            Section("Submission") {
+            Section {
                 submissionModePicker
                 submissionContextLinks
                 taxBehaviorRow
+            } header: {
+                sectionHeader("Submission")
             }
 
-            Section("Totals") {
+            Section {
                 LabeledContent("Subtotal", value: viewModel.subtotalFormatted)
                 if !viewModel.shouldIgnoreTax {
                     LabeledContent("Tax", value: viewModel.taxFormatted)
@@ -71,23 +77,32 @@ struct ReviewView: View {
                 LabeledContent("Total", value: viewModel.grandTotalFormatted)
                     .font(.headline)
                 LabeledContent("Scans Today", value: "\(viewModel.todayCount)")
+            } header: {
+                sectionHeader("Totals")
             }
 
-            Section("Notes") {
+            Section {
                 TextEditor(text: $viewModel.notes)
                     .frame(minHeight: 120)
+            } header: {
+                sectionHeader("Notes")
             }
 
             #if DEBUG
-            Section("Debug Metrics") {
+            Section {
                 LabeledContent("Unknown Type Rate", value: percentageString(viewModel.unknownKindRate))
                 LabeledContent("Type Overrides", value: String(viewModel.typeOverrideCount))
                 LabeledContent("Vendor Auto-Select", value: percentageString(viewModel.vendorAutoSelectSuccessRate))
+            } header: {
+                sectionHeader("Debug Metrics")
             }
             #endif
         }
-        .scrollContentBackground(.hidden)
+        .appFormChrome()
         .background(backgroundLayer)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 84)
+        }
         .navigationTitle("Review")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -117,7 +132,7 @@ struct ReviewView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Review Readiness")
-                    .font(.headline)
+                    .font(AppSurfaceStyle.cardTitleFont)
                 Spacer()
                 Text("\(Int((viewModel.reviewReadinessScore * 100).rounded()))%")
                     .font(.caption.weight(.semibold))
@@ -155,6 +170,7 @@ struct ReviewView: View {
                 }
             }
 
+            fieldLabel("Vendor Name")
             TextField(
                 viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? (viewModel.suggestedVendorName ?? "Vendor")
@@ -203,6 +219,7 @@ struct ReviewView: View {
 
     private var identifierSection: some View {
         VStack(alignment: .leading, spacing: 10) {
+            fieldLabel("Vendor Invoice Number")
             TextField(
                 viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? (viewModel.suggestedInvoiceNumber ?? "Vendor Invoice Number")
@@ -220,6 +237,7 @@ struct ReviewView: View {
                 .font(.caption)
             }
 
+            fieldLabel("PO Reference (optional)")
             TextField(
                 viewModel.poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? (viewModel.suggestedPONumber ?? "PO Reference (optional)")
@@ -426,5 +444,17 @@ struct ReviewView: View {
             get: { viewModel.serviceId },
             set: { viewModel.setServiceIdManually($0) }
         )
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .appSectionHeaderStyle()
+            .padding(.top, 4)
+    }
+
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
     }
 }

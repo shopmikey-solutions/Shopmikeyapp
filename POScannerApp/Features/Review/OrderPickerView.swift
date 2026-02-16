@@ -29,55 +29,60 @@ struct OrderPickerView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if isLoading && orders.isEmpty {
-                    ProgressView("Loading orders…")
-                } else if let errorMessage, orders.isEmpty {
-                    VStack(spacing: 16) {
+            ZStack {
+                AppScreenBackground()
+
+                Group {
+                    if isLoading && orders.isEmpty {
+                        ProgressView("Loading orders…")
+                    } else if let errorMessage, orders.isEmpty {
+                        VStack(spacing: 16) {
+                            ContentUnavailableView(
+                                "Couldn’t Load Orders",
+                                systemImage: "exclamationmark.triangle",
+                                description: Text(errorMessage)
+                            )
+
+                            Button("Retry") {
+                                Task { await fetchOrders() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    } else if filteredOrders.isEmpty {
                         ContentUnavailableView(
-                            "Couldn’t Load Orders",
-                            systemImage: "exclamationmark.triangle",
-                            description: Text(errorMessage)
+                            "No Orders",
+                            systemImage: "doc.text.magnifyingglass",
+                            description: Text(searchText.isEmpty ? "No orders were returned." : "No orders match your search.")
                         )
+                    } else {
+                        List {
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .foregroundStyle(.red)
+                            }
 
-                        Button("Retry") {
-                            Task { await fetchOrders() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                } else if filteredOrders.isEmpty {
-                    ContentUnavailableView(
-                        "No Orders",
-                        systemImage: "doc.text.magnifyingglass",
-                        description: Text(searchText.isEmpty ? "No orders were returned." : "No orders match your search.")
-                    )
-                } else {
-                    List {
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .foregroundStyle(.red)
-                        }
-
-                        ForEach(filteredOrders) { order in
-                            Button {
-                                onSelect(order)
-                                dismiss()
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(order.displayTitle)
-                                        .font(.headline)
-                                    if let customer = order.customerName, !customer.isEmpty {
-                                        Text(customer)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
+                            ForEach(filteredOrders) { order in
+                                Button {
+                                    onSelect(order)
+                                    dismiss()
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(order.displayTitle)
+                                            .font(.system(.title3, design: .rounded).weight(.semibold))
+                                        if let customer = order.customerName, !customer.isEmpty {
+                                            Text(customer)
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
-                    }
-                    .refreshable {
-                        await fetchOrders()
+                        .appFormChrome()
+                        .refreshable {
+                            await fetchOrders()
+                        }
                     }
                 }
             }

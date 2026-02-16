@@ -14,7 +14,7 @@ struct HistoryDetailView: View {
                 summaryCard
             }
 
-            Section("Purchase Order") {
+            Section {
                 LabeledContent("Vendor", value: purchaseOrder.vendorName)
                 if let poNumber = purchaseOrder.poNumber, !poNumber.isEmpty {
                     LabeledContent("PO Number", value: poNumber)
@@ -31,16 +31,22 @@ struct HistoryDetailView: View {
                 }
                 LabeledContent("Status", value: purchaseOrder.status)
                 LabeledContent("Total", value: purchaseOrder.totalAmount.formatted(.currency(code: "USD")))
+            } header: {
+                Text("Purchase Order")
+                    .appSectionHeaderStyle()
             }
 
             if let lastError = purchaseOrder.lastError, !lastError.isEmpty {
-                Section("Last Error") {
+                Section {
                     Text(lastError)
                         .foregroundStyle(.red)
+                } header: {
+                    Text("Last Error")
+                        .appSectionHeaderStyle()
                 }
             }
 
-            Section("Items") {
+            Section {
                 if purchaseOrder.itemsSorted.isEmpty {
                     Text("No items saved.")
                         .foregroundStyle(.secondary)
@@ -59,10 +65,16 @@ struct HistoryDetailView: View {
                         }
                     }
                 }
+            } header: {
+                Text("Items")
+                    .appSectionHeaderStyle()
             }
         }
-        .scrollContentBackground(.hidden)
+        .appFormChrome()
         .background(backgroundLayer)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 84)
+        }
         .navigationTitle("Details")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -74,11 +86,11 @@ struct HistoryDetailView: View {
     private var summaryCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Submission Snapshot")
-                .font(.headline)
+                .font(AppSurfaceStyle.cardTitleFont)
             HStack(spacing: 8) {
                 statusChip(title: purchaseOrder.status)
                 Text(purchaseOrder.totalAmount.formatted(.currency(code: "USD")))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
             }
             Text(purchaseOrder.date.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption)

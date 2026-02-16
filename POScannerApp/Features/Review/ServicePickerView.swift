@@ -18,53 +18,58 @@ struct ServicePickerView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if isLoading && services.isEmpty {
-                    ProgressView("Loading services…")
-                } else if let errorMessage, services.isEmpty {
-                    VStack(spacing: 16) {
+            ZStack {
+                AppScreenBackground()
+
+                Group {
+                    if isLoading && services.isEmpty {
+                        ProgressView("Loading services…")
+                    } else if let errorMessage, services.isEmpty {
+                        VStack(spacing: 16) {
+                            ContentUnavailableView(
+                                "Couldn’t Load Services",
+                                systemImage: "exclamationmark.triangle",
+                                description: Text(errorMessage)
+                            )
+
+                            Button("Retry") {
+                                Task { await fetchServices() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    } else if services.isEmpty {
                         ContentUnavailableView(
-                            "Couldn’t Load Services",
-                            systemImage: "exclamationmark.triangle",
-                            description: Text(errorMessage)
+                            "No Services",
+                            systemImage: "wrench.and.screwdriver",
+                            description: Text("No services were returned for this order.")
                         )
+                    } else {
+                        List {
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .foregroundStyle(.red)
+                            }
 
-                        Button("Retry") {
-                            Task { await fetchServices() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                } else if services.isEmpty {
-                    ContentUnavailableView(
-                        "No Services",
-                        systemImage: "wrench.and.screwdriver",
-                        description: Text("No services were returned for this order.")
-                    )
-                } else {
-                    List {
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .foregroundStyle(.red)
-                        }
-
-                        ForEach(services) { service in
-                            Button {
-                                onSelect(service)
-                                dismiss()
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(service.name?.isEmpty == false ? (service.name ?? "") : "Service \(service.id)")
-                                        .font(.headline)
-                                    Text(service.id)
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
+                            ForEach(services) { service in
+                                Button {
+                                    onSelect(service)
+                                    dismiss()
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(service.name?.isEmpty == false ? (service.name ?? "") : "Service \(service.id)")
+                                            .font(.system(.title3, design: .rounded).weight(.semibold))
+                                        Text(service.id)
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
-                    }
-                    .refreshable {
-                        await fetchServices()
+                        .appFormChrome()
+                        .refreshable {
+                            await fetchServices()
+                        }
                     }
                 }
             }

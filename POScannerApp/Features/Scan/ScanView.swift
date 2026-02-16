@@ -50,7 +50,7 @@ struct ScanView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
-                .padding(.bottom, 24)
+                .padding(.bottom, 108)
             }
         }
         .navigationTitle("Purchase Orders")
@@ -177,7 +177,7 @@ struct ScanView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .appCardSurface(cornerRadius: 16)
     }
 
     private var pipelineCard: some View {
@@ -202,7 +202,7 @@ struct ScanView: View {
             }
         }
         .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .appCardSurface(cornerRadius: 16)
     }
 
     private var pipelineProgress: Double {
@@ -221,7 +221,7 @@ struct ScanView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .appCardSurface(cornerRadius: 16)
     }
 
     private func statusChip(title: String, color: Color) -> some View {
@@ -277,7 +277,7 @@ struct ScanView: View {
             }
         }
         .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .appCardSurface(cornerRadius: 18)
     }
 
     private var quickActionsCard: some View {
@@ -320,7 +320,7 @@ struct ScanView: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .appCardSurface(cornerRadius: 14)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityIdentifier)
@@ -335,7 +335,7 @@ struct ScanView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .appCardSurface(cornerRadius: 16)
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -348,7 +348,7 @@ struct ScanView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .appCardSurface(cornerRadius: 16)
     }
 
     private func registerArcadeTap() {

@@ -23,14 +23,17 @@ struct SettingsView: View {
                 workspaceHealthCard
             }
 
-            Section("Preferences") {
+            Section {
                 Toggle("Save History", isOn: $saveHistoryEnabled)
                     .accessibilityIdentifier("settings.saveHistoryToggle")
                 Toggle("Ignore Tax & Totals", isOn: $viewModel.ignoreTaxAndTotals)
                     .accessibilityIdentifier("settings.ignoreTaxToggle")
+            } header: {
+                Text("Preferences")
+                    .appSectionHeaderStyle()
             }
 
-            Section("Shopmonkey Sandbox") {
+            Section {
                 SecureField("API Key", text: $viewModel.apiKeyInput)
                     .textContentType(.password)
                     .autocorrectionDisabled()
@@ -69,9 +72,12 @@ struct SettingsView: View {
                     Text(statusMessage)
                         .foregroundStyle(.secondary)
                 }
+            } header: {
+                Text("Shopmonkey Sandbox")
+                    .appSectionHeaderStyle()
             }
 
-            Section("Endpoint Probe") {
+            Section {
                 Button {
                     Task { await viewModel.runEndpointProbe() }
                 } label: {
@@ -115,9 +121,12 @@ struct SettingsView: View {
                         .padding(.vertical, 4)
                     }
                 }
+            } header: {
+                Text("Endpoint Probe")
+                    .appSectionHeaderStyle()
             }
 
-            Section("Network Capture") {
+            Section {
                 HStack {
                     Button("Refresh") {
                         Task { await viewModel.refreshNetworkDiagnostics() }
@@ -180,11 +189,18 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            } header: {
+                Text("Network Capture")
+                    .appSectionHeaderStyle()
             }
         }
-        .scrollContentBackground(.hidden)
+        .appFormChrome()
         .background(backgroundLayer)
         .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 84)
+        }
         .task {
             await viewModel.refreshNetworkDiagnostics()
         }
@@ -197,7 +213,7 @@ struct SettingsView: View {
     private var workspaceHealthCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Workspace Health")
-                .font(.headline)
+                .font(AppSurfaceStyle.cardTitleFont)
 
             HStack(spacing: 8) {
                 healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: .blue)

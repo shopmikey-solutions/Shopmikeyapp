@@ -87,15 +87,7 @@ struct LineItemEditView: View {
     }
 
     private var backgroundLayer: some View {
-        LinearGradient(
-            colors: [
-                Color(.systemGroupedBackground),
-                Color(.systemBackground)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        AppScreenBackground()
     }
 
     private var summaryCard: some View {

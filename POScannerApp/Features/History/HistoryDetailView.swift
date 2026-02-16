@@ -68,15 +68,7 @@ struct HistoryDetailView: View {
     }
 
     private var backgroundLayer: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.08, green: 0.11, blue: 0.17),
-                Color(red: 0.13, green: 0.18, blue: 0.25)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        AppScreenBackground()
     }
 
     private var summaryCard: some View {

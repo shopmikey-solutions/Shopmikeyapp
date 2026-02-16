@@ -41,7 +41,11 @@ final class POScannerAppUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["Review"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields["review.vendorField"].exists)
-        XCTAssertTrue(app.segmentedControls["review.modePicker"].exists)
+        let modePicker = app.segmentedControls["review.modePicker"]
+        if !modePicker.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(modePicker.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["review.submitButton"].exists)
 
         XCTAssertTrue(app.staticTexts["Front Brake Pad Set - Ceramic"].exists)

@@ -7,7 +7,6 @@ import SwiftUI
 
 struct ReviewView: View {
     @StateObject var viewModel: ReviewViewModel
-    @State private var showHeaderDetails: Bool = false
     @State private var focusNeedsReviewOnly: Bool = false
     @Environment(\.dismiss) private var dismiss
 
@@ -28,8 +27,14 @@ struct ReviewView: View {
                 reviewHealthCard
             }
 
+            Section("Vendor") {
+                vendorSection
+            }
+
             Section {
-                headerCard
+                identifierSection
+            } header: {
+                Text("Invoice & PO")
             } footer: {
                 if viewModel.confidenceScore < 0.75 {
                     Label("Some fields may need review.", systemImage: "exclamationmark.triangle.fill")
@@ -105,15 +110,7 @@ struct ReviewView: View {
     }
 
     private var backgroundLayer: some View {
-        LinearGradient(
-            colors: [
-                Color(.systemGroupedBackground),
-                Color(.systemBackground)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        AppScreenBackground()
     }
 
     private var reviewHealthCard: some View {
@@ -130,26 +127,28 @@ struct ReviewView: View {
             ProgressView(value: viewModel.reviewReadinessScore)
 
             HStack(spacing: 8) {
-                statusPill(title: "\(viewModel.items.count) items", color: .blue)
+                statusPill(title: "\(viewModel.items.count) line items", color: .blue)
                 statusPill(title: "\(viewModel.unknownKindCount) unknown", color: .orange)
-                if viewModel.suggestedKindCount > 0 {
-                    statusPill(title: "\(viewModel.suggestedKindCount) suggested", color: .mint)
-                }
-                statusPill(title: viewModel.canSubmit ? "Ready to submit" : "Needs required fields", color: viewModel.canSubmit ? .green : .gray)
             }
+
+            Text(viewModel.canSubmit ? "Required fields complete." : "Pick a vendor match and required IDs before submitting.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("review.readinessHint")
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
-    private var headerCard: some View {
+    private var vendorSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 statusPill(
-                    title: viewModel.selectedVendorId == nil ? "Vendor not selected" : "Vendor matched",
+                    title: viewModel.selectedVendorId == nil ? "Vendor not selected" : "Vendor selected",
                     color: viewModel.selectedVendorId == nil ? .orange : .green
                 )
                 if let suggestedVendorName = viewModel.suggestedVendorName, !suggestedVendorName.isEmpty {
-                    Text("OCR: \(suggestedVendorName)")
+                    Text("OCR suggested: \(suggestedVendorName)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -198,47 +197,47 @@ struct ReviewView: View {
                     }
                 }
             }
+        }
+        .padding(.vertical, 2)
+    }
 
-            DisclosureGroup("Header Details", isExpanded: $showHeaderDetails) {
-                VStack(alignment: .leading, spacing: 10) {
-                    TextField(
-                        viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? (viewModel.suggestedInvoiceNumber ?? "Vendor Invoice Number")
-                            : "Vendor Invoice Number",
-                        text: $viewModel.vendorInvoiceNumber
-                    )
-                    .textInputAutocapitalization(.characters)
+    private var identifierSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField(
+                viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? (viewModel.suggestedInvoiceNumber ?? "Vendor Invoice Number")
+                    : "Vendor Invoice Number",
+                text: $viewModel.vendorInvoiceNumber
+            )
+            .textInputAutocapitalization(.characters)
 
-                    if viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                       let suggestedInvoice = viewModel.suggestedInvoiceNumber,
-                       !suggestedInvoice.isEmpty {
-                        Button("Use invoice suggestion: \(suggestedInvoice)") {
-                            viewModel.applySuggestedInvoiceNumber()
-                        }
-                        .font(.caption)
-                    }
-
-                    TextField(
-                        viewModel.poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? (viewModel.suggestedPONumber ?? "PO Reference (optional)")
-                            : "PO Reference (optional)",
-                        text: $viewModel.poReference
-                    )
-                    .textInputAutocapitalization(.characters)
-
-                    if viewModel.poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                       let suggestedPO = viewModel.suggestedPONumber,
-                       !suggestedPO.isEmpty {
-                        Button("Use PO suggestion: \(suggestedPO)") {
-                            viewModel.applySuggestedPONumber()
-                        }
-                        .font(.caption)
-                    }
+            if viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let suggestedInvoice = viewModel.suggestedInvoiceNumber,
+               !suggestedInvoice.isEmpty {
+                Button("Use invoice suggestion: \(suggestedInvoice)") {
+                    viewModel.applySuggestedInvoiceNumber()
                 }
-                .padding(.top, 4)
+                .font(.caption)
+            }
+
+            TextField(
+                viewModel.poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? (viewModel.suggestedPONumber ?? "PO Reference (optional)")
+                    : "PO Reference (optional)",
+                text: $viewModel.poReference
+            )
+            .textInputAutocapitalization(.characters)
+
+            if viewModel.poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let suggestedPO = viewModel.suggestedPONumber,
+               !suggestedPO.isEmpty {
+                Button("Use PO suggestion: \(suggestedPO)") {
+                    viewModel.applySuggestedPONumber()
+                }
+                .font(.caption)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     private var submissionModePicker: some View {

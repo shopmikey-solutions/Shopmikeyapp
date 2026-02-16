@@ -117,30 +117,7 @@ struct ScanView: View {
     }
 
     private var backgroundLayer: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.07, green: 0.10, blue: 0.16),
-                    Color(red: 0.10, green: 0.16, blue: 0.24),
-                    Color(red: 0.14, green: 0.20, blue: 0.30)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Circle()
-                .fill(Color.cyan.opacity(0.24))
-                .frame(width: 320, height: 320)
-                .blur(radius: 80)
-                .offset(x: 160, y: -250)
-
-            Circle()
-                .fill(Color.indigo.opacity(0.22))
-                .frame(width: 280, height: 280)
-                .blur(radius: 80)
-                .offset(x: -170, y: -230)
-        }
-        .ignoresSafeArea()
+        AppScreenBackground(style: .dashboard)
     }
 
     private var headerCard: some View {

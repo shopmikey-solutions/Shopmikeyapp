@@ -51,12 +51,45 @@ final class ScanViewModel: ObservableObject {
             let extracted = try await environment.ocrService.extractText(from: cgImage, orientation: orientation)
             let ai = await environment.foundationModelService.parseInvoiceIfAvailable(from: extracted, ignoreTaxAndTotals: ignoreTaxAndTotals)
             let invoice = ai ?? environment.poParser.parse(from: extracted, ignoreTaxAndTotals: ignoreTaxAndTotals)
+            logScanDiagnostics(
+                extractedText: extracted,
+                invoice: invoice,
+                usedAI: ai != nil,
+                ignoreTaxAndTotals: ignoreTaxAndTotals
+            )
             parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice)
         } catch {
             errorMessage = "Failed to process scan."
         }
 
         isProcessing = false
+    }
+
+    private func logScanDiagnostics(
+        extractedText: String,
+        invoice: ParsedInvoice,
+        usedAI: Bool,
+        ignoreTaxAndTotals: Bool
+    ) {
+        #if DEBUG
+        let lineCount = extractedText.split(whereSeparator: \.isNewline).count
+        let source = usedAI ? "ai+rules" : "rules-only"
+        let confidence = String(format: "%.2f", invoice.confidenceScore)
+        print(
+            "[ScanDiag] source=\(source) ignoreTax=\(ignoreTaxAndTotals) chars=\(extractedText.count) lines=\(lineCount) confidence=\(confidence) items=\(invoice.items.count)"
+        )
+        print(
+            "[ScanDiag] header vendor='\(invoice.vendorName ?? "")' invoice='\(invoice.invoiceNumber ?? "")' po='\(invoice.poNumber ?? "")' totalCents=\(invoice.totalCents ?? 0)"
+        )
+
+        for (index, item) in invoice.items.enumerated() {
+            let kindConfidence = String(format: "%.2f", item.kindConfidence)
+            let reasonText = item.kindReasons.joined(separator: " | ")
+            print(
+                "[ScanDiag][Item \(index + 1)] kind=\(item.kind.rawValue) kindConfidence=\(kindConfidence) qty=\(item.quantity ?? 1) costCents=\(item.costCents ?? 0) part='\(item.partNumber ?? "")' name='\(item.name)' reasons='\(reasonText)'"
+            )
+        }
+        #endif
     }
 
     func loadTodayMetrics() {

@@ -328,6 +328,9 @@ final class ReviewViewModel: ObservableObject {
     func recordTypeOverride(from oldKind: POItemKind, to newKind: POItemKind) {
         guard oldKind != newKind else { return }
         typeOverrideCount += 1
+        #if DEBUG
+        print("[ScanDiag][Override] from=\(oldKind.rawValue) to=\(newKind.rawValue) overrideCount=\(typeOverrideCount)")
+        #endif
         refreshUnknownKindRate()
     }
 
@@ -434,8 +437,32 @@ final class ReviewViewModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             // Do not clobber user edits that happened while suggestions were computing.
             guard self.items == baselineItems else { return }
+            self.logSuggestionDiagnostics(before: baselineItems, after: suggested)
             self.items = suggested
         }
+    }
+
+    private func logSuggestionDiagnostics(before: [POItem], after: [POItem]) {
+        #if DEBUG
+        let total = after.count
+        let unknownCount = after.filter { $0.kind == .unknown }.count
+        let kindChanges = zip(before, after).filter { $0.kind != $1.kind }.count
+        let unknownRate = total > 0 ? Double(unknownCount) / Double(total) : 0
+        let unknownRateText = String(format: "%.2f", unknownRate * 100)
+
+        print(
+            "[ScanDiag][Suggest] total=\(total) kindChanges=\(kindChanges) unknownRate=\(unknownRateText)%"
+        )
+
+        for (index, pair) in zip(before, after).enumerated() where pair.0.kind != pair.1.kind {
+            let oldItem = pair.0
+            let newItem = pair.1
+            let confidenceText = String(format: "%.2f", newItem.kindConfidence)
+            print(
+                "[ScanDiag][Suggest][Item \(index + 1)] '\(newItem.description)' \(oldItem.kind.rawValue)->\(newItem.kind.rawValue) confidence=\(confidenceText)"
+            )
+        }
+        #endif
     }
 
     private func refreshUnknownKindRate() {

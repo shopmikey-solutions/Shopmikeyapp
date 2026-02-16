@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="99999" systemVersion="0" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+	<entity name="PurchaseOrder" representedClassName="PurchaseOrder" syncable="YES">
+		<attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+		<attribute name="vendorName" optional="NO" attributeType="String"/>
+		<attribute name="poNumber" optional="YES" attributeType="String"/>
+		<attribute name="orderId" optional="YES" attributeType="String"/>
+		<attribute name="serviceId" optional="YES" attributeType="String"/>
+		<attribute name="date" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+		<attribute name="submittedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+		<attribute name="totalAmount" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+		<attribute name="status" optional="NO" attributeType="String" defaultValueString="draft"/>
+		<attribute name="lastError" optional="YES" attributeType="String"/>
+		<relationship name="items" optional="YES" toMany="YES" destinationEntity="Item" inverseName="purchaseOrder" inverseEntity="Item" deletionRule="Cascade"/>
+	</entity>
+	<entity name="Item" representedClassName="Item" syncable="YES">
+		<attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+		<attribute name="name" optional="NO" attributeType="String"/>
+		<attribute name="quantity" optional="NO" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+		<attribute name="cost" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
+		<relationship name="purchaseOrder" optional="YES" maxCount="1" destinationEntity="PurchaseOrder" inverseName="items" inverseEntity="PurchaseOrder" deletionRule="Nullify"/>
+	</entity>
+	<entity name="Vendor" representedClassName="Vendor" syncable="YES">
+		<attribute name="id" optional="NO" attributeType="String"/>
+		<attribute name="name" optional="NO" attributeType="String"/>
+		<attribute name="normalizedName" optional="NO" attributeType="String"/>
+	</entity>
+</model>

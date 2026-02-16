@@ -1,13 +1,6 @@
-//
-//  ShopmikeyUITests.swift
-//  ShopmikeyUITests
-//
-//  Created by Michael Bordeaux on 2/15/26.
-//
-
 import XCTest
 
-final class ShopmikeyUITests: XCTestCase {
+final class POScannerAppUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

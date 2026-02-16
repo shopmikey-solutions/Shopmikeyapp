@@ -12,37 +12,50 @@
 			containerPortal = A6E181B22F41BA33000EFB56 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A6E181B92F41BA33000EFB56;
-			remoteInfo = Shopmikey;
+			remoteInfo = POScannerApp;
 		};
 		A6E181D42F41BA34000EFB56 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A6E181B22F41BA33000EFB56 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A6E181B92F41BA33000EFB56;
-			remoteInfo = Shopmikey;
+			remoteInfo = POScannerApp;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		A6E181BA2F41BA33000EFB56 /* Shopmikey.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shopmikey.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A6E181C92F41BA34000EFB56 /* ShopmikeyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShopmikeyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A6E181D32F41BA34000EFB56 /* ShopmikeyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShopmikeyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A6E181BA2F41BA33000EFB56 /* POScannerApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = POScannerApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A6E181C92F41BA34000EFB56 /* POScannerAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = POScannerAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = POScannerAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A6E181E72F41BA34000EFB56 /* Exceptions for "POScannerApp" folder in "POScannerApp" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Resources/Info.plist,
+			);
+			target = A6E181B92F41BA33000EFB56 /* POScannerApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A6E181BC2F41BA33000EFB56 /* Shopmikey */ = {
+		A6E181BC2F41BA33000EFB56 /* POScannerApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Shopmikey;
+			exceptions = (
+				A6E181E72F41BA34000EFB56 /* Exceptions for "POScannerApp" folder in "POScannerApp" target */,
+			);
+			path = POScannerApp;
 			sourceTree = "<group>";
 		};
-		A6E181CC2F41BA34000EFB56 /* ShopmikeyTests */ = {
+		A6E181CC2F41BA34000EFB56 /* POScannerAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ShopmikeyTests;
+			path = POScannerAppTests;
 			sourceTree = "<group>";
 		};
-		A6E181D62F41BA34000EFB56 /* ShopmikeyUITests */ = {
+		A6E181D62F41BA34000EFB56 /* POScannerAppUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ShopmikeyUITests;
+			path = POScannerAppUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -75,9 +88,9 @@
 		A6E181B12F41BA33000EFB56 = {
 			isa = PBXGroup;
 			children = (
-				A6E181BC2F41BA33000EFB56 /* Shopmikey */,
-				A6E181CC2F41BA34000EFB56 /* ShopmikeyTests */,
-				A6E181D62F41BA34000EFB56 /* ShopmikeyUITests */,
+				A6E181BC2F41BA33000EFB56 /* POScannerApp */,
+				A6E181CC2F41BA34000EFB56 /* POScannerAppTests */,
+				A6E181D62F41BA34000EFB56 /* POScannerAppUITests */,
 				A6E181BB2F41BA33000EFB56 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -85,9 +98,9 @@
 		A6E181BB2F41BA33000EFB56 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A6E181BA2F41BA33000EFB56 /* Shopmikey.app */,
-				A6E181C92F41BA34000EFB56 /* ShopmikeyTests.xctest */,
-				A6E181D32F41BA34000EFB56 /* ShopmikeyUITests.xctest */,
+				A6E181BA2F41BA33000EFB56 /* POScannerApp.app */,
+				A6E181C92F41BA34000EFB56 /* POScannerAppTests.xctest */,
+				A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -95,9 +108,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A6E181B92F41BA33000EFB56 /* Shopmikey */ = {
+		A6E181B92F41BA33000EFB56 /* POScannerApp */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A6E181DD2F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "Shopmikey" */;
+			buildConfigurationList = A6E181DD2F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "POScannerApp" */;
 			buildPhases = (
 				A6E181B62F41BA33000EFB56 /* Sources */,
 				A6E181B72F41BA33000EFB56 /* Frameworks */,
@@ -108,18 +121,18 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				A6E181BC2F41BA33000EFB56 /* Shopmikey */,
+				A6E181BC2F41BA33000EFB56 /* POScannerApp */,
 			);
-			name = Shopmikey;
+			name = POScannerApp;
 			packageProductDependencies = (
 			);
-			productName = Shopmikey;
-			productReference = A6E181BA2F41BA33000EFB56 /* Shopmikey.app */;
+			productName = POScannerApp;
+			productReference = A6E181BA2F41BA33000EFB56 /* POScannerApp.app */;
 			productType = "com.apple.product-type.application";
 		};
-		A6E181C82F41BA34000EFB56 /* ShopmikeyTests */ = {
+		A6E181C82F41BA34000EFB56 /* POScannerAppTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A6E181E02F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "ShopmikeyTests" */;
+			buildConfigurationList = A6E181E02F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "POScannerAppTests" */;
 			buildPhases = (
 				A6E181C52F41BA34000EFB56 /* Sources */,
 				A6E181C62F41BA34000EFB56 /* Frameworks */,
@@ -131,18 +144,18 @@
 				A6E181CB2F41BA34000EFB56 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				A6E181CC2F41BA34000EFB56 /* ShopmikeyTests */,
+				A6E181CC2F41BA34000EFB56 /* POScannerAppTests */,
 			);
-			name = ShopmikeyTests;
+			name = POScannerAppTests;
 			packageProductDependencies = (
 			);
-			productName = ShopmikeyTests;
-			productReference = A6E181C92F41BA34000EFB56 /* ShopmikeyTests.xctest */;
+			productName = POScannerAppTests;
+			productReference = A6E181C92F41BA34000EFB56 /* POScannerAppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		A6E181D22F41BA34000EFB56 /* ShopmikeyUITests */ = {
+		A6E181D22F41BA34000EFB56 /* POScannerAppUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A6E181E32F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "ShopmikeyUITests" */;
+			buildConfigurationList = A6E181E32F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "POScannerAppUITests" */;
 			buildPhases = (
 				A6E181CF2F41BA34000EFB56 /* Sources */,
 				A6E181D02F41BA34000EFB56 /* Frameworks */,
@@ -154,13 +167,13 @@
 				A6E181D52F41BA34000EFB56 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				A6E181D62F41BA34000EFB56 /* ShopmikeyUITests */,
+				A6E181D62F41BA34000EFB56 /* POScannerAppUITests */,
 			);
-			name = ShopmikeyUITests;
+			name = POScannerAppUITests;
 			packageProductDependencies = (
 			);
-			productName = ShopmikeyUITests;
-			productReference = A6E181D32F41BA34000EFB56 /* ShopmikeyUITests.xctest */;
+			productName = POScannerAppUITests;
+			productReference = A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -200,9 +213,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A6E181B92F41BA33000EFB56 /* Shopmikey */,
-				A6E181C82F41BA34000EFB56 /* ShopmikeyTests */,
-				A6E181D22F41BA34000EFB56 /* ShopmikeyUITests */,
+				A6E181B92F41BA33000EFB56 /* POScannerApp */,
+				A6E181C82F41BA34000EFB56 /* POScannerAppTests */,
+				A6E181D22F41BA34000EFB56 /* POScannerAppUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -258,12 +271,12 @@
 /* Begin PBXTargetDependency section */
 		A6E181CB2F41BA34000EFB56 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A6E181B92F41BA33000EFB56 /* Shopmikey */;
+			target = A6E181B92F41BA33000EFB56 /* POScannerApp */;
 			targetProxy = A6E181CA2F41BA34000EFB56 /* PBXContainerItemProxy */;
 		};
 		A6E181D52F41BA34000EFB56 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A6E181B92F41BA33000EFB56 /* Shopmikey */;
+			target = A6E181B92F41BA33000EFB56 /* POScannerApp */;
 			targetProxy = A6E181D42F41BA34000EFB56 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -322,7 +335,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -380,7 +393,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -399,7 +412,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 47BF65L2M7;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = POScannerApp/Resources/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -410,11 +424,10 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = PO.Shopmikey;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mikey.POScannerApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -431,7 +444,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 47BF65L2M7;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = POScannerApp/Resources/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -442,11 +456,10 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = PO.Shopmikey;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mikey.POScannerApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -462,9 +475,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 47BF65L2M7;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = PO.ShopmikeyTests;
+				PRODUCT_BUNDLE_IDENTIFIER = PO.POScannerAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -472,7 +485,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Shopmikey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Shopmikey";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/POScannerApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/POScannerApp";
 			};
 			name = Debug;
 		};
@@ -484,9 +497,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 47BF65L2M7;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = PO.ShopmikeyTests;
+				PRODUCT_BUNDLE_IDENTIFIER = PO.POScannerAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -494,7 +507,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Shopmikey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Shopmikey";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/POScannerApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/POScannerApp";
 			};
 			name = Release;
 		};
@@ -506,7 +519,7 @@
 				DEVELOPMENT_TEAM = 47BF65L2M7;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = PO.ShopmikeyUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = PO.POScannerAppUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -514,7 +527,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Shopmikey;
+				TEST_TARGET_NAME = POScannerApp;
 			};
 			name = Debug;
 		};
@@ -526,7 +539,7 @@
 				DEVELOPMENT_TEAM = 47BF65L2M7;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = PO.ShopmikeyUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = PO.POScannerAppUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -534,7 +547,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Shopmikey;
+				TEST_TARGET_NAME = POScannerApp;
 			};
 			name = Release;
 		};
@@ -550,7 +563,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A6E181DD2F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "Shopmikey" */ = {
+		A6E181DD2F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "POScannerApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A6E181DE2F41BA34000EFB56 /* Debug */,
@@ -559,7 +572,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A6E181E02F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "ShopmikeyTests" */ = {
+		A6E181E02F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "POScannerAppTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A6E181E12F41BA34000EFB56 /* Debug */,
@@ -568,7 +581,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A6E181E32F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "ShopmikeyUITests" */ = {
+		A6E181E32F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "POScannerAppUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A6E181E42F41BA34000EFB56 /* Debug */,

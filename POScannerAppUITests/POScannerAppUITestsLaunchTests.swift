@@ -1,13 +1,6 @@
-//
-//  ShopmikeyUITestsLaunchTests.swift
-//  ShopmikeyUITests
-//
-//  Created by Michael Bordeaux on 2/15/26.
-//
-
 import XCTest
 
-final class ShopmikeyUITestsLaunchTests: XCTestCase {
+final class POScannerAppUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

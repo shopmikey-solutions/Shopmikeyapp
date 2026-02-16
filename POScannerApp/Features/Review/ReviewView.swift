@@ -8,6 +8,7 @@ import SwiftUI
 struct ReviewView: View {
     @StateObject var viewModel: ReviewViewModel
     @State private var showHeaderDetails: Bool = false
+    @State private var focusNeedsReviewOnly: Bool = false
     @Environment(\.dismiss) private var dismiss
 
     init(environment: AppEnvironment, parsedInvoice: ParsedInvoice) {
@@ -24,6 +25,10 @@ struct ReviewView: View {
             }
 
             Section {
+                reviewHealthCard
+            }
+
+            Section {
                 headerCard
             } footer: {
                 if viewModel.confidenceScore < 0.75 {
@@ -33,6 +38,11 @@ struct ReviewView: View {
             }
 
             Section("Line Items") {
+                if canFilterNeedsReview {
+                    Toggle("Focus on items needing review", isOn: $focusNeedsReviewOnly)
+                        .accessibilityIdentifier("review.focusNeedsReviewToggle")
+                }
+
                 itemsList
 
                 Button {
@@ -55,6 +65,7 @@ struct ReviewView: View {
                 }
                 LabeledContent("Total", value: viewModel.grandTotalFormatted)
                     .font(.headline)
+                LabeledContent("Scans Today", value: "\(viewModel.todayCount)")
             }
 
             Section("Notes") {
@@ -105,8 +116,46 @@ struct ReviewView: View {
         .ignoresSafeArea()
     }
 
+    private var reviewHealthCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Review Readiness")
+                    .font(.headline)
+                Spacer()
+                Text("\(Int((viewModel.reviewReadinessScore * 100).rounded()))%")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            ProgressView(value: viewModel.reviewReadinessScore)
+
+            HStack(spacing: 8) {
+                statusPill(title: "\(viewModel.items.count) items", color: .blue)
+                statusPill(title: "\(viewModel.unknownKindCount) unknown", color: .orange)
+                if viewModel.suggestedKindCount > 0 {
+                    statusPill(title: "\(viewModel.suggestedKindCount) suggested", color: .mint)
+                }
+                statusPill(title: viewModel.canSubmit ? "Ready to submit" : "Needs required fields", color: viewModel.canSubmit ? .green : .gray)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                statusPill(
+                    title: viewModel.selectedVendorId == nil ? "Vendor not selected" : "Vendor matched",
+                    color: viewModel.selectedVendorId == nil ? .orange : .green
+                )
+                if let suggestedVendorName = viewModel.suggestedVendorName, !suggestedVendorName.isEmpty {
+                    Text("OCR: \(suggestedVendorName)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
             TextField(
                 viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? (viewModel.suggestedVendorName ?? "Vendor")
@@ -241,50 +290,95 @@ struct ReviewView: View {
         Toggle("Ignore tax and totals", isOn: $viewModel.ignoreTaxOverride)
     }
 
+    @ViewBuilder
     private var itemsList: some View {
-        ForEach($viewModel.items) { $item in
+        if filteredItemIndices.isEmpty {
+            Text("No line items match the current filter.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+
+        ForEach(filteredItemIndices, id: \.self) { index in
+            let itemBinding = $viewModel.items[index]
             NavigationLink {
-                LineItemEditView(item: $item) { oldKind, newKind in
+                LineItemEditView(item: itemBinding) { oldKind, newKind in
                     viewModel.recordTypeOverride(from: oldKind, to: newKind)
                 }
             } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Item" : item.description)
-                        .font(.body)
-
-                    HStack(spacing: 6) {
-                        Text(item.kind.displayName)
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(kindBadgeColor(for: item))
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
-
-                        if item.kind == .unknown {
-                            Text("Needs review")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        } else if item.isKindConfidenceMedium {
-                            Text("Suggested")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Text("\(quantityString(item.quantity)) x \(item.unitPriceFormatted)  -  \(item.subtotalFormatted)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if let feeHint = item.feeInferenceHint {
-                        Text(feeHint)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                lineItemRow(item: viewModel.items[index])
             }
         }
-        .onDelete(perform: viewModel.deleteItems)
+        .onDelete(perform: deleteFilteredItems)
+    }
+
+    private var canFilterNeedsReview: Bool {
+        viewModel.unknownKindCount > 0 || viewModel.suggestedKindCount > 0
+    }
+
+    private var filteredItemIndices: [Int] {
+        let allIndices = Array(viewModel.items.indices)
+        guard focusNeedsReviewOnly, canFilterNeedsReview else { return allIndices }
+        return allIndices.filter { index in
+            let item = viewModel.items[index]
+            return item.kind == .unknown || item.isKindConfidenceMedium
+        }
+    }
+
+    private func deleteFilteredItems(at offsets: IndexSet) {
+        let sourceIndices = offsets.compactMap { offset in
+            filteredItemIndices.indices.contains(offset) ? filteredItemIndices[offset] : nil
+        }
+        let mapped = IndexSet(sourceIndices)
+        viewModel.deleteItems(at: mapped)
+    }
+
+    private func lineItemRow(item: POItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Item" : item.description)
+                .font(.body.weight(.semibold))
+
+            HStack(spacing: 6) {
+                Text(item.kind.displayName)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(kindBadgeColor(for: item))
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+
+                if item.kind == .unknown {
+                    Text("Needs review")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if item.isKindConfidenceMedium {
+                    Text("Suggested")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                if !item.sku.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(item.sku)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            HStack {
+                Text("\(quantityString(item.quantity)) x \(item.unitPriceFormatted)")
+                Spacer()
+                Text(item.subtotalFormatted)
+                    .fontWeight(.semibold)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if let feeHint = item.feeInferenceHint {
+                Text(feeHint)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private func kindBadgeColor(for item: POItem) -> Color {
@@ -298,6 +392,16 @@ struct ReviewView: View {
         case .unknown:
             return .gray
         }
+    }
+
+    private func statusPill(title: String, color: Color) -> some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .foregroundStyle(color)
+            .background(color.opacity(0.14))
+            .clipShape(Capsule())
     }
 
     private func quantityString(_ value: Double) -> String {

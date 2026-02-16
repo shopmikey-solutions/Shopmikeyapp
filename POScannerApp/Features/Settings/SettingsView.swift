@@ -4,10 +4,14 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct SettingsView: View {
     @AppStorage("saveHistoryEnabled") private var saveHistoryEnabled: Bool = true
     @StateObject private var viewModel: SettingsViewModel
+    @State private var showOnlyFailedCalls: Bool = false
 
     init(environment: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: SettingsViewModel(environment: environment))
@@ -15,6 +19,10 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                workspaceHealthCard
+            }
+
             Section("Preferences") {
                 Toggle("Save History", isOn: $saveHistoryEnabled)
                     .accessibilityIdentifier("settings.saveHistoryToggle")
@@ -28,6 +36,14 @@ struct SettingsView: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("settings.apiKeyField")
+
+                #if canImport(UIKit)
+                Button("Paste API Key") {
+                    let clipboardValue = UIPasteboard.general.string ?? ""
+                    viewModel.apiKeyInput = clipboardValue
+                }
+                .buttonStyle(.bordered)
+                #endif
 
                 Button {
                     Task { await viewModel.testConnection() }
@@ -124,7 +140,9 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(viewModel.networkDiagnostics) { entry in
+                    Toggle("Show only failures", isOn: $showOnlyFailedCalls)
+
+                    ForEach(filteredDiagnostics) { entry in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(entry.timestamp.formatted(date: .omitted, time: .standard))
@@ -155,12 +173,76 @@ struct SettingsView: View {
                         }
                         .padding(.vertical, 4)
                     }
+
+                    if filteredDiagnostics.isEmpty {
+                        Text("No calls match this filter.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(backgroundLayer)
         .navigationTitle("Settings")
         .task {
             await viewModel.refreshNetworkDiagnostics()
         }
+    }
+
+    private var backgroundLayer: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.08, green: 0.11, blue: 0.17),
+                Color(red: 0.13, green: 0.18, blue: 0.25)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+    }
+
+    private var workspaceHealthCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Workspace Health")
+                .font(.headline)
+
+            HStack(spacing: 8) {
+                healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: .blue)
+                healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : .green)
+            }
+
+            if let statusMessage = viewModel.statusMessage, !statusMessage.isEmpty {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Use Test Connection or the endpoint probe to validate API readiness.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var filteredDiagnostics: [NetworkDiagnosticsEntry] {
+        if showOnlyFailedCalls {
+            return viewModel.networkDiagnostics.filter(\.isFailure)
+        }
+        return viewModel.networkDiagnostics
+    }
+
+    private var failureDiagnosticsCount: Int {
+        viewModel.networkDiagnostics.filter(\.isFailure).count
+    }
+
+    private func healthChip(title: String, color: Color) -> some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .foregroundStyle(color)
+            .background(color.opacity(0.15))
+            .clipShape(Capsule())
     }
 }

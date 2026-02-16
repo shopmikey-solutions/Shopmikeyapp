@@ -215,6 +215,22 @@ final class ReviewViewModel: ObservableObject {
         return max(0, min(1, average))
     }
 
+    var unknownKindCount: Int {
+        items.filter { $0.kind == .unknown }.count
+    }
+
+    var suggestedKindCount: Int {
+        items.filter { $0.isKindConfidenceMedium }.count
+    }
+
+    var reviewReadinessScore: Double {
+        guard !items.isEmpty else { return 1 }
+        let unknownPenalty = Double(unknownKindCount)
+        let suggestedPenalty = Double(suggestedKindCount) * 0.5
+        let penalty = (unknownPenalty + suggestedPenalty) / Double(items.count)
+        return max(0, min(1, 1 - penalty))
+    }
+
     var submissionPayload: POSubmissionPayload {
         POSubmissionPayload(
             vendorId: selectedVendorId,

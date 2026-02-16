@@ -40,17 +40,22 @@ struct AppFormChromeModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .listStyle(.insetGrouped)
+            .listStyle(.plain)
             .listSectionSeparator(.hidden)
             .listRowSeparator(.hidden)
             .fontDesign(.rounded)
-            .listRowBackground(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(AppSurfaceStyle.cardFill)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(AppSurfaceStyle.cardStroke)
-                    )
+            .listRowBackground(AppListRowBackground())
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+    }
+}
+
+private struct AppListRowBackground: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(AppSurfaceStyle.cardFill)
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(AppSurfaceStyle.cardStroke)
             )
     }
 }

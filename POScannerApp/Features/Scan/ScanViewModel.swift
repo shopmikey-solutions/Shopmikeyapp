@@ -43,6 +43,15 @@ final class ScanViewModel: ObservableObject {
         }
     }
 
+    var uiTestReviewFixtureEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-test-review-fixture")
+    }
+
+    func openUITestReviewFixture() {
+        guard uiTestReviewFixtureEnabled else { return }
+        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: Self.uiTestReviewInvoice)
+    }
+
     private func processScannedImage(_ cgImage: CGImage, orientation: CGImagePropertyOrientation, ignoreTaxAndTotals: Bool) async {
         isProcessing = true
         errorMessage = nil
@@ -150,5 +159,55 @@ final class ScanViewModel: ObservableObject {
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
         return formatter
+    }()
+
+    private static let uiTestReviewInvoice: ParsedInvoice = {
+        ParsedInvoice(
+            vendorName: "METRO AUTO PARTS SUPPLY",
+            poNumber: "PO-99012",
+            invoiceNumber: "MAP-45821",
+            totalCents: 164_212,
+            items: [
+                ParsedLineItem(
+                    name: "Front Brake Pad Set - Ceramic",
+                    quantity: 6,
+                    costCents: 6_800,
+                    partNumber: "ACD-41-993",
+                    confidence: 0.95,
+                    kind: .part,
+                    kindConfidence: 0.90,
+                    kindReasons: ["ui test fixture"]
+                ),
+                ParsedLineItem(
+                    name: "225/60/16 Primacy Michelin",
+                    quantity: 4,
+                    costCents: 18_000,
+                    partNumber: "MICH-123",
+                    confidence: 0.95,
+                    kind: .tire,
+                    kindConfidence: 0.90,
+                    kindReasons: ["ui test fixture"]
+                ),
+                ParsedLineItem(
+                    name: "Shipping",
+                    quantity: 1,
+                    costCents: 4_500,
+                    partNumber: nil,
+                    confidence: 0.90,
+                    kind: .fee,
+                    kindConfidence: 0.85,
+                    kindReasons: ["ui test fixture"]
+                )
+            ],
+            header: POHeaderFields(
+                vendorName: "METRO AUTO PARTS SUPPLY",
+                vendorInvoiceNumber: "MAP-45821",
+                poReference: "PO-99012",
+                workOrderId: "",
+                serviceId: "",
+                terms: "",
+                notes: ""
+            )
+        )
     }()
 }

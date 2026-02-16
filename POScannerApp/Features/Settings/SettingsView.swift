@@ -17,7 +17,9 @@ struct SettingsView: View {
         Form {
             Section("Preferences") {
                 Toggle("Save History", isOn: $saveHistoryEnabled)
+                    .accessibilityIdentifier("settings.saveHistoryToggle")
                 Toggle("Ignore Tax & Totals", isOn: $viewModel.ignoreTaxAndTotals)
+                    .accessibilityIdentifier("settings.ignoreTaxToggle")
             }
 
             Section("Shopmonkey Sandbox") {
@@ -25,6 +27,7 @@ struct SettingsView: View {
                     .textContentType(.password)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("settings.apiKeyField")
 
                 Button {
                     Task { await viewModel.testConnection() }
@@ -40,6 +43,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(viewModel.isTestingConnection)
+                .accessibilityIdentifier("settings.testConnectionButton")
 
                 Text("Stored securely in Keychain")
                     .font(.caption)

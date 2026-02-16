@@ -39,6 +39,15 @@ struct ScanView: View {
 
                 scanButton
 
+                if viewModel.uiTestReviewFixtureEnabled {
+                    Button("Open Review Fixture") {
+                        viewModel.openUITestReviewFixture()
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("scan.openReviewFixture")
+                    .padding(.horizontal, 20)
+                }
+
                 if viewModel.isProcessing {
                     HStack(spacing: 12) {
                         ProgressView()
@@ -160,6 +169,7 @@ struct ScanView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(.yellow)
+        .accessibilityIdentifier("scan.scanButton")
         .padding(.horizontal, 20)
     }
 

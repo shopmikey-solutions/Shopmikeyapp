@@ -80,6 +80,7 @@ struct ReviewView: View {
                     Task { await viewModel.submitTapped() }
                 }
                 .disabled(!viewModel.canSubmit || viewModel.isSubmitting)
+                .accessibilityIdentifier("review.submitButton")
             }
         }
         .alert("Submitted", isPresented: $viewModel.showSuccessAlert) {
@@ -116,6 +117,7 @@ struct ReviewView: View {
                 )
             )
                 .textInputAutocapitalization(.words)
+                .accessibilityIdentifier("review.vendorField")
 
             if viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let suggestedVendorName = viewModel.suggestedVendorName,
@@ -197,6 +199,7 @@ struct ReviewView: View {
             Text("Restock").tag(ReviewViewModel.ModeUI.restock)
         }
         .pickerStyle(.segmented)
+        .accessibilityIdentifier("review.modePicker")
     }
 
     @ViewBuilder

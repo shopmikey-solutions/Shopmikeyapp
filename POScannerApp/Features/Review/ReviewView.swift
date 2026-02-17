@@ -15,7 +15,7 @@ struct ReviewView: View {
     }
 
     var body: some View {
-        Form {
+        List {
             if let error = viewModel.errorMessage, !error.isEmpty {
                 Section {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -23,31 +23,34 @@ struct ReviewView: View {
                 }
             }
 
-            Section {
+            Section("Overview") {
                 reviewHealthCard
-            }
-
-            Section {
-                vendorSection
-            } header: {
-                sectionHeader("Vendor")
-            }
-
-            Section {
-                identifierSection
-            } header: {
-                sectionHeader("Invoice & PO")
-            } footer: {
                 if viewModel.confidenceScore < 0.75 {
                     Label("Some fields may need review.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
                 }
             }
 
+            Section("Vendor") {
+                vendorSection
+            }
+
             Section {
+                identifierSection
+            } header: {
+                Text("Invoice & PO")
+            }
+
+            Section("Line Items") {
                 if canFilterNeedsReview {
                     Toggle("Focus on items needing review", isOn: $focusNeedsReviewOnly)
                         .accessibilityIdentifier("review.focusNeedsReviewToggle")
+                }
+
+                if !viewModel.items.isEmpty {
+                    Text("Swipe right to set type quickly, swipe left to delete.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 itemsList
@@ -57,19 +60,15 @@ struct ReviewView: View {
                 } label: {
                     Label("Add Line Item", systemImage: "plus")
                 }
-            } header: {
-                sectionHeader("Line Items")
             }
 
-            Section {
+            Section("Submission") {
                 submissionModePicker
                 submissionContextLinks
                 taxBehaviorRow
-            } header: {
-                sectionHeader("Submission")
             }
 
-            Section {
+            Section("Totals") {
                 LabeledContent("Subtotal", value: viewModel.subtotalFormatted)
                 if !viewModel.shouldIgnoreTax {
                     LabeledContent("Tax", value: viewModel.taxFormatted)
@@ -77,35 +76,35 @@ struct ReviewView: View {
                 LabeledContent("Total", value: viewModel.grandTotalFormatted)
                     .font(.headline)
                 LabeledContent("Scans Today", value: "\(viewModel.todayCount)")
-            } header: {
-                sectionHeader("Totals")
             }
 
-            Section {
-                TextEditor(text: $viewModel.notes)
+            Section("Notes") {
+                NativeTextView(
+                    text: $viewModel.notes,
+                    placeholder: "Add notes for this submission",
+                    accessibilityIdentifier: "review.notesField"
+                )
                     .frame(minHeight: 120)
-            } header: {
-                sectionHeader("Notes")
             }
 
             #if DEBUG
-            Section {
+            Section("Debug Metrics") {
                 LabeledContent("Unknown Type Rate", value: percentageString(viewModel.unknownKindRate))
                 LabeledContent("Type Overrides", value: String(viewModel.typeOverrideCount))
                 LabeledContent("Vendor Auto-Select", value: percentageString(viewModel.vendorAutoSelectSuccessRate))
-            } header: {
-                sectionHeader("Debug Metrics")
             }
             #endif
         }
-        .appFormChrome()
-        .background(backgroundLayer)
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 84)
-        }
+        .listStyle(.insetGrouped)
+        .nativeListSurface()
         .navigationTitle("Review")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                if canEditItems {
+                    EditButton()
+                }
+            }
             ToolbarItem(placement: .confirmationAction) {
                 Button(viewModel.isSubmitting ? "Submitting..." : "Submit") {
                     Task { await viewModel.submitTapped() }
@@ -124,53 +123,28 @@ struct ReviewView: View {
         }
     }
 
-    private var backgroundLayer: some View {
-        AppScreenBackground()
-    }
-
     private var reviewHealthCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Review Readiness")
-                    .font(AppSurfaceStyle.cardTitleFont)
-                Spacer()
+            LabeledContent("Readiness") {
                 Text("\(Int((viewModel.reviewReadinessScore * 100).rounded()))%")
-                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
 
             ProgressView(value: viewModel.reviewReadinessScore)
 
-            HStack(spacing: 8) {
-                statusPill(title: "\(viewModel.items.count) line items", color: .blue)
-                statusPill(title: "\(viewModel.unknownKindCount) unknown", color: .orange)
-            }
+            LabeledContent("Line Items", value: "\(viewModel.items.count)")
+            LabeledContent("Needs Review", value: "\(viewModel.unknownKindCount)")
 
             Text(viewModel.canSubmit ? "Required fields complete." : "Pick a vendor match and required IDs before submitting.")
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("review.readinessHint")
         }
-        .padding(.vertical, 2)
     }
 
     private var vendorSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                statusPill(
-                    title: viewModel.selectedVendorId == nil ? "Vendor not selected" : "Vendor selected",
-                    color: viewModel.selectedVendorId == nil ? .orange : .green
-                )
-                if let suggestedVendorName = viewModel.suggestedVendorName, !suggestedVendorName.isEmpty {
-                    Text("OCR suggested: \(suggestedVendorName)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
-            fieldLabel("Vendor Name")
             TextField(
                 viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? (viewModel.suggestedVendorName ?? "Vendor")
@@ -180,8 +154,22 @@ struct ReviewView: View {
                     set: { viewModel.setVendorName($0) }
                 )
             )
-                .textInputAutocapitalization(.words)
-                .accessibilityIdentifier("review.vendorField")
+            .textInputAutocapitalization(.words)
+            .accessibilityIdentifier("review.vendorField")
+
+            Label(
+                viewModel.selectedVendorId == nil ? "Vendor not selected" : "Vendor selected",
+                systemImage: viewModel.selectedVendorId == nil ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+            )
+            .font(.footnote)
+            .foregroundStyle(viewModel.selectedVendorId == nil ? .orange : .green)
+
+            if let suggestedVendorName = viewModel.suggestedVendorName, !suggestedVendorName.isEmpty {
+                Text("OCR suggested: \(suggestedVendorName)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
 
             if viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let suggestedVendorName = viewModel.suggestedVendorName,
@@ -189,7 +177,7 @@ struct ReviewView: View {
                 Button("Use vendor suggestion: \(suggestedVendorName)") {
                     viewModel.applySuggestedVendorName()
                 }
-                .font(.caption)
+                .font(.footnote)
             }
 
             if !viewModel.vendorSuggestions.isEmpty {
@@ -214,12 +202,10 @@ struct ReviewView: View {
                 }
             }
         }
-        .padding(.vertical, 2)
     }
 
     private var identifierSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            fieldLabel("Vendor Invoice Number")
             TextField(
                 viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? (viewModel.suggestedInvoiceNumber ?? "Vendor Invoice Number")
@@ -234,10 +220,9 @@ struct ReviewView: View {
                 Button("Use invoice suggestion: \(suggestedInvoice)") {
                     viewModel.applySuggestedInvoiceNumber()
                 }
-                .font(.caption)
+                .font(.footnote)
             }
 
-            fieldLabel("PO Reference (optional)")
             TextField(
                 viewModel.poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? (viewModel.suggestedPONumber ?? "PO Reference (optional)")
@@ -252,20 +237,18 @@ struct ReviewView: View {
                 Button("Use PO suggestion: \(suggestedPO)") {
                     viewModel.applySuggestedPONumber()
                 }
-                .font(.caption)
+                .font(.footnote)
             }
         }
-        .padding(.vertical, 2)
     }
 
     private var submissionModePicker: some View {
-        Picker("Mode", selection: $viewModel.modeUI) {
-            Text("Attach to PO").tag(ReviewViewModel.ModeUI.attach)
-            Text("Quick Add").tag(ReviewViewModel.ModeUI.quickAdd)
-            Text("Restock").tag(ReviewViewModel.ModeUI.restock)
-        }
-        .pickerStyle(.segmented)
-        .accessibilityIdentifier("review.modePicker")
+        NativeSegmentedControl(
+            options: ReviewViewModel.ModeUI.allCases,
+            titleForOption: modeTitle(for:),
+            selection: $viewModel.modeUI,
+            accessibilityIdentifier: "review.modePicker"
+        )
     }
 
     @ViewBuilder
@@ -324,8 +307,44 @@ struct ReviewView: View {
             } label: {
                 lineItemRow(item: viewModel.items[index])
             }
+            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                kindSwipeButton(title: "Part", kind: .part, color: .blue, at: index)
+                kindSwipeButton(title: "Tire", kind: .tire, color: .orange, at: index)
+                kindSwipeButton(title: "Fee", kind: .fee, color: .teal, at: index)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button(role: .destructive) {
+                    viewModel.deleteItems(at: IndexSet(integer: index))
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+            .contextMenu {
+                Button("Set as Part") {
+                    viewModel.setItemKind(at: index, to: .part)
+                }
+                Button("Set as Tire") {
+                    viewModel.setItemKind(at: index, to: .tire)
+                }
+                Button("Set as Fee") {
+                    viewModel.setItemKind(at: index, to: .fee)
+                }
+                Button("Use Auto") {
+                    viewModel.setItemKind(at: index, to: .unknown)
+                }
+                Divider()
+                Button("Delete Item", role: .destructive) {
+                    viewModel.deleteItems(at: IndexSet(integer: index))
+                }
+            }
+            .moveDisabled(focusNeedsReviewOnly)
         }
         .onDelete(perform: deleteFilteredItems)
+        .onMove(perform: moveFilteredItems)
+    }
+
+    private var canEditItems: Bool {
+        !focusNeedsReviewOnly && viewModel.items.count > 1
     }
 
     private var canFilterNeedsReview: Bool {
@@ -349,33 +368,41 @@ struct ReviewView: View {
         viewModel.deleteItems(at: mapped)
     }
 
-    private func lineItemRow(item: POItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Item" : item.description)
-                .font(.body.weight(.semibold))
+    private func moveFilteredItems(from source: IndexSet, to destination: Int) {
+        guard !focusNeedsReviewOnly else { return }
+        viewModel.moveItems(from: source, to: destination)
+    }
 
-            HStack(spacing: 6) {
-                Text(item.kind.displayName)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(kindBadgeColor(for: item))
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
+    private func kindSwipeButton(title: String, kind: POItemKind, color: Color, at index: Int) -> some View {
+        Button(title) {
+            viewModel.setItemKind(at: index, to: kind)
+        }
+        .tint(color)
+    }
+
+    private func lineItemRow(item: POItem) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Item" : item.description)
+                .font(.body)
+
+            HStack(spacing: 8) {
+                Label(item.kind.displayName, systemImage: kindSymbol(for: item.kind))
+                    .font(.footnote)
+                    .foregroundStyle(kindTint(for: item.kind))
 
                 if item.kind == .unknown {
                     Text("Needs review")
-                        .font(.caption2)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if item.isKindConfidenceMedium {
                     Text("Suggested")
-                        .font(.caption2)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
                 if !item.sku.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(item.sku)
-                        .font(.caption2.monospaced())
+                        .font(.footnote.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -387,19 +414,19 @@ struct ReviewView: View {
                 Text(item.subtotalFormatted)
                     .fontWeight(.semibold)
             }
-            .font(.caption)
+            .font(.footnote)
             .foregroundStyle(.secondary)
 
             if let feeHint = item.feeInferenceHint {
                 Text(feeHint)
-                    .font(.caption2)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
     }
 
-    private func kindBadgeColor(for item: POItem) -> Color {
-        switch item.kind {
+    private func kindTint(for kind: POItemKind) -> Color {
+        switch kind {
         case .part:
             return .blue
         case .tire:
@@ -411,14 +438,17 @@ struct ReviewView: View {
         }
     }
 
-    private func statusPill(title: String, color: Color) -> some View {
-        Text(title)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(color)
-            .background(color.opacity(0.14))
-            .clipShape(Capsule())
+    private func kindSymbol(for kind: POItemKind) -> String {
+        switch kind {
+        case .part:
+            return "shippingbox"
+        case .tire:
+            return "circle.grid.cross"
+        case .fee:
+            return "dollarsign.circle"
+        case .unknown:
+            return "questionmark.circle"
+        }
     }
 
     private func quantityString(_ value: Double) -> String {
@@ -446,15 +476,25 @@ struct ReviewView: View {
         )
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .appSectionHeaderStyle()
-            .padding(.top, 4)
-    }
-
-    private func fieldLabel(_ title: String) -> some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+    private func modeTitle(for mode: ReviewViewModel.ModeUI) -> String {
+        switch mode {
+        case .attach:
+            return "Attach to PO"
+        case .quickAdd:
+            return "Quick Add"
+        case .restock:
+            return "Restock"
+        }
     }
 }
+
+#if DEBUG
+#Preview("Review") {
+    NavigationStack {
+        ReviewView(
+            environment: PreviewFixtures.makeEnvironment(seedHistory: true),
+            parsedInvoice: PreviewFixtures.parsedInvoice
+        )
+    }
+}
+#endif

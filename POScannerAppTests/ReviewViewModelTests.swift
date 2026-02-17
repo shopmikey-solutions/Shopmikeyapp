@@ -4,6 +4,7 @@
 //
 
 import Testing
+import Foundation
 @testable import POScannerApp
 
 private struct MinimalShopmonkeyService: ShopmonkeyServicing {
@@ -27,7 +28,7 @@ private struct MinimalShopmonkeyService: ShopmonkeyServicing {
 struct ReviewViewModelTests {
     @Test func manualTypeOverridePersistsInSubmissionPayload() async throws {
         let parsed = ParsedInvoice(
-            vendorName: "ACME Parts",
+            vendorName: nil,
             poNumber: nil,
             invoiceNumber: nil,
             totalCents: nil,
@@ -87,5 +88,57 @@ struct ReviewViewModelTests {
 
         #expect(initialRate > 0)
         #expect(updatedRate == 0)
+    }
+
+    @Test func setItemKindTracksOverrideCount() async throws {
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: nil,
+            items: [
+                ParsedLineItem(name: "Line A", quantity: 1, costCents: 1000, partNumber: "A-1", confidence: 0.7, kind: .unknown, kindConfidence: 0.4, kindReasons: []),
+                ParsedLineItem(name: "Line B", quantity: 1, costCents: 2000, partNumber: "B-1", confidence: 0.7, kind: .part, kindConfidence: 0.9, kindReasons: [])
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(environment: .preview, parsedInvoice: parsed, shopmonkeyService: MinimalShopmonkeyService())
+        }
+
+        await MainActor.run {
+            vm.setItemKind(at: 0, to: .fee)
+            vm.setItemKind(at: 0, to: .fee) // no-op second set should not increment again
+        }
+
+        let firstKind = await MainActor.run { vm.items[0].kind }
+        let overrideCount = await MainActor.run { vm.typeOverrideCount }
+        #expect(firstKind == .fee)
+        #expect(overrideCount == 1)
+    }
+
+    @Test func moveItemsReordersRows() async throws {
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: nil,
+            items: [
+                ParsedLineItem(name: "Line A", quantity: 1, costCents: 1000, partNumber: "A-1", confidence: 0.7, kind: .part, kindConfidence: 0.9, kindReasons: []),
+                ParsedLineItem(name: "Line B", quantity: 1, costCents: 2000, partNumber: "B-1", confidence: 0.7, kind: .part, kindConfidence: 0.9, kindReasons: []),
+                ParsedLineItem(name: "Line C", quantity: 1, costCents: 3000, partNumber: "C-1", confidence: 0.7, kind: .part, kindConfidence: 0.9, kindReasons: [])
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(environment: .preview, parsedInvoice: parsed, shopmonkeyService: MinimalShopmonkeyService())
+        }
+
+        await MainActor.run {
+            vm.moveItems(from: IndexSet(integer: 0), to: 2)
+        }
+
+        let descriptions = await MainActor.run { vm.items.map(\.description) }
+        #expect(descriptions == ["Line B", "Line A", "Line C"])
     }
 }

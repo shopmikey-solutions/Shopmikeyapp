@@ -12,6 +12,7 @@ struct ScanView: View {
     @State private var showScanner: Bool = false
     @State private var showArcade: Bool = false
     @State private var tapTimes: [Date] = []
+    @State private var showProcessingDetails: Bool = true
     @StateObject private var viewModel: ScanViewModel
 
     init(environment: AppEnvironment) {
@@ -19,42 +20,95 @@ struct ScanView: View {
     }
 
     var body: some View {
-        ZStack {
-            backgroundLayer
+        List {
+            Section("Overview") {
+                dashboardSummary
+            }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    headerCard
-                    metricsGrid
-                    pipelineCard
-                    scanOptionsCard
-                    scanButton
-                    recentCard
-                    quickActionsCard
+            Section("Scan Options") {
+                Toggle("Ignore tax and totals", isOn: $ignoreTaxAndTotals)
+                    .accessibilityIdentifier("scan.ignoreTaxToggle")
+                Text("Use this when vendor totals are noisy and line items are the source of truth.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
 
-                    if viewModel.uiTestReviewFixtureEnabled {
-                        Button("Open Review Fixture") {
-                            viewModel.openUITestReviewFixture()
+            Section("Recent Submissions") {
+                if let recent = viewModel.mostRecentSummary {
+                    NavigationLink {
+                        HistoryView(environment: viewModel.environment)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(recent.vendor)
+                                .font(.headline)
+                            Text("\(recent.total) • \(recent.date)")
+                                .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("scan.openReviewFixture")
                     }
-
-                    if viewModel.isProcessing {
-                        processingBanner
-                    }
-
-                    if let errorMessage = viewModel.errorMessage {
-                        errorBanner(errorMessage)
-                    }
+                } else {
+                    Text("No recent submissions yet.")
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 14)
-                .padding(.bottom, 108)
+            }
+
+            Section("Navigation") {
+                NavigationLink("History") {
+                    HistoryView(environment: viewModel.environment)
+                }
+                .accessibilityIdentifier("scan.quickHistory")
+
+                NavigationLink("Settings") {
+                    SettingsView(environment: viewModel.environment)
+                }
+                .accessibilityIdentifier("scan.quickSettings")
+            }
+
+            if viewModel.uiTestReviewFixtureEnabled {
+                Section {
+                    Button("Open Review Fixture") {
+                        viewModel.openUITestReviewFixture()
+                    }
+                    .accessibilityIdentifier("scan.openReviewFixture")
+                }
+            }
+
+            if viewModel.isProcessing {
+                Section {
+                    ScanProcessingWidget(
+                        startedAt: viewModel.processingStartedAt ?? Date(),
+                        statusText: viewModel.processingStatusText,
+                        detailText: viewModel.processingDetailText,
+                        progress: viewModel.processingProgressEstimate,
+                        showsDetail: $showProcessingDetails
+                    )
+                }
+            }
+
+            if let errorMessage = viewModel.errorMessage {
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
             }
         }
+        .listStyle(.insetGrouped)
+        .nativeListSurface()
+        .refreshable {
+            viewModel.loadTodayMetrics()
+        }
         .navigationTitle("Purchase Orders")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showScanner = true
+                } label: {
+                    Label("Scan", systemImage: "doc.viewfinder")
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("scan.scanButton")
+            }
+        }
         .sheet(isPresented: $showScanner) {
             if VNDocumentCameraViewController.isSupported {
                 VisionDocumentScanner(
@@ -104,7 +158,6 @@ struct ScanView: View {
             viewModel.loadTodayMetrics()
         }
         .overlay(alignment: .topTrailing) {
-            // Hidden trigger for Scanner Arcade.
             Color.clear
                 .contentShape(Rectangle())
                 .frame(width: 56, height: 56)
@@ -116,239 +169,50 @@ struct ScanView: View {
         }
     }
 
-    private var backgroundLayer: some View {
-        AppScreenBackground(style: .dashboard)
-    }
-
-    private var headerCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var dashboardSummary: some View {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Scanner Dashboard")
-                .font(.system(.title2, design: .rounded).weight(.bold))
-                .foregroundStyle(.white)
+                .font(.title3.weight(.semibold))
                 .accessibilityIdentifier("scan.dashboardTitle")
+
             Text("Scan invoices, catch exceptions early, and keep purchase orders moving.")
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.secondary)
 
-            HStack {
-                statusChip(title: "\(viewModel.pendingCount) Pending", color: .orange)
-                statusChip(title: "\(viewModel.failedCount) Failed", color: .red)
-                statusChip(title: "\(viewModel.submittedCount) Submitted", color: .green)
+            HStack(spacing: 20) {
+                metricCell(title: "Scans Today", value: "\(viewModel.todayCount)")
+                metricCell(title: "Submitted", value: "\(viewModel.submittedCount)")
+                metricCell(title: "Failed", value: "\(viewModel.failedCount)")
             }
-            .padding(.top, 2)
+
+            ProgressView(value: pipelineProgress) {
+                Text("Submission Sync")
+                    .font(.subheadline.weight(.medium))
+            } currentValueLabel: {
+                Text("\(Int((pipelineProgress * 100).rounded()))%")
+                    .font(.footnote)
+            }
+
+            LabeledContent("Today Total", value: viewModel.todayTotalFormatted)
+            LabeledContent("Average Ticket", value: viewModel.todayAverageFormatted)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.16, green: 0.25, blue: 0.44).opacity(0.95),
-                    Color(red: 0.09, green: 0.17, blue: 0.30).opacity(0.95)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.14))
-        )
+        .padding(.vertical, 4)
     }
 
-    private var metricsGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            metricTile(title: "Scans Today", value: "\(viewModel.todayCount)", icon: "doc.text")
-            metricTile(title: "Today Total", value: viewModel.todayTotalFormatted, icon: "dollarsign.circle")
-            metricTile(title: "Avg Ticket", value: viewModel.todayAverageFormatted, icon: "chart.bar.doc.horizontal")
-            metricTile(title: "Pending Sync", value: "\(viewModel.pendingCount)", icon: "arrow.triangle.2.circlepath")
-        }
-    }
-
-    private func metricTile(title: String, value: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(title, systemImage: icon)
-                .font(.caption)
+    private func metricCell(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(.title3, design: .rounded).weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .font(.title3.weight(.semibold))
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .appCardSurface(cornerRadius: 16)
-    }
-
-    private var pipelineCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Submission Pipeline")
-                    .font(.headline)
-                Spacer()
-                Text("\(Int((pipelineProgress * 100).rounded()))% synced")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            ProgressView(value: pipelineProgress)
-
-            HStack(spacing: 8) {
-                statusChip(title: "\(viewModel.submittedCount) Done", color: .green)
-                statusChip(title: "\(viewModel.pendingCount) Queue", color: .orange)
-                if viewModel.failedCount > 0 {
-                    statusChip(title: "\(viewModel.failedCount) Retry", color: .red)
-                }
-            }
-        }
-        .padding(14)
-        .appCardSurface(cornerRadius: 16)
     }
 
     private var pipelineProgress: Double {
         guard viewModel.todayCount > 0 else { return 0 }
         return min(1, Double(viewModel.submittedCount) / Double(viewModel.todayCount))
-    }
-
-    private var scanOptionsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Scan Options")
-                .font(.headline)
-            Toggle("Ignore tax and totals", isOn: $ignoreTaxAndTotals)
-                .accessibilityIdentifier("scan.ignoreTaxToggle")
-            Text("Use this when vendor totals are noisy and line items are the source of truth.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(14)
-        .appCardSurface(cornerRadius: 16)
-    }
-
-    private func statusChip(title: String, color: Color) -> some View {
-        Text(title)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(color.opacity(0.16), in: Capsule())
-    }
-
-    private var scanButton: some View {
-        Button {
-            showScanner = true
-        } label: {
-            Label("Scan Document", systemImage: "doc.viewfinder")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(.yellow)
-        .accessibilityIdentifier("scan.scanButton")
-    }
-
-    private var recentCard: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("Most Recent Submission")
-                    .font(.headline)
-                Spacer()
-                Text("Updated")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let recent = viewModel.mostRecentSummary {
-                Text(recent.vendor)
-                    .font(.body.weight(.semibold))
-                Text("\(recent.total) • \(recent.date)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("No recent submissions yet.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if viewModel.pendingCount > 0 {
-                Text("\(viewModel.pendingCount) submitting")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(14)
-        .appCardSurface(cornerRadius: 18)
-    }
-
-    private var quickActionsCard: some View {
-        HStack(spacing: 10) {
-            quickActionLink(
-                title: "History",
-                subtitle: "Retry and inspect",
-                symbol: "clock.arrow.circlepath",
-                accessibilityIdentifier: "scan.quickHistory"
-            ) {
-                HistoryView(environment: viewModel.environment)
-            }
-
-            quickActionLink(
-                title: "Settings",
-                subtitle: "API and diagnostics",
-                symbol: "slider.horizontal.3",
-                accessibilityIdentifier: "scan.quickSettings"
-            ) {
-                SettingsView(environment: viewModel.environment)
-            }
-        }
-    }
-
-    private func quickActionLink<Destination: View>(
-        title: String,
-        subtitle: String,
-        symbol: String,
-        accessibilityIdentifier: String,
-        @ViewBuilder destination: () -> Destination
-    ) -> some View {
-        NavigationLink(destination: destination()) {
-            VStack(alignment: .leading, spacing: 6) {
-                Label(title, systemImage: symbol)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .appCardSurface(cornerRadius: 14)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(accessibilityIdentifier)
-    }
-
-    private var processingBanner: some View {
-        HStack(spacing: 12) {
-            ProgressView()
-            Text("Processing scan…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .appCardSurface(cornerRadius: 16)
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .appCardSurface(cornerRadius: 16)
     }
 
     private func registerArcadeTap() {
@@ -385,6 +249,56 @@ struct ScanView: View {
         }
 
         return nil
+    }
+}
+
+private struct ScanProcessingWidget: View {
+    let startedAt: Date
+    let statusText: String
+    let detailText: String
+    let progress: Double
+    @Binding var showsDetail: Bool
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "waveform.path.ecg")
+                        .foregroundStyle(.tint)
+                        .symbolEffect(.pulse.byLayer, options: .repeating, value: progress)
+                    Text(statusText)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(elapsedString(elapsed))
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                if showsDetail {
+                    ProgressView(value: progress)
+                    Text(detailText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.snappy(duration: 0.24)) {
+                    showsDetail.toggle()
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("Double-tap to expand or collapse live processing details.")
+        }
+    }
+
+    private func elapsedString(_ elapsed: TimeInterval) -> String {
+        let seconds = Int(elapsed.rounded(.down))
+        let minutes = seconds / 60
+        let remainder = seconds % 60
+        return String(format: "%d:%02d", minutes, remainder)
     }
 }
 
@@ -503,3 +417,11 @@ private struct WebGameView: UIViewRepresentable {
         }
     }
 }
+
+#if DEBUG
+#Preview("Scan") {
+    NavigationStack {
+        ScanView(environment: PreviewFixtures.makeEnvironment(seedHistory: true))
+    }
+}
+#endif

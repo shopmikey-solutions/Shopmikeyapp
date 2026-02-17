@@ -23,6 +23,7 @@ struct HistoryView: View {
     @State private var retryErrorMessage: String?
     @State private var isRetryErrorPresented: Bool = false
     @State private var scope: HistoryScope = .all
+    @State private var searchText: String = ""
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -30,82 +31,93 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        ZStack {
-            backgroundLayer
+        Group {
+            if !saveHistoryEnabled {
+                ContentUnavailableView(
+                    "History Disabled",
+                    systemImage: "clock.badge.xmark",
+                    description: Text("Enable “Save History” in Settings to keep scanned purchase orders locally.")
+                )
+            } else if viewModel.isLoading {
+                ProgressView("Loading history…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.orders.isEmpty {
+                ContentUnavailableView(
+                    "No History Yet",
+                    systemImage: "clock",
+                    description: Text("Scanned purchase orders you save will appear here.")
+                )
+            } else {
+                List {
+                    Section("Today Snapshot") {
+                        historyOverviewCard
+                    }
 
-            Group {
-                if !saveHistoryEnabled {
-                    ContentUnavailableView(
-                        "History Disabled",
-                        systemImage: "clock.badge.xmark",
-                        description: Text("Enable “Save History” in Settings to keep scanned purchase orders locally.")
-                    )
-                } else if viewModel.isLoading {
-                    ProgressView("Loading history…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if viewModel.orders.isEmpty {
-                    ContentUnavailableView(
-                        "No History Yet",
-                        systemImage: "clock",
-                        description: Text("Scanned purchase orders you save will appear here.")
-                    )
-                } else {
-                    List {
-                        Section {
-                            historyOverviewCard
+                    Section {
+                        NativeSegmentedControl(
+                            options: HistoryScope.allCases,
+                            titleForOption: { $0.rawValue },
+                            selection: $scope,
+                            accessibilityIdentifier: "history.scopePicker"
+                        )
+                    }
 
-                            Picker("Scope", selection: $scope) {
-                                ForEach(HistoryScope.allCases) { option in
-                                    Text(option.rawValue).tag(option)
+                    Section("Orders") {
+                        if filteredOrders.isEmpty {
+                            Text("No orders in this scope.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(filteredOrders) { row in
+                                NavigationLink {
+                                    if let purchaseOrder = viewModel.purchaseOrder(for: row) {
+                                        HistoryDetailView(purchaseOrder: purchaseOrder)
+                                    } else {
+                                        ContentUnavailableView(
+                                            "Unavailable",
+                                            systemImage: "exclamationmark.triangle",
+                                            description: Text("This history item could not be loaded.")
+                                        )
+                                    }
+                                } label: {
+                                    historyRow(row)
+                                }
+                                .contextMenu {
+                                    Button("Filter by Vendor") {
+                                        searchText = row.vendorName
+                                    }
+                                    if let poNumber = row.poNumber, !poNumber.isEmpty {
+                                        Button("Filter by PO \(poNumber)") {
+                                            searchText = poNumber
+                                        }
+                                    }
+                                    if row.status.lowercased() == "failed" {
+                                        Button("Retry Submission") {
+                                            Task { await retry(row) }
+                                        }
+                                    }
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if row.status.lowercased() == "failed" {
+                                        Button("Retry") {
+                                            Task { await retry(row) }
+                                        }
+                                        .tint(.orange)
+                                    }
                                 }
                             }
-                            .pickerStyle(.segmented)
-                            .accessibilityIdentifier("history.scopePicker")
-                        }
-
-                        Section {
-                            if filteredOrders.isEmpty {
-                                Text("No orders in this scope.")
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(filteredOrders) { row in
-                                    NavigationLink {
-                                        if let purchaseOrder = viewModel.purchaseOrder(for: row) {
-                                            HistoryDetailView(purchaseOrder: purchaseOrder)
-                                        } else {
-                                            ContentUnavailableView(
-                                                "Unavailable",
-                                                systemImage: "exclamationmark.triangle",
-                                                description: Text("This history item could not be loaded.")
-                                            )
-                                        }
-                                    } label: {
-                                        historyRow(row)
-                                    }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        if row.status.lowercased() == "failed" {
-                                            Button("Retry") {
-                                                Task { await retry(row) }
-                                            }
-                                            .tint(.orange)
-                                        }
-                                    }
-                                }
-                            }
-                        } header: {
-                            Text("Orders")
-                                .appSectionHeaderStyle()
                         }
                     }
-                    .appFormChrome()
                 }
+                .listStyle(.insetGrouped)
+                .nativeListSurface()
+                .refreshable {
+                    viewModel.loadHistory()
+                }
+                .searchable(text: $searchText, prompt: "Vendor or PO")
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 84)
-        }
         .navigationTitle("History")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .alert("Retry Failed", isPresented: $isRetryErrorPresented) {
             Button("OK") {}
         } message: {
@@ -119,72 +131,71 @@ struct HistoryView: View {
         }
     }
 
-    private var backgroundLayer: some View {
-        AppScreenBackground()
-    }
-
     private var filteredOrders: [HistoryViewModel.HistoryRow] {
+        let scoped: [HistoryViewModel.HistoryRow]
         switch scope {
         case .all:
-            return viewModel.orders
+            scoped = viewModel.orders
         case .attention:
-            return viewModel.orders.filter { row in
+            scoped = viewModel.orders.filter { row in
                 let normalized = row.status.lowercased()
                 return normalized == "failed" || normalized == "submitting"
             }
         case .submitted:
-            return viewModel.orders.filter { $0.status.lowercased() == "submitted" }
+            scoped = viewModel.orders.filter { $0.status.lowercased() == "submitted" }
         }
+
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return scoped }
+
+        return scoped.filter { row in
+            if row.vendorName.localizedCaseInsensitiveContains(query) {
+                return true
+            }
+            if let poNumber = row.poNumber, poNumber.localizedCaseInsensitiveContains(query) {
+                return true
+            }
+            return false
+        }
+    }
+
+    private var todayOrders: [HistoryViewModel.HistoryRow] {
+        let startOfDay = Calendar.current.startOfDay(for: Date())
+        return viewModel.orders.filter { $0.date >= startOfDay }
     }
 
     private var historyOverviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("History Snapshot")
-                .font(AppSurfaceStyle.cardTitleFont)
-
-            HStack(spacing: 8) {
-                summaryChip(title: "\(viewModel.orders.count) total", color: .blue)
-                summaryChip(title: "\(submittedCount) submitted", color: .green)
-                summaryChip(title: "\(pendingCount) pending", color: .orange)
-                if failedCount > 0 {
-                    summaryChip(title: "\(failedCount) failed", color: .red)
-                }
-            }
-
-            HStack {
-                Text("Captured Value")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(totalValueFormatted)
-                    .font(.system(.title3, design: .rounded).weight(.semibold))
-            }
+            LabeledContent("Scans Today", value: "\(todayOrders.count)")
+            LabeledContent("Submitted", value: "\(submittedCount)")
+            LabeledContent("Needs Attention", value: "\(pendingCount + failedCount)")
+            LabeledContent("Captured Value Today", value: totalValueFormatted)
+                .font(.headline)
         }
-        .padding(.vertical, 4)
     }
 
     private var submittedCount: Int {
-        viewModel.orders.filter { $0.status.lowercased() == "submitted" }.count
+        todayOrders.filter { $0.status.lowercased() == "submitted" }.count
     }
 
     private var pendingCount: Int {
-        viewModel.orders.filter { $0.status.lowercased() == "submitting" }.count
+        todayOrders.filter { $0.status.lowercased() == "submitting" }.count
     }
 
     private var failedCount: Int {
-        viewModel.orders.filter { $0.status.lowercased() == "failed" }.count
+        todayOrders.filter { $0.status.lowercased() == "failed" }.count
     }
 
     private var totalValueFormatted: String {
-        let value = filteredOrders.reduce(0.0) { $0 + $1.totalAmount }
+        let value = todayOrders.reduce(0.0) { $0 + $1.totalAmount }
         return value.formatted(.currency(code: "USD"))
     }
 
     private func historyRow(_ row: HistoryViewModel.HistoryRow) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
                 Text(row.vendorName)
-                    .font(.system(.title3, design: .rounded).weight(.semibold))
+                    .font(.body.weight(.semibold))
                 Spacer()
                 StatusBadge(status: row.status)
             }
@@ -197,7 +208,7 @@ struct HistoryView: View {
                 Text(row.formattedTotal)
                     .fontWeight(.semibold)
             }
-            .font(.subheadline)
+            .font(.footnote)
             .foregroundStyle(.secondary)
 
             if row.status.lowercased() == "failed",
@@ -208,16 +219,7 @@ struct HistoryView: View {
                     .foregroundStyle(.red)
             }
         }
-    }
-
-    private func summaryChip(title: String, color: Color) -> some View {
-        Text(title)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(color)
-            .background(color.opacity(0.15))
-            .clipShape(Capsule())
+        .padding(.vertical, 2)
     }
 
     @MainActor
@@ -275,10 +277,18 @@ private struct StatusBadge: View {
     var body: some View {
         Text(label)
             .font(.caption2)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
             .foregroundStyle(color)
-            .background(color.opacity(0.15))
+            .background(color.opacity(0.14))
             .clipShape(Capsule())
     }
 }
+
+#if DEBUG
+#Preview("History") {
+    NavigationStack {
+        HistoryView(environment: PreviewFixtures.makeEnvironment(seedHistory: true))
+    }
+}
+#endif

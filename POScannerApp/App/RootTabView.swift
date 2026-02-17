@@ -31,6 +31,13 @@ struct RootTabView: View {
                 Label("Settings", systemImage: "gearshape")
             }
         }
-        .tint(AppSurfaceStyle.accent)
+        .tint(.blue)
     }
 }
+
+#if DEBUG
+#Preview("Root Tabs") {
+    RootTabView()
+        .environment(\.appEnvironment, PreviewFixtures.makeEnvironment(seedHistory: true))
+}
+#endif

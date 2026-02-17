@@ -224,11 +224,30 @@ final class ReviewViewModel: ObservableObject {
     }
 
     var reviewReadinessScore: Double {
-        guard !items.isEmpty else { return 1 }
-        let unknownPenalty = Double(unknownKindCount)
-        let suggestedPenalty = Double(suggestedKindCount) * 0.5
-        let penalty = (unknownPenalty + suggestedPenalty) / Double(items.count)
-        return max(0, min(1, 1 - penalty))
+        let trimmedVendor = vendorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vendorReady = !trimmedVendor.isEmpty && trimmedOrNil(selectedVendorId) != nil ? 1.0 : 0.0
+
+        let itemReadiness: Double
+        if items.isEmpty {
+            itemReadiness = 0
+        } else {
+            let unknownPenalty = Double(unknownKindCount)
+            let suggestedPenalty = Double(suggestedKindCount) * 0.5
+            let penalty = (unknownPenalty + suggestedPenalty) / Double(items.count)
+            itemReadiness = max(0, min(1, 1 - penalty))
+        }
+
+        let contextReady: Double
+        switch modeUI {
+        case .attach:
+            let hasOrder = trimmedOrNil(selectedPOId) != nil || trimmedOrNil(orderId) != nil
+            let hasService = trimmedOrNil(selectedTicketId) != nil || trimmedOrNil(serviceId) != nil
+            contextReady = hasOrder && hasService ? 1 : 0
+        case .quickAdd, .restock:
+            contextReady = 1
+        }
+
+        return (vendorReady + itemReadiness + contextReady) / 3.0
     }
 
     var submissionPayload: POSubmissionPayload {
@@ -262,6 +281,32 @@ final class ReviewViewModel: ObservableObject {
 
     func deleteItems(at offsets: IndexSet) {
         removeItems(at: offsets)
+    }
+
+    func setItemKind(at index: Int, to newKind: POItemKind) {
+        guard items.indices.contains(index) else { return }
+        let oldKind = items[index].kind
+        guard oldKind != newKind else { return }
+        items[index].kind = newKind
+        recordTypeOverride(from: oldKind, to: newKind)
+    }
+
+    func moveItems(from source: IndexSet, to destination: Int) {
+        guard !source.isEmpty else { return }
+
+        var reordered = items
+        let movingItems = source.sorted().compactMap { index in
+            reordered.indices.contains(index) ? reordered[index] : nil
+        }
+
+        for index in source.sorted(by: >) where reordered.indices.contains(index) {
+            reordered.remove(at: index)
+        }
+
+        let removedBeforeDestination = source.filter { $0 < destination }.count
+        let adjustedDestination = max(0, min(reordered.count, destination - removedBeforeDestination))
+        reordered.insert(contentsOf: movingItems, at: adjustedDestination)
+        items = reordered
     }
 
     func removeItems(at offsets: IndexSet) {

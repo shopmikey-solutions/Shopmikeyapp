@@ -11,6 +11,34 @@ import ImageIO
 
 @MainActor
 final class ScanViewModel: ObservableObject {
+    enum ProcessingStage: String {
+        case extractingText = "Extracting text"
+        case parsing = "Classifying line items"
+        case finalizing = "Preparing review"
+
+        var progressEstimate: Double {
+            switch self {
+            case .extractingText:
+                return 0.28
+            case .parsing:
+                return 0.64
+            case .finalizing:
+                return 0.9
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .extractingText:
+                return "Running OCR on your document."
+            case .parsing:
+                return "Applying AI + rules to structure fields."
+            case .finalizing:
+                return "Building a review-ready draft."
+            }
+        }
+    }
+
     let environment: AppEnvironment
 
     struct ParsedInvoiceRoute: Hashable {
@@ -27,6 +55,8 @@ final class ScanViewModel: ObservableObject {
     @Published var isProcessing: Bool = false
     @Published var errorMessage: String?
     @Published var parsedInvoiceRoute: ParsedInvoiceRoute?
+    @Published private(set) var processingStartedAt: Date?
+    @Published private(set) var processingStage: ProcessingStage?
     @Published var todayCount: Int = 0
     @Published var todayTotal: Decimal = 0
     @Published var pendingCount: Int = 0
@@ -57,11 +87,15 @@ final class ScanViewModel: ObservableObject {
     private func processScannedImage(_ cgImage: CGImage, orientation: CGImagePropertyOrientation, ignoreTaxAndTotals: Bool) async {
         isProcessing = true
         errorMessage = nil
+        processingStartedAt = Date()
+        processingStage = .extractingText
 
         do {
             let extracted = try await environment.ocrService.extractText(from: cgImage, orientation: orientation)
+            processingStage = .parsing
             let ai = await environment.foundationModelService.parseInvoiceIfAvailable(from: extracted, ignoreTaxAndTotals: ignoreTaxAndTotals)
             let invoice = ai ?? environment.poParser.parse(from: extracted, ignoreTaxAndTotals: ignoreTaxAndTotals)
+            processingStage = .finalizing
             logScanDiagnostics(
                 extractedText: extracted,
                 invoice: invoice,
@@ -74,6 +108,20 @@ final class ScanViewModel: ObservableObject {
         }
 
         isProcessing = false
+        processingStage = nil
+        processingStartedAt = nil
+    }
+
+    var processingProgressEstimate: Double {
+        processingStage?.progressEstimate ?? 0
+    }
+
+    var processingStatusText: String {
+        processingStage?.rawValue ?? "Processing scan"
+    }
+
+    var processingDetailText: String {
+        processingStage?.detail ?? "Preparing scan result."
     }
 
     private func logScanDiagnostics(

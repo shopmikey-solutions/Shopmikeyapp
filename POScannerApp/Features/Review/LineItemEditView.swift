@@ -8,128 +8,122 @@ import SwiftUI
 struct LineItemEditView: View {
     @Binding var item: POItem
     var onKindChanged: ((POItemKind, POItemKind) -> Void)? = nil
-    @State private var previousKind: POItemKind
 
     init(item: Binding<POItem>, onKindChanged: ((POItemKind, POItemKind) -> Void)? = nil) {
         self._item = item
         self.onKindChanged = onKindChanged
-        self._previousKind = State(initialValue: item.wrappedValue.kind)
     }
 
     var body: some View {
-        Form {
-            Section {
-                summaryCard
+        List {
+            Section("Summary") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        statusChip(title: item.kind.displayName, color: item.kind == .unknown ? .orange : .green)
+                        Text(item.subtotalFormatted)
+                            .font(.headline)
+                    }
+                    Text("Confidence \(Int((item.kindConfidence * 100).rounded()))%")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            Section {
-                Picker("Line Type", selection: $item.kind) {
-                    Text(POItemKind.part.displayName).tag(POItemKind.part)
-                    Text(POItemKind.tire.displayName).tag(POItemKind.tire)
-                    Text(POItemKind.fee.displayName).tag(POItemKind.fee)
-                    Text(POItemKind.unknown.displayName).tag(POItemKind.unknown)
-                }
-                .pickerStyle(.segmented)
+            Section("Type") {
+                NativeSegmentedControl(
+                    options: [POItemKind.part, .tire, .fee, .unknown],
+                    titleForOption: { $0.displayName },
+                    selection: $item.kind
+                )
 
                 if item.kind == .unknown {
                     Label("Auto-classification needs review.", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.yellow)
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
                 } else if item.isKindConfidenceMedium {
                     Label("Suggested (\(Int((item.kindConfidence * 100).rounded()))%)", systemImage: "lightbulb")
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
                 if let feeHint = item.feeInferenceHint {
                     Label(feeHint, systemImage: "wrench.and.screwdriver")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 if !item.kindReasons.isEmpty, !item.isKindConfidenceHigh {
                     Text(item.kindReasons.joined(separator: " • "))
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            } header: {
-                Text("Type")
-                    .appSectionHeaderStyle()
             }
 
-            Section {
+            Section("Line Item") {
                 TextField("SKU / Part #", text: $item.sku)
                     .textInputAutocapitalization(.characters)
 
                 TextField("Description", text: $item.description)
-            } header: {
-                Text("Line Item")
-                    .appSectionHeaderStyle()
             }
 
-            Section {
+            Section("Quantity & Cost") {
                 TextField("Quantity", value: $item.quantity, format: .number)
                     .keyboardType(.decimalPad)
+
+                Stepper(value: $item.quantity, in: 1...999, step: 1) {
+                    LabeledContent("Adjust Quantity", value: quantityString(item.quantity))
+                }
 
                 TextField("Unit Cost", value: $item.unitCost, format: .currency(code: "USD"))
                     .keyboardType(.decimalPad)
 
                 Toggle("Taxable", isOn: $item.isTaxable)
-            } header: {
-                Text("Quantity & Cost")
-                    .appSectionHeaderStyle()
             }
 
-            Section {
-                LabeledContent("Subtotal", value: item.subtotalFormatted)
+            Section("Subtotal") {
+                LabeledContent("Line Total", value: item.subtotalFormatted)
                     .font(.headline)
-            } header: {
-                Text("Subtotal")
-                    .appSectionHeaderStyle()
             }
         }
-        .appFormChrome()
-        .background(backgroundLayer)
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 84)
-        }
+        .listStyle(.insetGrouped)
+        .nativeListSurface()
         .navigationTitle("Line Item")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: item.kind) { oldValue, newValue in
-            previousKind = newValue
             onKindChanged?(oldValue, newValue)
         }
     }
 
-    private var backgroundLayer: some View {
-        AppScreenBackground()
-    }
-
-    private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Line Snapshot")
-                .font(AppSurfaceStyle.cardTitleFont)
-
-            HStack(spacing: 8) {
-                statusChip(title: item.kind.displayName, color: item.kind == .unknown ? .orange : .green)
-                Text(item.subtotalFormatted)
-                    .font(.subheadline.weight(.semibold))
-            }
-
-            Text("Confidence \(Int((item.kindConfidence * 100).rounded()))%")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 4)
-    }
-
     private func statusChip(title: String, color: Color) -> some View {
         Text(title)
-            .font(.caption2.weight(.semibold))
+            .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .foregroundStyle(color)
             .background(color.opacity(0.14))
             .clipShape(Capsule())
     }
+
+    private func quantityString(_ value: Double) -> String {
+        if value.rounded(.towardZero) == value {
+            return String(Int(value))
+        }
+        return String(format: "%.2f", value)
+    }
 }
+
+#if DEBUG
+private struct LineItemEditPreviewContainer: View {
+    @State private var item: POItem = PreviewFixtures.lineItem
+
+    var body: some View {
+        NavigationStack {
+            LineItemEditView(item: $item)
+        }
+    }
+}
+
+#Preview("Line Item Edit") {
+    LineItemEditPreviewContainer()
+}
+#endif

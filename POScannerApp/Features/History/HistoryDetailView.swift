@@ -10,11 +10,18 @@ struct HistoryDetailView: View {
 
     var body: some View {
         List {
-            Section {
-                summaryCard
+            Section("Submission Snapshot") {
+                HStack(spacing: 8) {
+                    statusChip(title: purchaseOrder.status)
+                    Text(purchaseOrder.totalAmount.formatted(.currency(code: "USD")))
+                        .font(.headline)
+                }
+                Text(purchaseOrder.date.formatted(date: .abbreviated, time: .shortened))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
-            Section {
+            Section("Purchase Order") {
                 LabeledContent("Vendor", value: purchaseOrder.vendorName)
                 if let poNumber = purchaseOrder.poNumber, !poNumber.isEmpty {
                     LabeledContent("PO Number", value: poNumber)
@@ -31,22 +38,16 @@ struct HistoryDetailView: View {
                 }
                 LabeledContent("Status", value: purchaseOrder.status)
                 LabeledContent("Total", value: purchaseOrder.totalAmount.formatted(.currency(code: "USD")))
-            } header: {
-                Text("Purchase Order")
-                    .appSectionHeaderStyle()
             }
 
             if let lastError = purchaseOrder.lastError, !lastError.isEmpty {
-                Section {
+                Section("Last Error") {
                     Text(lastError)
                         .foregroundStyle(.red)
-                } header: {
-                    Text("Last Error")
-                        .appSectionHeaderStyle()
                 }
             }
 
-            Section {
+            Section("Items") {
                 if purchaseOrder.itemsSorted.isEmpty {
                     Text("No items saved.")
                         .foregroundStyle(.secondary)
@@ -65,38 +66,12 @@ struct HistoryDetailView: View {
                         }
                     }
                 }
-            } header: {
-                Text("Items")
-                    .appSectionHeaderStyle()
             }
         }
-        .appFormChrome()
-        .background(backgroundLayer)
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 84)
-        }
+        .listStyle(.insetGrouped)
+        .nativeListSurface()
         .navigationTitle("Details")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var backgroundLayer: some View {
-        AppScreenBackground()
-    }
-
-    private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Submission Snapshot")
-                .font(AppSurfaceStyle.cardTitleFont)
-            HStack(spacing: 8) {
-                statusChip(title: purchaseOrder.status)
-                Text(purchaseOrder.totalAmount.formatted(.currency(code: "USD")))
-                    .font(.system(.title3, design: .rounded).weight(.semibold))
-            }
-            Text(purchaseOrder.date.formatted(date: .abbreviated, time: .shortened))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 4)
     }
 
     private func statusChip(title: String) -> some View {
@@ -112,7 +87,7 @@ struct HistoryDetailView: View {
             color = .gray
         }
         return Text(title.capitalized)
-            .font(.caption2.weight(.semibold))
+            .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .foregroundStyle(color)
@@ -120,3 +95,26 @@ struct HistoryDetailView: View {
             .clipShape(Capsule())
     }
 }
+
+#if DEBUG
+private struct HistoryDetailPreviewContainer: View {
+    private let environment: AppEnvironment
+    private let purchaseOrder: PurchaseOrder
+
+    init() {
+        let environment = PreviewFixtures.makeEnvironment(seedHistory: true)
+        self.environment = environment
+        self.purchaseOrder = PreviewFixtures.firstHistoryOrder(in: environment.dataController.viewContext)
+    }
+
+    var body: some View {
+        NavigationStack {
+            HistoryDetailView(purchaseOrder: purchaseOrder)
+        }
+    }
+}
+
+#Preview("History Detail") {
+    HistoryDetailPreviewContainer()
+}
+#endif

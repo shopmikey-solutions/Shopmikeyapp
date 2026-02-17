@@ -17,72 +17,68 @@ struct ServicePickerView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AppScreenBackground()
+        Group {
+            if isLoading && services.isEmpty {
+                ProgressView("Loading services…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorMessage, services.isEmpty {
+                VStack(spacing: 16) {
+                    ContentUnavailableView(
+                        "Couldn’t Load Services",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text(errorMessage)
+                    )
 
-                Group {
-                    if isLoading && services.isEmpty {
-                        ProgressView("Loading services…")
-                    } else if let errorMessage, services.isEmpty {
-                        VStack(spacing: 16) {
-                            ContentUnavailableView(
-                                "Couldn’t Load Services",
-                                systemImage: "exclamationmark.triangle",
-                                description: Text(errorMessage)
-                            )
+                    Button("Retry") {
+                        Task { await fetchServices() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            } else if services.isEmpty {
+                ContentUnavailableView(
+                    "No Services",
+                    systemImage: "wrench.and.screwdriver",
+                    description: Text("No services were returned for this order.")
+                )
+            } else {
+                List {
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
 
-                            Button("Retry") {
-                                Task { await fetchServices() }
+                    ForEach(services) { service in
+                        Button {
+                            onSelect(service)
+                            dismiss()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(service.name?.isEmpty == false ? (service.name ?? "") : "Service \(service.id)")
+                                    .font(.headline)
+                                Text(service.id)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    } else if services.isEmpty {
-                        ContentUnavailableView(
-                            "No Services",
-                            systemImage: "wrench.and.screwdriver",
-                            description: Text("No services were returned for this order.")
-                        )
-                    } else {
-                        List {
-                            if let errorMessage {
-                                Text(errorMessage)
-                                    .foregroundStyle(.red)
-                            }
-
-                            ForEach(services) { service in
-                                Button {
-                                    onSelect(service)
-                                    dismiss()
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(service.name?.isEmpty == false ? (service.name ?? "") : "Service \(service.id)")
-                                            .font(.system(.title3, design: .rounded).weight(.semibold))
-                                        Text(service.id)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                            }
-                        }
-                        .appFormChrome()
-                        .refreshable {
-                            await fetchServices()
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
-            }
-            .navigationTitle("Select Service")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                .listStyle(.insetGrouped)
+                .nativeListSurface()
+                .refreshable {
+                    await fetchServices()
                 }
             }
-            .task {
-                await fetchServices()
+        }
+        .navigationTitle("Select Service")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
             }
+        }
+        .task {
+            await fetchServices()
         }
     }
 
@@ -108,3 +104,12 @@ struct ServicePickerView: View {
         isLoading = false
     }
 }
+
+#if DEBUG
+#Preview("Service Picker") {
+    ServicePickerView(
+        service: PreviewFixtures.previewShopmonkeyService,
+        orderId: "preview-order-1"
+    ) { _ in }
+}
+#endif

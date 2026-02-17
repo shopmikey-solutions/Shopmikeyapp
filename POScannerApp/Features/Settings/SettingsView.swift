@@ -4,58 +4,62 @@
 //
 
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 struct SettingsView: View {
     @AppStorage("saveHistoryEnabled") private var saveHistoryEnabled: Bool = true
     @StateObject private var viewModel: SettingsViewModel
-    @State private var showOnlyFailedCalls: Bool = false
 
     init(environment: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: SettingsViewModel(environment: environment))
     }
 
     var body: some View {
-        Form {
-            Section {
-                workspaceHealthCard
+        List {
+            Section("Workspace Health") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: .blue)
+                        healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : .green)
+                    }
+
+                    if let statusMessage = viewModel.statusMessage, !statusMessage.isEmpty {
+                        Text(statusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Use Test Connection or the endpoint probe to validate API readiness.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
-            Section {
+            Section("Preferences") {
                 Toggle("Save History", isOn: $saveHistoryEnabled)
                     .accessibilityIdentifier("settings.saveHistoryToggle")
                 Toggle("Ignore Tax & Totals", isOn: $viewModel.ignoreTaxAndTotals)
                     .accessibilityIdentifier("settings.ignoreTaxToggle")
-            } header: {
-                Text("Preferences")
-                    .appSectionHeaderStyle()
             }
 
-            Section {
+            Section("Shopmonkey Sandbox") {
                 SecureField("API Key", text: $viewModel.apiKeyInput)
                     .textContentType(.password)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("settings.apiKeyField")
 
-                #if canImport(UIKit)
-                Button("Paste API Key") {
-                    let clipboardValue = UIPasteboard.general.string ?? ""
-                    viewModel.apiKeyInput = clipboardValue
+                if #available(iOS 16.0, *) {
+                    PasteButton(payloadType: String.self) { values in
+                        guard let first = values.first else { return }
+                        viewModel.apiKeyInput = first
+                    }
                 }
-                .buttonStyle(.bordered)
-                #endif
 
                 Button {
                     Task { await viewModel.testConnection() }
                 } label: {
                     if viewModel.isTestingConnection {
-                        HStack(spacing: 12) {
-                            ProgressView()
-                            Text("Testing…")
-                        }
+                        Label("Testing…", systemImage: "hourglass")
                     } else {
                         Text("Test Connection")
                     }
@@ -65,37 +69,66 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.testConnectionButton")
 
                 Text("Stored securely in Keychain")
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
 
                 if let statusMessage = viewModel.statusMessage {
                     Text(statusMessage)
                         .foregroundStyle(.secondary)
                 }
-            } header: {
-                Text("Shopmonkey Sandbox")
-                    .appSectionHeaderStyle()
             }
 
-            Section {
+            Section("Diagnostics") {
+                NavigationLink("Endpoint Probe & Network Capture") {
+                    SettingsDiagnosticsView(viewModel: viewModel)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .nativeListSurface()
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.large)
+        .task {
+            await viewModel.refreshNetworkDiagnostics()
+        }
+    }
+
+    private var failureDiagnosticsCount: Int {
+        viewModel.networkDiagnostics.filter(\.isFailure).count
+    }
+
+    private func healthChip(title: String, color: Color) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .foregroundStyle(color)
+            .background(color.opacity(0.15))
+            .clipShape(Capsule())
+    }
+}
+
+private struct SettingsDiagnosticsView: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @State private var showOnlyFailedCalls: Bool = false
+
+    var body: some View {
+        List {
+            Section("Endpoint Probe") {
                 Button {
                     Task { await viewModel.runEndpointProbe() }
                 } label: {
                     if viewModel.isRunningProbe {
-                        HStack(spacing: 12) {
-                            ProgressView()
-                            Text("Probing...")
-                        }
+                        Label("Probing…", systemImage: "hourglass")
                     } else {
                         Text("Run Blind Endpoint Probe")
                     }
                 }
-                .buttonStyle(.bordered)
                 .disabled(viewModel.isRunningProbe)
 
                 if let report = viewModel.endpointProbeReport {
                     Text("Generated \(report.generatedAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
 
                     ForEach(report.results) { result in
@@ -108,12 +141,14 @@ struct SettingsView: View {
                                     .font(.footnote.weight(.semibold))
                                     .foregroundStyle(result.supported ? .green : .orange)
                             }
+
                             Text(result.hint)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+
                             if let preview = result.responsePreview, !preview.isEmpty {
                                 Text(preview)
-                                    .font(.caption2.monospaced())
+                                    .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
                                     .lineLimit(3)
                             }
@@ -121,12 +156,9 @@ struct SettingsView: View {
                         .padding(.vertical, 4)
                     }
                 }
-            } header: {
-                Text("Endpoint Probe")
-                    .appSectionHeaderStyle()
             }
 
-            Section {
+            Section("Network Capture") {
                 HStack {
                     Button("Refresh") {
                         Task { await viewModel.refreshNetworkDiagnostics() }
@@ -146,7 +178,7 @@ struct SettingsView: View {
 
                 if viewModel.networkDiagnostics.isEmpty {
                     Text("No captured calls yet.")
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else {
                     Toggle("Show only failures", isOn: $showOnlyFailedCalls)
@@ -155,7 +187,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Text(entry.timestamp.formatted(date: .omitted, time: .standard))
-                                    .font(.caption2.monospaced())
+                                    .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
                                 Spacer()
                                 Text(entry.statusCode.map(String.init) ?? "n/a")
@@ -175,7 +207,7 @@ struct SettingsView: View {
 
                             if let responseBodyPreview = entry.responseBodyPreview, !responseBodyPreview.isEmpty {
                                 Text(responseBodyPreview)
-                                    .font(.caption2.monospaced())
+                                    .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
                                     .lineLimit(3)
                             }
@@ -185,52 +217,19 @@ struct SettingsView: View {
 
                     if filteredDiagnostics.isEmpty {
                         Text("No calls match this filter.")
-                            .font(.caption)
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
-            } header: {
-                Text("Network Capture")
-                    .appSectionHeaderStyle()
             }
         }
-        .appFormChrome()
-        .background(backgroundLayer)
-        .navigationTitle("Settings")
+        .listStyle(.insetGrouped)
+        .nativeListSurface()
+        .navigationTitle("Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: 84)
-        }
         .task {
             await viewModel.refreshNetworkDiagnostics()
         }
-    }
-
-    private var backgroundLayer: some View {
-        AppScreenBackground()
-    }
-
-    private var workspaceHealthCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Workspace Health")
-                .font(AppSurfaceStyle.cardTitleFont)
-
-            HStack(spacing: 8) {
-                healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: .blue)
-                healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : .green)
-            }
-
-            if let statusMessage = viewModel.statusMessage, !statusMessage.isEmpty {
-                Text(statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Use Test Connection or the endpoint probe to validate API readiness.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
     }
 
     private var filteredDiagnostics: [NetworkDiagnosticsEntry] {
@@ -239,18 +238,12 @@ struct SettingsView: View {
         }
         return viewModel.networkDiagnostics
     }
+}
 
-    private var failureDiagnosticsCount: Int {
-        viewModel.networkDiagnostics.filter(\.isFailure).count
-    }
-
-    private func healthChip(title: String, color: Color) -> some View {
-        Text(title)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(color)
-            .background(color.opacity(0.15))
-            .clipShape(Capsule())
+#if DEBUG
+#Preview("Settings") {
+    NavigationStack {
+        SettingsView(environment: PreviewFixtures.makeEnvironment(seedHistory: true))
     }
 }
+#endif

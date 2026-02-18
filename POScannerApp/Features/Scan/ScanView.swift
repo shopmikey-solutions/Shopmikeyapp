@@ -11,7 +11,7 @@ import PhotosUI
 struct ScanView: View {
     @AppStorage("ignoreTaxAndTotals") private var ignoreTaxAndTotals: Bool = false
     @State private var showScanner: Bool = false
-    @State private var showSourceOptions: Bool = false
+    @State private var showSourceSheet: Bool = false
     @State private var showPhotoPicker: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isImportingPhoto: Bool = false
@@ -127,7 +127,7 @@ struct ScanView: View {
                 Button {
                     guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
                     AppHaptics.impact(.medium, intensity: 0.9)
-                    showSourceOptions = true
+                    showSourceSheet = true
                 } label: {
                     Label("Scan Parts Invoice", systemImage: "doc.viewfinder")
                 }
@@ -136,22 +136,11 @@ struct ScanView: View {
                 .accessibilityIdentifier("scan.scanButton")
             }
         }
-        .confirmationDialog(
-            "Add Parts Invoice",
-            isPresented: $showSourceOptions,
-            titleVisibility: .visible
-        ) {
-            Button("Scan with Camera") {
-                AppHaptics.selection()
-                showScanner = true
-            }
-            Button("Choose from Photos") {
-                AppHaptics.selection()
-                showPhotoPicker = true
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Use camera for a new capture, or choose an existing invoice photo.")
+        .sheet(isPresented: $showSourceSheet) {
+            ScanSourceSheet(
+                onScanWithCamera: { showScanner = true },
+                onChooseFromPhotos: { showPhotoPicker = true }
+            )
         }
         .photosPicker(
             isPresented: $showPhotoPicker,
@@ -227,10 +216,15 @@ struct ScanView: View {
         .onAppear {
             viewModel.loadTodayMetrics()
             viewModel.loadInProgressDrafts()
+            syncLiveActivity()
         }
         .onChange(of: viewModel.processingStage) { _, stage in
             guard stage != nil else { return }
             AppHaptics.selection()
+            syncLiveActivity()
+        }
+        .onChange(of: viewModel.isProcessing) { _, _ in
+            syncLiveActivity()
         }
         .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
             guard route != nil else { return }
@@ -392,6 +386,15 @@ struct ScanView: View {
         return nil
     }
 
+    private func syncLiveActivity() {
+        PartsIntakeLiveActivityBridge.sync(
+            isProcessing: viewModel.isProcessing,
+            statusText: viewModel.processingStatusText,
+            detailText: viewModel.processingDetailText,
+            progress: viewModel.processingProgressEstimate
+        )
+    }
+
     @MainActor
     private func importPhoto(_ item: PhotosPickerItem) async {
         guard !isImportingPhoto else { return }
@@ -419,6 +422,55 @@ struct ScanView: View {
             viewModel.errorMessage = "Could not load the selected photo."
             AppHaptics.error()
         }
+    }
+}
+
+private struct ScanSourceSheet: View {
+    let onScanWithCamera: () -> Void
+    let onChooseFromPhotos: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        AppHaptics.selection()
+                        dismiss()
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 120_000_000)
+                            onScanWithCamera()
+                        }
+                    } label: {
+                        Label("Scan with Camera", systemImage: "camera.viewfinder")
+                    }
+
+                    Button {
+                        AppHaptics.selection()
+                        dismiss()
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 120_000_000)
+                            onChooseFromPhotos()
+                        }
+                    } label: {
+                        Label("Choose from Photos", systemImage: "photo.on.rectangle")
+                    }
+                } footer: {
+                    Text("Use camera for a new capture, or choose an existing invoice photo.")
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Add Parts Invoice")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
     }
 }
 

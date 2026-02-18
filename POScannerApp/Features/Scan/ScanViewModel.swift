@@ -527,6 +527,13 @@ final class ScanViewModel: ObservableObject {
             submittedCount = metrics.submitted
             failedCount = metrics.failed
             mostRecentSummary = metrics.recent
+            PartsIntakeWidgetBridge.publish(
+                scansToday: metrics.count,
+                submittedCount: metrics.submitted,
+                failedCount: metrics.failed,
+                pendingCount: metrics.pending,
+                totalValue: metrics.total
+            )
         }
     }
 

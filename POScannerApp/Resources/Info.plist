@@ -10,10 +10,20 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>AppGroupIdentifier</key>
+	<string>group.com.mikey.POScannerApp</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan purchase orders using the camera.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Authenticate to access the stored API key.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Select an existing invoice photo for parts intake.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>ScannerArcadeURL</key>
 	<string>http://127.0.0.1:5173</string>
 	<key>UILaunchScreen</key>

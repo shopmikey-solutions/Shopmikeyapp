@@ -7,6 +7,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("saveHistoryEnabled") private var saveHistoryEnabled: Bool = true
+    @AppStorage("scanLiveActivitiesEnabled") private var scanLiveActivitiesEnabled: Bool = true
+    @AppStorage("scanWidgetRefreshEnabled") private var scanWidgetRefreshEnabled: Bool = true
     @StateObject private var viewModel: SettingsViewModel
 
     init(environment: AppEnvironment) {
@@ -39,6 +41,14 @@ struct SettingsView: View {
                     .accessibilityIdentifier("settings.saveHistoryToggle")
                 Toggle("Ignore Tax & Totals", isOn: $viewModel.ignoreTaxAndTotals)
                     .accessibilityIdentifier("settings.ignoreTaxToggle")
+                Toggle("Live Activities", isOn: $scanLiveActivitiesEnabled)
+                    .accessibilityIdentifier("settings.liveActivitiesToggle")
+                Toggle("Widget Refresh", isOn: $scanWidgetRefreshEnabled)
+                    .accessibilityIdentifier("settings.widgetRefreshToggle")
+
+                Text("Live Activities show active intake progress on the Lock Screen and Dynamic Island. Widget refresh publishes the latest dashboard snapshot for widgets.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Shopmonkey API") {
@@ -101,6 +111,19 @@ struct SettingsView: View {
             AppHaptics.selection()
         }
         .onChange(of: viewModel.ignoreTaxAndTotals) { _, _ in
+            AppHaptics.selection()
+        }
+        .onChange(of: scanLiveActivitiesEnabled) { _, enabled in
+            AppHaptics.selection()
+            guard !enabled else { return }
+            PartsIntakeLiveActivityBridge.sync(
+                isProcessing: false,
+                statusText: "",
+                detailText: "",
+                progress: 0
+            )
+        }
+        .onChange(of: scanWidgetRefreshEnabled) { _, _ in
             AppHaptics.selection()
         }
         .onChange(of: viewModel.experimentalOrderPOLinking) { _, _ in

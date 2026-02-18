@@ -6,7 +6,20 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A67282682F45F88F00A5001A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67282672F45F88F00A5001A /* WidgetKit.framework */; };
+		A672826A2F45F88F00A5001A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67282692F45F88F00A5001A /* SwiftUI.framework */; };
+		A672827B2F45F89100A5001A /* ShopMikey ScannerExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A67282652F45F88F00A5001A /* ShopMikey ScannerExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
+		A67282792F45F89100A5001A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A6E181B22F41BA33000EFB56 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A67282642F45F88F00A5001A;
+			remoteInfo = "ShopMikey ScannerExtension";
+		};
 		A6E181CA2F41BA34000EFB56 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A6E181B22F41BA33000EFB56 /* Project object */;
@@ -23,13 +36,37 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		A67282802F45F89100A5001A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A672827B2F45F89100A5001A /* ShopMikey ScannerExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		A67282652F45F88F00A5001A /* ShopMikey ScannerExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "ShopMikey ScannerExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A67282672F45F88F00A5001A /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		A67282692F45F88F00A5001A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		A6E181BA2F41BA33000EFB56 /* POScannerApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = POScannerApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6E181C92F41BA34000EFB56 /* POScannerAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = POScannerAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = POScannerAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A672827F2F45F89100A5001A /* Exceptions for "ShopMikey Scanner" folder in "ShopMikey ScannerExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A67282642F45F88F00A5001A /* ShopMikey ScannerExtension */;
+		};
 		A6E181E72F41BA34000EFB56 /* Exceptions for "POScannerApp" folder in "POScannerApp" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -40,6 +77,14 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A672826B2F45F88F00A5001A /* ShopMikey Scanner */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A672827F2F45F89100A5001A /* Exceptions for "ShopMikey Scanner" folder in "ShopMikey ScannerExtension" target */,
+			);
+			path = "ShopMikey Scanner";
+			sourceTree = "<group>";
+		};
 		A6E181BC2F41BA33000EFB56 /* POScannerApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -61,6 +106,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A67282622F45F88F00A5001A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A672826A2F45F88F00A5001A /* SwiftUI.framework in Frameworks */,
+				A67282682F45F88F00A5001A /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A6E181B72F41BA33000EFB56 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -85,12 +139,23 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A67282662F45F88F00A5001A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A67282672F45F88F00A5001A /* WidgetKit.framework */,
+				A67282692F45F88F00A5001A /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		A6E181B12F41BA33000EFB56 = {
 			isa = PBXGroup;
 			children = (
 				A6E181BC2F41BA33000EFB56 /* POScannerApp */,
 				A6E181CC2F41BA34000EFB56 /* POScannerAppTests */,
 				A6E181D62F41BA34000EFB56 /* POScannerAppUITests */,
+				A672826B2F45F88F00A5001A /* ShopMikey Scanner */,
+				A67282662F45F88F00A5001A /* Frameworks */,
 				A6E181BB2F41BA33000EFB56 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,6 +166,7 @@
 				A6E181BA2F41BA33000EFB56 /* POScannerApp.app */,
 				A6E181C92F41BA34000EFB56 /* POScannerAppTests.xctest */,
 				A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */,
+				A67282652F45F88F00A5001A /* ShopMikey ScannerExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -108,6 +174,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A67282642F45F88F00A5001A /* ShopMikey ScannerExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A672827C2F45F89100A5001A /* Build configuration list for PBXNativeTarget "ShopMikey ScannerExtension" */;
+			buildPhases = (
+				A67282612F45F88F00A5001A /* Sources */,
+				A67282622F45F88F00A5001A /* Frameworks */,
+				A67282632F45F88F00A5001A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A672826B2F45F88F00A5001A /* ShopMikey Scanner */,
+			);
+			name = "ShopMikey ScannerExtension";
+			packageProductDependencies = (
+			);
+			productName = "ShopMikey ScannerExtension";
+			productReference = A67282652F45F88F00A5001A /* ShopMikey ScannerExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		A6E181B92F41BA33000EFB56 /* POScannerApp */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A6E181DD2F41BA34000EFB56 /* Build configuration list for PBXNativeTarget "POScannerApp" */;
@@ -115,10 +203,12 @@
 				A6E181B62F41BA33000EFB56 /* Sources */,
 				A6E181B72F41BA33000EFB56 /* Frameworks */,
 				A6E181B82F41BA33000EFB56 /* Resources */,
+				A67282802F45F89100A5001A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A672827A2F45F89100A5001A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A6E181BC2F41BA33000EFB56 /* POScannerApp */,
@@ -186,6 +276,9 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					A67282642F45F88F00A5001A = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					A6E181B92F41BA33000EFB56 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -216,11 +309,19 @@
 				A6E181B92F41BA33000EFB56 /* POScannerApp */,
 				A6E181C82F41BA34000EFB56 /* POScannerAppTests */,
 				A6E181D22F41BA34000EFB56 /* POScannerAppUITests */,
+				A67282642F45F88F00A5001A /* ShopMikey ScannerExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A67282632F45F88F00A5001A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A6E181B82F41BA33000EFB56 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -245,6 +346,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A67282612F45F88F00A5001A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A6E181B62F41BA33000EFB56 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -269,6 +377,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A672827A2F45F89100A5001A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A67282642F45F88F00A5001A /* ShopMikey ScannerExtension */;
+			targetProxy = A67282792F45F89100A5001A /* PBXContainerItemProxy */;
+		};
 		A6E181CB2F41BA34000EFB56 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A6E181B92F41BA33000EFB56 /* POScannerApp */;
@@ -282,6 +395,68 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A672827D2F45F89100A5001A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 47BF65L2M7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "ShopMikey Scanner/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "ShopMikey Scanner";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mikey.POScannerApp.ShopMikey-Scanner";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A672827E2F45F89100A5001A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 47BF65L2M7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "ShopMikey Scanner/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "ShopMikey Scanner";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mikey.POScannerApp.ShopMikey-Scanner";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		A6E181DB2F41BA34000EFB56 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -554,6 +729,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A672827C2F45F89100A5001A /* Build configuration list for PBXNativeTarget "ShopMikey ScannerExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A672827D2F45F89100A5001A /* Debug */,
+				A672827E2F45F89100A5001A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A6E181B52F41BA33000EFB56 /* Build configuration list for PBXProject "Shopmikey" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

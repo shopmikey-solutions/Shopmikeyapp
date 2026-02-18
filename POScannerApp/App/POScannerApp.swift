@@ -9,6 +9,7 @@ import SwiftUI
 
 @main
 struct POScannerApp: App {
+    @UIApplicationDelegateAdaptor(AppNotificationDelegate.self) private var appNotificationDelegate
     private let environment: AppEnvironment
 
     init() {
@@ -17,6 +18,7 @@ struct POScannerApp: App {
         let secureStorage = SecureStorage(keychainService: keychainService)
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
         let reviewDraftStore = ReviewDraftStore()
+        let localNotificationService = LocalNotificationService()
 
         let apiClient = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
@@ -40,6 +42,7 @@ struct POScannerApp: App {
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
             reviewDraftStore: reviewDraftStore,
+            localNotificationService: localNotificationService,
             apiClient: apiClient,
             shopmonkeyAPI: shopmonkeyAPI,
             ocrService: OCRService(),

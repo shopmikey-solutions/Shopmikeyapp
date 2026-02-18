@@ -588,9 +588,18 @@ final class ReviewViewModel: ObservableObject {
         if result.succeeded {
             statusMessage = "Repair-order payload submitted to sandbox."
             showSuccessAlert = true
+            await environment.localNotificationService.notify(
+                .submissionSucceeded(
+                    vendor: trimmedOrNil(vendorName),
+                    totalCents: submissionTotalCents
+                )
+            )
             await clearDraftAfterSuccessfulSubmission()
         } else {
             errorMessage = result.message ?? "Submission failed."
+            await environment.localNotificationService.notify(
+                .submissionFailed(message: result.message)
+            )
         }
 
         isSubmitting = false
@@ -1083,6 +1092,13 @@ final class ReviewViewModel: ObservableObject {
             return true
         }
         return defaults.bool(forKey: "saveHistoryEnabled")
+    }
+
+    private var submissionTotalCents: Int? {
+        let total = items.reduce(0) { partial, item in
+            partial + (item.costCents * item.quantityForSubmission)
+        }
+        return total > 0 ? total : nil
     }
 
     private var ignoreTaxAndTotalsSetting: Bool {

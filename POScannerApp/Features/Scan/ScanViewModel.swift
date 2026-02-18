@@ -147,6 +147,7 @@ final class ScanViewModel: ObservableObject {
         let baseText = reviewedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !baseText.isEmpty else {
             errorMessage = "No readable invoice text was found."
+            await environment.localNotificationService.notify(.scanFailed)
             return
         }
 
@@ -189,6 +190,9 @@ final class ScanViewModel: ObservableObject {
         )
         await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumParseFlowDuration)
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice, draftSnapshot: nil)
+        await environment.localNotificationService.notify(
+            .scanReadyForReview(vendor: invoice.vendorName, lineItemCount: invoice.items.count)
+        )
 
         isProcessing = false
         processingStage = nil
@@ -262,6 +266,7 @@ final class ScanViewModel: ObservableObject {
             let previewImage = await Self.makePreviewImage(from: image)
             guard let cgImage = await Self.makeCGImage(from: image) else {
                 errorMessage = "Could not process the invoice scan."
+                await environment.localNotificationService.notify(.scanFailed)
                 isProcessing = false
                 processingStage = nil
                 processingStartedAt = nil
@@ -277,6 +282,7 @@ final class ScanViewModel: ObservableObject {
             )
         } catch {
             errorMessage = "Could not process the invoice scan."
+            await environment.localNotificationService.notify(.scanFailed)
         }
 
         isProcessing = false

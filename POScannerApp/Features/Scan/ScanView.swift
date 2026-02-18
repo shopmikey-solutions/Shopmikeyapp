@@ -256,6 +256,10 @@ struct ScanView: View {
                     }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
+            guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
+            showSourceSheet = true
+        }
     }
 
     @ViewBuilder

@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("saveHistoryEnabled") private var saveHistoryEnabled: Bool = true
     @AppStorage("scanLiveActivitiesEnabled") private var scanLiveActivitiesEnabled: Bool = true
     @AppStorage("scanWidgetRefreshEnabled") private var scanWidgetRefreshEnabled: Bool = true
+    @AppStorage(LocalNotificationService.enabledKey) private var scanLocalNotificationsEnabled: Bool = true
     @StateObject private var viewModel: SettingsViewModel
 
     init(environment: AppEnvironment) {
@@ -45,8 +46,10 @@ struct SettingsView: View {
                     .accessibilityIdentifier("settings.liveActivitiesToggle")
                 Toggle("Widget Refresh", isOn: $scanWidgetRefreshEnabled)
                     .accessibilityIdentifier("settings.widgetRefreshToggle")
+                Toggle("Local Notifications", isOn: $scanLocalNotificationsEnabled)
+                    .accessibilityIdentifier("settings.localNotificationsToggle")
 
-                Text("Live Activities show active intake progress on the Lock Screen and Dynamic Island. Widget refresh publishes the latest dashboard snapshot for widgets.")
+                Text("Live Activities show active intake progress on the Lock Screen and Dynamic Island. Widget refresh publishes the latest dashboard snapshot for widgets. Local notifications alert you when scans are ready or submissions fail.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -125,6 +128,13 @@ struct SettingsView: View {
         }
         .onChange(of: scanWidgetRefreshEnabled) { _, _ in
             AppHaptics.selection()
+        }
+        .onChange(of: scanLocalNotificationsEnabled) { _, enabled in
+            AppHaptics.selection()
+            guard enabled else { return }
+            Task {
+                _ = await viewModel.environment.localNotificationService.requestAuthorizationIfNeeded()
+            }
         }
         .onChange(of: viewModel.experimentalOrderPOLinking) { _, _ in
             AppHaptics.selection()

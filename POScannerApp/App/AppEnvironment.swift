@@ -13,6 +13,7 @@ struct AppEnvironment {
     let secureStorage: SecureStorage
     let networkDiagnostics: NetworkDiagnosticsRecorder
     let reviewDraftStore: ReviewDraftStore
+    let localNotificationService: LocalNotificationService
     let apiClient: APIClient
     let shopmonkeyAPI: ShopmonkeyAPI
     let ocrService: OCRService
@@ -39,6 +40,7 @@ extension AppEnvironment {
         let secureStorage = SecureStorage(keychainService: keychainService)
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
         let reviewDraftStore = ReviewDraftStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("preview_review_drafts.json"))
+        let localNotificationService = LocalNotificationService()
 
         let apiClient = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
@@ -52,6 +54,7 @@ extension AppEnvironment {
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
             reviewDraftStore: reviewDraftStore,
+            localNotificationService: localNotificationService,
             apiClient: apiClient,
             shopmonkeyAPI: ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics),
             ocrService: OCRService(),

@@ -44,6 +44,31 @@ struct RootTabView: View {
         .tint(.blue)
         .sensoryFeedback(.selection, trigger: selectedTab)
         .appSensoryFeedback()
+        .onOpenURL { url in
+            handleDeepLink(url)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .appDeepLinkRequested)) { notification in
+            guard let url = notification.object as? URL else { return }
+            handleDeepLink(url)
+        }
+    }
+
+    private func handleDeepLink(_ url: URL) {
+        guard let route = AppDeepLink.parse(url) else { return }
+
+        switch route {
+        case let .scan(openComposer):
+            selectedTab = .scan
+            guard openComposer else { return }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 220_000_000)
+                NotificationCenter.default.post(name: .appOpenScanComposer, object: nil)
+            }
+        case .history:
+            selectedTab = .history
+        case .settings:
+            selectedTab = .settings
+        }
     }
 }
 

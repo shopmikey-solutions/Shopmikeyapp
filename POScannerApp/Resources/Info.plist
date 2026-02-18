@@ -14,6 +14,19 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.mikey.POScannerApp.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>shopmikey</string>
+			</array>
+		</dict>
+	</array>
 	<key>AppGroupIdentifier</key>
 	<string>group.com.mikey.POScannerApp</string>
 	<key>NSCameraUsageDescription</key>

@@ -124,4 +124,21 @@ struct POParserAdvancedTests {
         #expect(shipping.costCents == 4500)
         #expect(shipping.kind == .fee)
     }
+
+    @Test func doesNotTreatHeaderLabelsAsDocumentIdentifiers() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        METRO AUTO PARTS SUPPLY
+        Invoice #:
+        MAP-45821
+        PO Number:
+        PO-99012
+        Vendor:
+        METRO AUTO PARTS SUPPLY
+        ACD-41-993 Front Brake Pad Set - Ceramic 6 $68.00 $408.00
+        """)
+
+        #expect(parsed.invoiceNumber == "MAP-45821")
+        #expect(parsed.poNumber == "PO-99012")
+    }
 }

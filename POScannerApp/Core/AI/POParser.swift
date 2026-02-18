@@ -58,43 +58,24 @@ final class POParser: @unchecked Sendable {
     // MARK: - PO number
 
     private func extractPONumber(from text: String) -> String? {
-        let pattern = #"(?i)\bPO\s*(?:NUMBER|NO\.?|NO|#)?\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{2,})"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.firstMatch(in: text, options: [], range: range) else { return nil }
-        guard match.numberOfRanges >= 2, let r1 = Range(match.range(at: 1), in: text) else { return nil }
-
-        let value = String(text[r1]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
+        extractIdentifier(
+            from: text,
+            inlinePatterns: [
+                #"(?i)\bPO[ \t]*(?:NUMBER|NO\.?|NO|#)?[ \t]*[:#]?[ \t]*([A-Z0-9][A-Z0-9-]{1,})"#
+            ],
+            labelOnlyPattern: #"(?i)^\s*PO[ \t]*(?:NUMBER|NO\.?|NO|#)?[ \t]*[:#]?\s*$"#
+        )
     }
 
     private func extractInvoiceNumber(from text: String) -> String? {
-        let patterns = [
-            #"(?i)\bInvoice\s*(?:No\.?|#|Number)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-]*)"#,
-            #"(?i)\bInv\s*(?:No\.?|#|Number)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-]*)"#
-        ]
-
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            guard let match = regex.firstMatch(in: text, options: [], range: range),
-                  match.numberOfRanges > 1,
-                  let captureRange = Range(match.range(at: 1), in: text) else {
-                continue
-            }
-
-            let value = String(text[captureRange])
-                .trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: " ", with: "")
-
-            let upper = value.uppercased()
-            if !value.isEmpty, upper != "NO", upper != "NUMBER", upper != "INV", upper != "INVOICE" {
-                return value
-            }
-        }
-
-        return nil
+        extractIdentifier(
+            from: text,
+            inlinePatterns: [
+                #"(?i)\bInvoice[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?[ \t]*([A-Z0-9][A-Z0-9\-]*)"#,
+                #"(?i)\bInv[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?[ \t]*([A-Z0-9][A-Z0-9\-]*)"#
+            ],
+            labelOnlyPattern: #"(?i)^\s*(Invoice|Inv)[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?\s*$"#
+        )
     }
 
     // MARK: - Line items
@@ -701,6 +682,74 @@ private extension POParser {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func normalizeIdentifierCandidate(_ candidate: String) -> String? {
+        let value = candidate
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ":#"))
+            .replacingOccurrences(of: " ", with: "")
+
+        guard !value.isEmpty else { return nil }
+        let upper = value.uppercased()
+
+        let disallowed = Set([
+            "NO", "NUMBER", "INV", "INVOICE", "PO", "VENDOR", "DATE",
+            "PHONE", "EMAIL", "BILL", "SHIP", "ACCOUNT", "CUSTOMER"
+        ])
+        guard !disallowed.contains(upper) else { return nil }
+        guard upper.rangeOfCharacter(from: .decimalDigits) != nil else { return nil }
+
+        return value
+    }
+
+    func extractIdentifier(
+        from text: String,
+        inlinePatterns: [String],
+        labelOnlyPattern: String
+    ) -> String? {
+        let lines = text.components(separatedBy: .newlines)
+        let inlineRegexes = inlinePatterns.compactMap { try? NSRegularExpression(pattern: $0) }
+        let labelOnlyRegex = try? NSRegularExpression(pattern: labelOnlyPattern)
+
+        for index in lines.indices {
+            let line = lines[index]
+            let lineRange = NSRange(line.startIndex..<line.endIndex, in: line)
+
+            for regex in inlineRegexes {
+                for match in regex.matches(in: line, options: [], range: lineRange) {
+                    guard match.numberOfRanges > 1,
+                          let captureRange = Range(match.range(at: 1), in: line) else {
+                        continue
+                    }
+
+                    if let normalized = normalizeIdentifierCandidate(String(line[captureRange])) {
+                        return normalized
+                    }
+                }
+            }
+
+            guard let labelOnlyRegex,
+                  labelOnlyRegex.firstMatch(in: line, options: [], range: lineRange) != nil else {
+                continue
+            }
+
+            var lookahead = lines.index(after: index)
+            while lookahead < lines.count {
+                let nextLine = lines[lookahead].trimmingCharacters(in: .whitespacesAndNewlines)
+                if nextLine.isEmpty {
+                    lookahead = lines.index(after: lookahead)
+                    continue
+                }
+
+                if let normalized = normalizeIdentifierCandidate(nextLine) {
+                    return normalized
+                }
+                break
+            }
+        }
+
+        return nil
     }
 }
 

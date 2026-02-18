@@ -96,6 +96,7 @@ struct OrderPickerView: View {
         }
         .navigationTitle("Select Shopmonkey Order")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .searchable(text: $searchText)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

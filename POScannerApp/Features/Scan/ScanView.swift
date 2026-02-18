@@ -240,6 +240,9 @@ struct ScanView: View {
             guard message != nil else { return }
             AppHaptics.error()
         }
+        .sensoryFeedback(trigger: viewModel.isProcessing) { _, processing in
+            processing ? .impact(weight: .medium, intensity: 0.8) : .selection
+        }
         .onChange(of: selectedPhotoItem) { _, item in
             guard let item else { return }
             Task { await importPhoto(item) }
@@ -313,13 +316,26 @@ struct ScanView: View {
                     .font(.subheadline.weight(.medium))
             } currentValueLabel: {
                 Text("\(Int((pipelineProgress * 100).rounded()))%")
-                    .font(.footnote)
+                    .font(.footnote.monospacedDigit())
+                    .contentTransition(.numericText())
             }
+            .animation(.smooth(duration: 0.28), value: pipelineProgress)
 
-            LabeledContent("PO Value Today", value: viewModel.todayTotalFormatted)
-            LabeledContent("Average PO", value: viewModel.todayAverageFormatted)
+            LabeledContent("PO Value Today") {
+                Text(viewModel.todayTotalFormatted)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            LabeledContent("Average PO") {
+                Text(viewModel.todayAverageFormatted)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
         }
         .padding(.vertical, 4)
+        .animation(.snappy(duration: 0.26), value: viewModel.todayCount)
+        .animation(.snappy(duration: 0.26), value: viewModel.submittedCount)
+        .animation(.snappy(duration: 0.26), value: viewModel.failedCount)
     }
 
     private func metricCell(title: String, value: String) -> some View {
@@ -329,6 +345,8 @@ struct ScanView: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.title3.weight(.semibold))
+                .monospacedDigit()
+                .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

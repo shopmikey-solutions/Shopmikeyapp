@@ -141,8 +141,11 @@ struct ReviewView: View {
         .listStyle(.insetGrouped)
         .nativeListSurface()
         .scrollDismissesKeyboard(.interactively)
+        .toolbar(.hidden, for: .tabBar)
         .navigationTitle("Parts Intake Review")
         .navigationBarTitleDisplayMode(.inline)
+        .animation(.snappy(duration: 0.24), value: focusNeedsReviewOnly)
+        .animation(.snappy(duration: 0.24), value: filteredItemIndices.count)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 if canEditItems {
@@ -192,13 +195,24 @@ struct ReviewView: View {
         VStack(alignment: .leading, spacing: 10) {
             LabeledContent("Readiness") {
                 Text("\(Int((viewModel.reviewReadinessScore * 100).rounded()))%")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
                     .foregroundStyle(.secondary)
             }
 
             ProgressView(value: viewModel.reviewReadinessScore)
+                .animation(.smooth(duration: 0.24), value: viewModel.reviewReadinessScore)
 
-            LabeledContent("Line Items", value: "\(viewModel.items.count)")
-            LabeledContent("Needs Review", value: "\(viewModel.unknownKindCount)")
+            LabeledContent("Line Items") {
+                Text("\(viewModel.items.count)")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            LabeledContent("Needs Review") {
+                Text("\(viewModel.unknownKindCount)")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
 
             Text(viewModel.canSubmit ? "Ready to add lines in Shopmonkey." : "Pick a vendor match and required IDs before sending.")
                 .font(.footnote)
@@ -560,9 +574,13 @@ struct ReviewView: View {
 
             HStack {
                 Text("\(quantityString(item.quantity)) x \(item.unitPriceFormatted)")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
                 Spacer()
                 Text(item.subtotalFormatted)
                     .fontWeight(.semibold)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
             }
             .font(.footnote)
             .foregroundStyle(.secondary)

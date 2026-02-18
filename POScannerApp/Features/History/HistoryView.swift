@@ -209,12 +209,32 @@ struct HistoryView: View {
 
     private var historyOverviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            LabeledContent("Scans Today", value: "\(todayOrders.count)")
-            LabeledContent("Submitted POs", value: "\(submittedCount)")
-            LabeledContent("Needs Attention", value: "\(pendingCount + failedCount)")
-            LabeledContent("PO Value Today", value: totalValueFormatted)
-                .font(.headline)
+            LabeledContent("Scans Today") {
+                Text("\(todayOrders.count)")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            LabeledContent("Submitted POs") {
+                Text("\(submittedCount)")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            LabeledContent("Needs Attention") {
+                Text("\(pendingCount + failedCount)")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            LabeledContent("PO Value Today") {
+                Text(totalValueFormatted)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            .font(.headline)
         }
+        .animation(.snappy(duration: 0.24), value: todayOrders.count)
+        .animation(.snappy(duration: 0.24), value: submittedCount)
+        .animation(.snappy(duration: 0.24), value: pendingCount)
+        .animation(.snappy(duration: 0.24), value: failedCount)
     }
 
     private var submittedCount: Int {

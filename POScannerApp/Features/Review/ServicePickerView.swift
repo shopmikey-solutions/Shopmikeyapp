@@ -72,6 +72,7 @@ struct ServicePickerView: View {
         }
         .navigationTitle("Select Shopmonkey Service")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }

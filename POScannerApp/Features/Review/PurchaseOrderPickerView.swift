@@ -99,6 +99,7 @@ struct PurchaseOrderPickerView: View {
         }
         .navigationTitle("Select Shopmonkey Purchase Order")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .searchable(text: $searchText, prompt: "PO number, vendor, or status")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

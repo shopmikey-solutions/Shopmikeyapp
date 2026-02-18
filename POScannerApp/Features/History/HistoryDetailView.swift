@@ -70,6 +70,7 @@ struct HistoryDetailView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .toolbar(.hidden, for: .tabBar)
         .navigationTitle("PO Details")
         .navigationBarTitleDisplayMode(.inline)
     }

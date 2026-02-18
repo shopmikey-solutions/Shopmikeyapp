@@ -27,7 +27,12 @@ struct HistoryView: View {
 
     init(environment: AppEnvironment) {
         self.environment = environment
-        _viewModel = StateObject(wrappedValue: HistoryViewModel(dataController: environment.dataController))
+        _viewModel = StateObject(
+            wrappedValue: HistoryViewModel(
+                dataController: environment.dataController,
+                reviewDraftStore: environment.reviewDraftStore
+            )
+        )
     }
 
     var body: some View {
@@ -36,21 +41,52 @@ struct HistoryView: View {
                 ContentUnavailableView(
                     "History Disabled",
                     systemImage: "clock.badge.xmark",
-                    description: Text("Enable “Save History” in settings to keep scanned automotive invoices locally.")
+                    description: Text("Enable \"Save History\" to keep local purchase-order records and draft intake snapshots.")
                 )
             } else if viewModel.isLoading {
-                ProgressView("Loading RO history…")
+                ProgressView("Loading purchase order history…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.orders.isEmpty {
+            } else if viewModel.orders.isEmpty && viewModel.inProgressDrafts.isEmpty {
                 ContentUnavailableView(
                     "No History Yet",
                     systemImage: "clock",
-                    description: Text("Saved supplier invoice runs will appear here.")
+                    description: Text("Submitted purchase-order records and intake drafts will appear here.")
                 )
             } else {
                 List {
-                    Section("Today Shop Snapshot") {
+                    Section("Today's Parts Intake Snapshot") {
                         historyOverviewCard
+                    }
+
+                    Section("In-Progress Parts Intake Drafts") {
+                        if viewModel.inProgressDrafts.isEmpty {
+                            Text("No saved intake drafts.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(viewModel.inProgressDrafts) { draft in
+                                NavigationLink {
+                                    ReviewView(
+                                        environment: environment,
+                                        parsedInvoice: draft.state.parsedInvoice.parsedInvoice,
+                                        draftSnapshot: draft
+                                    )
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(draft.displayVendorName)
+                                            .font(.headline)
+                                        Text("\(draft.displaySecondaryLine) • Saved \(draft.updatedAt.formatted(date: .omitted, time: .shortened))")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button("Delete", role: .destructive) {
+                                        AppHaptics.warning()
+                                        Task { await viewModel.deleteDraft(draft) }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Section {
@@ -62,9 +98,9 @@ struct HistoryView: View {
                         )
                     }
 
-                    Section("Repair Orders") {
+                    Section("Submitted Purchase Orders") {
                         if filteredOrders.isEmpty {
-                            Text("No repair orders in this scope.")
+                            Text("No purchase orders in this filter.")
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(filteredOrders) { row in
@@ -117,10 +153,10 @@ struct HistoryView: View {
                 .refreshable {
                     viewModel.loadHistory()
                 }
-                .searchable(text: $searchText, prompt: "Vendor, invoice, or PO")
+                .searchable(text: $searchText, prompt: "Vendor, invoice, PO, or status")
             }
         }
-        .navigationTitle("RO History")
+        .navigationTitle("Purchase Order History")
         .navigationBarTitleDisplayMode(.large)
         .alert("Retry Failed", isPresented: $isRetryErrorPresented) {
             Button("OK") {}
@@ -173,10 +209,10 @@ struct HistoryView: View {
 
     private var historyOverviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            LabeledContent("Invoices Today", value: "\(todayOrders.count)")
-            LabeledContent("Submitted", value: "\(submittedCount)")
-            LabeledContent("Needs Shop Attention", value: "\(pendingCount + failedCount)")
-            LabeledContent("Captured Value Today", value: totalValueFormatted)
+            LabeledContent("Scans Today", value: "\(todayOrders.count)")
+            LabeledContent("Submitted POs", value: "\(submittedCount)")
+            LabeledContent("Needs Attention", value: "\(pendingCount + failedCount)")
+            LabeledContent("PO Value Today", value: totalValueFormatted)
                 .font(.headline)
         }
     }
@@ -209,7 +245,7 @@ struct HistoryView: View {
             HStack(spacing: 8) {
                 Text(row.formattedDate)
                 if let poNumber = row.poNumber, !poNumber.isEmpty {
-                    Text("PO \(poNumber)")
+                    Text("PO #\(poNumber)")
                 }
                 Spacer()
                 Text(row.formattedTotal)

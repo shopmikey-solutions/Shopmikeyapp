@@ -19,12 +19,12 @@ struct ServicePickerView: View {
     var body: some View {
         Group {
             if isLoading && services.isEmpty {
-                ProgressView("Loading services…")
+                ProgressView("Loading Shopmonkey services…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage, services.isEmpty {
                 VStack(spacing: 16) {
                     ContentUnavailableView(
-                        "Couldn’t Load Services",
+                        "Couldn't Load Shopmonkey Services",
                         systemImage: "exclamationmark.triangle",
                         description: Text(errorMessage)
                     )
@@ -36,9 +36,9 @@ struct ServicePickerView: View {
                 }
             } else if services.isEmpty {
                 ContentUnavailableView(
-                    "No Services",
+                    "No Services Found",
                     systemImage: "wrench.and.screwdriver",
-                    description: Text("No services were returned for this order.")
+                    description: Text("No services were returned for this order in Shopmonkey.")
                 )
             } else {
                 List {
@@ -70,7 +70,7 @@ struct ServicePickerView: View {
                 }
             }
         }
-        .navigationTitle("Select Service")
+        .navigationTitle("Select Shopmonkey Service")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

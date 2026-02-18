@@ -22,19 +22,19 @@ struct ScanView: View {
 
     var body: some View {
         List {
-            Section("Service Lane Overview") {
+            Section("Parts Intake Overview") {
                 dashboardSummary
             }
 
-            Section("Capture Preferences") {
-                Toggle("Ignore tax and summary rows", isOn: $ignoreTaxAndTotals)
+            Section("Intake Preferences") {
+                Toggle("Ignore tax and totals", isOn: $ignoreTaxAndTotals)
                     .accessibilityIdentifier("scan.ignoreTaxToggle")
-                Text("Use this when invoice totals are noisy and the line-level parts list is the source of truth.")
+                Text("Use this when supplier totals are noisy and line-item pricing is the source of truth.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
-            Section("In-Progress Intake") {
+            Section("In-Progress Parts Intake") {
                 if viewModel.inProgressDrafts.isEmpty {
                     Text("No saved intake drafts.")
                         .foregroundStyle(.secondary)
@@ -63,7 +63,7 @@ struct ScanView: View {
                 }
             }
 
-            Section("Recent Repair Orders") {
+            Section("Recent Purchase Order Posts") {
                 if let recent = viewModel.mostRecentSummary {
                     NavigationLink {
                         HistoryView(environment: viewModel.environment)
@@ -76,18 +76,18 @@ struct ScanView: View {
                         }
                     }
                 } else {
-                    Text("No recent repair-order submissions yet.")
+                    Text("No recent purchase-order submissions yet.")
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Section("Shop Tools") {
-                NavigationLink("Submission History") {
+            Section("Shopmonkey Tools") {
+                NavigationLink("Purchase Order History") {
                     HistoryView(environment: viewModel.environment)
                 }
                 .accessibilityIdentifier("scan.quickHistory")
 
-                NavigationLink("Scanner Settings") {
+                NavigationLink("Intake Settings") {
                     SettingsView(environment: viewModel.environment)
                 }
                 .accessibilityIdentifier("scan.quickSettings")
@@ -110,7 +110,7 @@ struct ScanView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .nativeListSurface()
+        .nativeListSurface(style: .dashboard)
         .refreshable {
             viewModel.loadTodayMetrics()
         }
@@ -124,7 +124,7 @@ struct ScanView: View {
                     AppHaptics.impact(.medium, intensity: 0.9)
                     showScanner = true
                 } label: {
-                    Label("Scan Invoice", systemImage: "doc.viewfinder")
+                    Label("Scan Parts Invoice", systemImage: "doc.viewfinder")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(showScanner || viewModel.isProcessing)
@@ -233,7 +233,7 @@ struct ScanView: View {
     private var processingBanner: some View {
         if viewModel.isProcessing {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Live Intake Pipeline")
+                Text("Live Parts Intake Pipeline")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
@@ -262,30 +262,30 @@ struct ScanView: View {
 
     private var dashboardSummary: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Service Intake Dashboard")
+            Text("Parts Intake Dashboard")
                 .font(.title3.weight(.semibold))
                 .accessibilityIdentifier("scan.dashboardTitle")
 
-            Text("Capture supplier invoices, classify parts and tires, and keep repair-order intake moving.")
+            Text("Capture supplier invoices, classify parts and tires, and keep Shopmonkey purchase orders moving.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 20) {
-                metricCell(title: "Invoices Today", value: "\(viewModel.todayCount)")
-                metricCell(title: "ROs Submitted", value: "\(viewModel.submittedCount)")
+                metricCell(title: "Scans Today", value: "\(viewModel.todayCount)")
+                metricCell(title: "POs Submitted", value: "\(viewModel.submittedCount)")
                 metricCell(title: "Needs Retry", value: "\(viewModel.failedCount)")
             }
 
             ProgressView(value: pipelineProgress) {
-                Text("Shop Sync Status")
+                Text("Shopmonkey Sync Status")
                     .font(.subheadline.weight(.medium))
             } currentValueLabel: {
                 Text("\(Int((pipelineProgress * 100).rounded()))%")
                     .font(.footnote)
             }
 
-            LabeledContent("Captured Today", value: viewModel.todayTotalFormatted)
-            LabeledContent("Average RO", value: viewModel.todayAverageFormatted)
+            LabeledContent("PO Value Today", value: viewModel.todayTotalFormatted)
+            LabeledContent("Average PO", value: viewModel.todayAverageFormatted)
         }
         .padding(.vertical, 4)
     }

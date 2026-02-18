@@ -39,12 +39,15 @@ final class HistoryViewModel: ObservableObject {
     }
 
     @Published private(set) var orders: [HistoryRow] = []
+    @Published private(set) var inProgressDrafts: [ReviewDraftSnapshot] = []
     @Published private(set) var isLoading: Bool = false
 
     private let dataController: DataController
+    private let reviewDraftStore: ReviewDraftStore
 
-    init(dataController: DataController) {
+    init(dataController: DataController, reviewDraftStore: ReviewDraftStore) {
         self.dataController = dataController
+        self.reviewDraftStore = reviewDraftStore
     }
 
     func loadHistory() {
@@ -53,6 +56,8 @@ final class HistoryViewModel: ObservableObject {
         let container = dataController.container
 
         Task(priority: .userInitiated) {
+            async let drafts = reviewDraftStore.list()
+
             let backgroundContext = container.newBackgroundContext()
             backgroundContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
@@ -83,7 +88,17 @@ final class HistoryViewModel: ObservableObject {
             }
 
             orders = mapped
+            inProgressDrafts = await drafts
             isLoading = false
+        }
+    }
+
+    func deleteDraft(_ draft: ReviewDraftSnapshot) async {
+        do {
+            try await reviewDraftStore.delete(id: draft.id)
+            inProgressDrafts = await reviewDraftStore.list()
+        } catch {
+            // Keep this silent in the model; the view already remains stable with current state.
         }
     }
 

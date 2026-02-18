@@ -31,12 +31,12 @@ struct PurchaseOrderPickerView: View {
     var body: some View {
         Group {
             if isLoading && purchaseOrders.isEmpty {
-                ProgressView("Loading purchase orders…")
+                ProgressView("Loading Shopmonkey purchase orders…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage, purchaseOrders.isEmpty {
                 VStack(spacing: 16) {
                     ContentUnavailableView(
-                        "Couldn’t Load Purchase Orders",
+                        "Couldn't Load Shopmonkey Purchase Orders",
                         systemImage: "exclamationmark.triangle",
                         description: Text(errorMessage)
                     )
@@ -48,9 +48,9 @@ struct PurchaseOrderPickerView: View {
                 }
             } else if filteredPurchaseOrders.isEmpty {
                 ContentUnavailableView(
-                    "No Purchase Orders",
+                    "No Purchase Orders Found",
                     systemImage: "doc.text.magnifyingglass",
-                    description: Text(searchText.isEmpty ? "No purchase orders were returned." : "No purchase orders match your search.")
+                    description: Text(searchText.isEmpty ? "No purchase orders were returned from Shopmonkey." : "No purchase orders match your search.")
                 )
             } else {
                 List {
@@ -97,7 +97,7 @@ struct PurchaseOrderPickerView: View {
                 }
             }
         }
-        .navigationTitle("Select Purchase Order")
+        .navigationTitle("Select Shopmonkey Purchase Order")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: "PO number, vendor, or status")
         .toolbar {

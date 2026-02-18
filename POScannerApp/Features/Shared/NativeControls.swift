@@ -69,13 +69,22 @@ private struct OptionalAccessibilityIdentifier: ViewModifier {
 }
 
 struct NativeListSurfaceModifier: ViewModifier {
+    let style: AppScreenBackground.Style
+
     func body(content: Content) -> some View {
         content
+            .fontDesign(.rounded)
+            .listRowSeparator(.hidden)
+            .listSectionSeparator(.hidden)
+            .listRowBackground(AppListRowBackground())
+            .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden, axes: .vertical)
+            .background(AppScreenBackground(style: style))
     }
 }
 
 extension View {
-    func nativeListSurface() -> some View {
-        modifier(NativeListSurfaceModifier())
+    func nativeListSurface(style: AppScreenBackground.Style = .standard) -> some View {
+        modifier(NativeListSurfaceModifier(style: style))
     }
 }

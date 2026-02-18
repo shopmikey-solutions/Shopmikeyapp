@@ -41,7 +41,7 @@ struct RootTabView: View {
                 Label("Settings", systemImage: "gearshape")
             }
         }
-        .tint(.blue)
+        .tint(AppSurfaceStyle.accent)
         .sensoryFeedback(.selection, trigger: selectedTab)
         .appSensoryFeedback()
     }

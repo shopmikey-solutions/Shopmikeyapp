@@ -13,10 +13,10 @@ import UIKit
 @MainActor
 final class ScanViewModel: ObservableObject {
     enum ProcessingStage: String {
-        case extractingText = "Reading service invoice"
+        case extractingText = "Reading parts invoice"
         case preparingReview = "Preparing technician review"
         case parsing = "Classifying parts, tires, and fees"
-        case finalizing = "Staging repair order draft"
+        case finalizing = "Staging purchase order intake"
 
         var progressEstimate: Double {
             switch self {
@@ -40,7 +40,7 @@ final class ScanViewModel: ObservableObject {
             case .parsing:
                 return "Applying on-device AI + rules for automotive line items."
             case .finalizing:
-                return "Final checks before opening the RO review screen."
+                return "Final checks before opening the purchase-order review screen."
             }
         }
     }
@@ -345,7 +345,7 @@ final class ScanViewModel: ObservableObject {
     }
 
     var processingDetailText: String {
-        processingStage?.detail ?? "Preparing repair-order intake result."
+        processingStage?.detail ?? "Preparing purchase-order intake result."
     }
 
     private func logScanDiagnostics(

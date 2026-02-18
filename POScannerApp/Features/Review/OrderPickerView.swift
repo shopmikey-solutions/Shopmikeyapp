@@ -31,12 +31,12 @@ struct OrderPickerView: View {
     var body: some View {
         Group {
             if isLoading && orders.isEmpty {
-                ProgressView("Loading orders…")
+                ProgressView("Loading Shopmonkey orders…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage, orders.isEmpty {
                 VStack(spacing: 16) {
                     ContentUnavailableView(
-                        "Couldn’t Load Orders",
+                        "Couldn't Load Shopmonkey Orders",
                         systemImage: "exclamationmark.triangle",
                         description: Text(errorMessage)
                     )
@@ -48,9 +48,9 @@ struct OrderPickerView: View {
                 }
             } else if filteredOrders.isEmpty {
                 ContentUnavailableView(
-                    "No Orders",
+                    "No Orders Found",
                     systemImage: "doc.text.magnifyingglass",
-                    description: Text(searchText.isEmpty ? "No orders were returned." : "No orders match your search.")
+                    description: Text(searchText.isEmpty ? "No orders were returned from Shopmonkey." : "No orders match your search.")
                 )
             } else {
                 List {
@@ -94,7 +94,7 @@ struct OrderPickerView: View {
                 }
             }
         }
-        .navigationTitle("Select Order")
+        .navigationTitle("Select Shopmonkey Order")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText)
         .toolbar {

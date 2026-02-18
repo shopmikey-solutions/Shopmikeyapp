@@ -50,12 +50,14 @@ struct AppFormChromeModifier: ViewModifier {
     }
 }
 
-private struct AppListRowBackground: View {
+struct AppListRowBackground: View {
+    var cornerRadius: CGFloat = 22
+
     var body: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(AppSurfaceStyle.listCardFill)
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(AppSurfaceStyle.cardStroke)
             )
     }

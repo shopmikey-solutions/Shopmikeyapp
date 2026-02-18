@@ -37,25 +37,25 @@ struct ReviewView: View {
                 }
             }
 
-            Section("Intake Overview") {
+            Section("Parts Intake Status") {
                 reviewHealthCard
                 if viewModel.confidenceScore < 0.75 {
-                    Label("Some invoice fields need technician review.", systemImage: "exclamationmark.triangle.fill")
+                    Label("Some intake fields still need review.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
                 }
             }
 
-            Section("Supplier") {
+            Section("Vendor") {
                 vendorSection
             }
 
             Section {
                 identifierSection
             } header: {
-                Text("Invoice & Purchase Order")
+                Text("Invoice & PO")
             }
 
-            Section("Parts, Tires & Fees") {
+            Section("Parts, Tires & Fees to Add") {
                 if canFilterNeedsReview {
                     Toggle("Focus on items needing review", isOn: $focusNeedsReviewOnly)
                         .accessibilityIdentifier("review.focusNeedsReviewToggle")
@@ -73,22 +73,22 @@ struct ReviewView: View {
                     AppHaptics.impact(.light, intensity: 0.8)
                     viewModel.addEmptyItem()
                 } label: {
-                    Label("Add Service Line", systemImage: "plus")
+                    Label("Add Part Line", systemImage: "plus")
                 }
             }
 
-            Section("Submission Route") {
+            Section("Shopmonkey Destination") {
                 if experimentalOrderPOLinking {
                     submissionModePicker
                     submissionContextLinks
                 } else {
-                    Text("Production intake keeps this flow simple: submit to a draft purchase order from scan data.")
+                    Text("Production mode keeps this simple: add scanned lines to a Shopmonkey draft purchase order.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
                 taxBehaviorRow
-                Text(experimentalOrderPOLinking ? viewModel.modeGuidanceText : "Enable Experimental Order / PO Linking in Settings > Diagnostics for advanced linking tools.")
+                Text(experimentalOrderPOLinking ? viewModel.modeGuidanceText : "Enable Experimental Order / PO Linking in Settings > Diagnostics for advanced add-to-order and add-to-PO tools.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -111,20 +111,20 @@ struct ReviewView: View {
                 }
             }
 
-            Section("RO Totals") {
+            Section("PO Totals") {
                 LabeledContent("Subtotal", value: viewModel.subtotalFormatted)
                 if !viewModel.shouldIgnoreTax {
                     LabeledContent("Tax", value: viewModel.taxFormatted)
                 }
                 LabeledContent("Total", value: viewModel.grandTotalFormatted)
                     .font(.headline)
-                LabeledContent("Invoices Today", value: "\(viewModel.todayCount)")
+                LabeledContent("Scans Today", value: "\(viewModel.todayCount)")
             }
 
-            Section("Technician Notes") {
+            Section("Parts Intake Notes") {
                 NativeTextView(
                     text: $viewModel.notes,
-                    placeholder: "Add notes for parts intake or RO handoff",
+                    placeholder: "Add notes for parts intake or Shopmonkey handoff",
                     accessibilityIdentifier: "review.notesField"
                 )
                     .frame(minHeight: 120)
@@ -140,7 +140,7 @@ struct ReviewView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
-        .navigationTitle("RO Intake Review")
+        .navigationTitle("Parts Intake Review")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -149,7 +149,7 @@ struct ReviewView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(viewModel.isSubmitting ? "Submitting..." : "Send to Shopmonkey") {
+                Button(viewModel.isSubmitting ? "Submitting..." : submitButtonTitle) {
                     AppHaptics.impact(.medium, intensity: 0.9)
                     Task { await viewModel.submitTapped() }
                 }
@@ -157,10 +157,10 @@ struct ReviewView: View {
                 .accessibilityIdentifier("review.submitButton")
             }
         }
-        .alert("Repair Order Submitted", isPresented: $viewModel.showSuccessAlert) {
+        .alert("Submission Complete", isPresented: $viewModel.showSuccessAlert) {
             Button("OK") { dismiss() }
         } message: {
-            Text("Parts, tires, and fees were submitted to the Shopmonkey sandbox.")
+            Text("Parts, tires, and fees were sent to Shopmonkey.")
         }
         .onAppear {
             viewModel.loadTodayMetrics()
@@ -199,7 +199,7 @@ struct ReviewView: View {
             LabeledContent("Line Items", value: "\(viewModel.items.count)")
             LabeledContent("Needs Review", value: "\(viewModel.unknownKindCount)")
 
-            Text(viewModel.canSubmit ? "Ready to submit to Shopmonkey." : "Pick a supplier match and required IDs before sending.")
+            Text(viewModel.canSubmit ? "Ready to add lines in Shopmonkey." : "Pick a vendor match and required IDs before sending.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -211,8 +211,8 @@ struct ReviewView: View {
         VStack(alignment: .leading, spacing: 10) {
             TextField(
                 viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? (viewModel.suggestedVendorName ?? "Supplier")
-                    : "Supplier",
+                    ? (viewModel.suggestedVendorName ?? "Vendor")
+                    : "Vendor",
                 text: Binding(
                     get: { viewModel.vendorName },
                     set: { viewModel.setVendorName($0) }
@@ -229,7 +229,7 @@ struct ReviewView: View {
             .foregroundStyle(viewModel.selectedVendorId == nil ? .orange : .green)
 
             if let suggestedVendorName = viewModel.suggestedVendorName, !suggestedVendorName.isEmpty {
-                Text("OCR suggested: \(suggestedVendorName)")
+                Text("OCR suggested vendor: \(suggestedVendorName)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -238,7 +238,7 @@ struct ReviewView: View {
             if viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let suggestedVendorName = viewModel.suggestedVendorName,
                !suggestedVendorName.isEmpty {
-                Button("Use supplier suggestion: \(suggestedVendorName)") {
+                Button("Use vendor suggestion: \(suggestedVendorName)") {
                     viewModel.applySuggestedVendorName()
                 }
                 .font(.footnote)
@@ -272,8 +272,8 @@ struct ReviewView: View {
         VStack(alignment: .leading, spacing: 10) {
             TextField(
                 viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? (viewModel.suggestedInvoiceNumber ?? "Supplier Invoice Number")
-                    : "Supplier Invoice Number",
+                    ? (viewModel.suggestedInvoiceNumber ?? "Vendor Invoice Number")
+                    : "Vendor Invoice Number",
                 text: $viewModel.vendorInvoiceNumber
             )
             .textInputAutocapitalization(.characters)
@@ -328,7 +328,7 @@ struct ReviewView: View {
     private var submissionContextLinks: some View {
         switch viewModel.modeUI {
         case .attach:
-            NavigationLink("Select Existing Draft PO") {
+            NavigationLink("Select Draft Purchase Order") {
                 PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
                     viewModel.selectPurchaseOrder(purchaseOrder, forceAttachMode: true)
                 }
@@ -348,14 +348,14 @@ struct ReviewView: View {
                     .foregroundStyle(.secondary)
             }
 
-            TextField("Work Order ID (optional PO link)", text: orderIdBinding)
+            TextField("Order ID (optional PO link)", text: orderIdBinding)
 
         case .quickAdd:
-            Text("Quick Add is inventory-first: barcode/SKU lines post directly to a work order service.")
+            Text("Add to Order is inventory-first: barcode/SKU lines post directly to a Shopmonkey order service.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            NavigationLink("Select Work Order") {
+            NavigationLink("Select Shopmonkey Order") {
                 OrderPickerView(service: viewModel.shopmonkeyService) { order in
                     viewModel.selectOrder(order)
                 }
@@ -382,7 +382,7 @@ struct ReviewView: View {
                 }
             }
 
-            TextField("Work Order ID", text: orderIdBinding)
+            TextField("Order ID", text: orderIdBinding)
 
             if !orderIdBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 NavigationLink("Select Ticket / Service") {
@@ -404,11 +404,11 @@ struct ReviewView: View {
             }
 
         case .restock:
-            Text("Restock keeps inventory procurement in draft PO workflow.")
+            Text("Restock PO keeps inventory procurement in a draft purchase order workflow.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            NavigationLink("Select Existing Draft PO") {
+            NavigationLink("Select Draft Purchase Order") {
                 PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
                     viewModel.selectPurchaseOrder(purchaseOrder)
                 }
@@ -424,7 +424,7 @@ struct ReviewView: View {
                 .foregroundStyle(selectedPO.isDraft ? .green : .orange)
             }
 
-            TextField("Work Order ID (optional)", text: orderIdBinding)
+            TextField("Order ID (optional)", text: orderIdBinding)
         }
     }
 
@@ -628,11 +628,24 @@ struct ReviewView: View {
     private func modeTitle(for mode: ReviewViewModel.ModeUI) -> String {
         switch mode {
         case .attach:
-            return "Attach"
+            return "Add to PO"
         case .quickAdd:
-            return "Quick Add"
+            return "Add to Order"
         case .restock:
-            return "Restock"
+            return "Restock PO"
+        }
+    }
+
+    private var submitButtonTitle: String {
+        if !experimentalOrderPOLinking {
+            return "Add to Purchase Order"
+        }
+
+        switch viewModel.modeUI {
+        case .attach, .restock:
+            return "Add to Purchase Order"
+        case .quickAdd:
+            return "Add to Order"
         }
     }
 }

@@ -15,7 +15,7 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            Section("Shop Connectivity") {
+            Section("Shopmonkey Connectivity") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: .blue)
@@ -27,21 +27,21 @@ struct SettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Use Test Connection or Endpoint Probe to confirm Shopmonkey routing before intake.")
+                        Text("Use Test Connection or Endpoint Probe to confirm Shopmonkey routing before parts intake.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
 
-            Section("Scanner Preferences") {
+            Section("Parts Intake Preferences") {
                 Toggle("Save History", isOn: $saveHistoryEnabled)
                     .accessibilityIdentifier("settings.saveHistoryToggle")
                 Toggle("Ignore Tax & Totals", isOn: $viewModel.ignoreTaxAndTotals)
                     .accessibilityIdentifier("settings.ignoreTaxToggle")
             }
 
-            Section("Shopmonkey Sandbox") {
+            Section("Shopmonkey API") {
                 SecureField("API Key", text: $viewModel.apiKeyInput)
                     .textContentType(.password)
                     .autocorrectionDisabled()
@@ -83,7 +83,7 @@ struct SettingsView: View {
                 Toggle("Experimental Order / PO Linking", isOn: $viewModel.experimentalOrderPOLinking)
                     .accessibilityIdentifier("settings.experimentalLinkingToggle")
 
-                Text("Shows advanced linking flows for existing work orders and draft purchase orders in intake review.")
+                Text("Shows advanced add-to-order and add-to-PO flows during parts intake review.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -94,7 +94,7 @@ struct SettingsView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
-        .navigationTitle("Shop Settings")
+        .navigationTitle("Shopmonkey Settings")
         .navigationBarTitleDisplayMode(.large)
         .onChange(of: saveHistoryEnabled) { _, _ in
             AppHaptics.selection()

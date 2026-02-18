@@ -21,16 +21,16 @@ struct HistoryDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Repair Order Record") {
+            Section("Purchase Order Record") {
                 LabeledContent("Supplier", value: purchaseOrder.vendorName)
                 if let poNumber = purchaseOrder.poNumber, !poNumber.isEmpty {
                     LabeledContent("PO Number", value: poNumber)
                 }
                 if let orderId = purchaseOrder.orderId, !orderId.isEmpty {
-                    LabeledContent("Order ID", value: orderId)
+                    LabeledContent("Shopmonkey Order ID", value: orderId)
                 }
                 if let serviceId = purchaseOrder.serviceId, !serviceId.isEmpty {
-                    LabeledContent("Service ID", value: serviceId)
+                    LabeledContent("Shopmonkey Service ID", value: serviceId)
                 }
                 LabeledContent("Date", value: purchaseOrder.date.formatted(date: .abbreviated, time: .shortened))
                 if let submittedAt = purchaseOrder.submittedAt {
@@ -70,7 +70,7 @@ struct HistoryDetailView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
-        .navigationTitle("RO Details")
+        .navigationTitle("PO Details")
         .navigationBarTitleDisplayMode(.inline)
     }
 

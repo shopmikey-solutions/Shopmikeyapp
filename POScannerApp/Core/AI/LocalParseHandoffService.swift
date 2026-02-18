@@ -32,7 +32,7 @@ struct ParseHandoffPayload: Hashable {
 ///
 /// The goal is to keep a full-fidelity rules input while producing a compact model input that
 /// prioritizes high-signal rows (headers, item lines, prices, quantities, part numbers, barcodes).
-final class LocalParseHandoffService {
+final class LocalParseHandoffService: @unchecked Sendable {
     private let maxRulesCharacters: Int
     private let maxRulesLines: Int
     private let maxModelCharacters: Int

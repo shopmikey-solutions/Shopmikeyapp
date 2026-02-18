@@ -33,6 +33,7 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
     final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
         let onScan: (UIImage, CGImage, CGImagePropertyOrientation) -> Void
         let onCancel: () -> Void
+        private var didComplete = false
 
         init(
             onScan: @escaping (UIImage, CGImage, CGImagePropertyOrientation) -> Void,
@@ -46,7 +47,8 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
             _ controller: VNDocumentCameraViewController,
             didFinishWith scan: VNDocumentCameraScan
         ) {
-            controller.dismiss(animated: true)
+            guard !didComplete else { return }
+            didComplete = true
 
             guard scan.pageCount > 0 else {
                 onCancel()
@@ -64,13 +66,15 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
         }
 
         func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
-            controller.dismiss(animated: true)
+            guard !didComplete else { return }
+            didComplete = true
             onCancel()
         }
 
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
             _ = error
-            controller.dismiss(animated: true)
+            guard !didComplete else { return }
+            didComplete = true
             onCancel()
         }
     }

@@ -14,6 +14,7 @@ struct ScanView: View {
     @State private var tapTimes: [Date] = []
     @State private var showProcessingDetails: Bool = true
     @StateObject private var viewModel: ScanViewModel
+    private let arcadeTapTriggerEnabled: Bool = ProcessInfo.processInfo.arguments.contains("-enable-scanner-arcade")
 
     init(environment: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: ScanViewModel(environment: environment))
@@ -119,12 +120,14 @@ struct ScanView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    guard !showScanner, !viewModel.isProcessing else { return }
                     AppHaptics.impact(.medium, intensity: 0.9)
                     showScanner = true
                 } label: {
                     Label("Scan Invoice", systemImage: "doc.viewfinder")
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(showScanner || viewModel.isProcessing)
                 .accessibilityIdentifier("scan.scanButton")
             }
         }
@@ -214,14 +217,16 @@ struct ScanView: View {
             processingBanner
         }
         .overlay(alignment: .topTrailing) {
-            Color.clear
-                .contentShape(Rectangle())
-                .frame(width: 56, height: 56)
-                .padding(.top, 8)
-                .padding(.trailing, 8)
-                .onTapGesture {
-                    registerArcadeTap()
-                }
+            if arcadeTapTriggerEnabled {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(width: 56, height: 56)
+                    .padding(.top, 8)
+                    .padding(.trailing, 8)
+                    .onTapGesture {
+                        registerArcadeTap()
+                    }
+            }
         }
     }
 

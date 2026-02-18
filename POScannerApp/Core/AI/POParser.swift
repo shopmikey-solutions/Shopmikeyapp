@@ -8,7 +8,7 @@ import Foundation
 /// Regex-based parser with basic confidence scoring.
 ///
 /// - Important: Parsing is pure text -> model only. No Core Data, no networking, no shared state.
-final class POParser {
+final class POParser: @unchecked Sendable {
     func parse(from text: String, ignoreTaxAndTotals: Bool = false) -> ParsedInvoice {
         let lines = nonEmptyLines(from: text)
         let firstLine = lines.first

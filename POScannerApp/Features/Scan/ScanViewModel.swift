@@ -93,6 +93,7 @@ final class ScanViewModel: ObservableObject {
         orientation: CGImagePropertyOrientation,
         ignoreTaxAndTotals: Bool
     ) {
+        guard !isProcessing else { return }
         errorMessage = nil
         Task {
             await processScannedImage(
@@ -119,6 +120,7 @@ final class ScanViewModel: ObservableObject {
     }
 
     func continueFromOCRReview(editedText: String, includeDetectedBarcodes: Bool) {
+        guard !isProcessing else { return }
         guard let draft = ocrReviewDraft else { return }
         ocrReviewDraft = nil
 
@@ -149,14 +151,14 @@ final class ScanViewModel: ObservableObject {
         processingStartedAt = flowStart
         processingStage = .parsing
 
-        let handoff = environment.parseHandoffService.build(
+        let handoffService = environment.parseHandoffService
+        let parser = environment.poParser
+        let (handoff, rulesInvoice) = await Self.computeRulesInvoice(
             reviewedText: baseText,
-            barcodeHints: barcodeHints
-        )
-
-        let rulesInvoice = environment.poParser.parse(
-            from: handoff.rulesInputText,
-            ignoreTaxAndTotals: ignoreTaxAndTotals
+            barcodeHints: barcodeHints,
+            ignoreTaxAndTotals: ignoreTaxAndTotals,
+            handoffService: handoffService,
+            parser: parser
         )
         let aiEligible = shouldRunOnDeviceAI(rulesInvoice: rulesInvoice, handoff: handoff)
 
@@ -186,6 +188,28 @@ final class ScanViewModel: ObservableObject {
         isProcessing = false
         processingStage = nil
         processingStartedAt = nil
+    }
+
+    private nonisolated static func computeRulesInvoice(
+        reviewedText: String,
+        barcodeHints: [OCRService.DetectedBarcode],
+        ignoreTaxAndTotals: Bool,
+        handoffService: LocalParseHandoffService,
+        parser: POParser
+    ) async -> (ParseHandoffPayload, ParsedInvoice) {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let handoff = handoffService.build(
+                    reviewedText: reviewedText,
+                    barcodeHints: barcodeHints
+                )
+                let rulesInvoice = parser.parse(
+                    from: handoff.rulesInputText,
+                    ignoreTaxAndTotals: ignoreTaxAndTotals
+                )
+                continuation.resume(returning: (handoff, rulesInvoice))
+            }
+        }
     }
 
     var uiTestReviewFixtureEnabled: Bool {

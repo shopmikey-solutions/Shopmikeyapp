@@ -260,6 +260,17 @@ struct ScanView: View {
             guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
             showSourceSheet = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .appResumeScanDraft)) { notification in
+            guard let draftID = notification.object as? UUID else { return }
+            guard !viewModel.isProcessing else { return }
+            Task {
+                await viewModel.resumeDraft(id: draftID)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
+            viewModel.loadInProgressDrafts()
+        }
+        .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
     }
 
     @ViewBuilder

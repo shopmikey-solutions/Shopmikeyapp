@@ -57,12 +57,15 @@ struct RootTabView: View {
         guard let route = AppDeepLink.parse(url) else { return }
 
         switch route {
-        case let .scan(openComposer):
+        case let .scan(openComposer, draftID):
             selectedTab = .scan
-            guard openComposer else { return }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 220_000_000)
-                NotificationCenter.default.post(name: .appOpenScanComposer, object: nil)
+                if let draftID {
+                    NotificationCenter.default.post(name: .appResumeScanDraft, object: draftID)
+                } else if openComposer {
+                    NotificationCenter.default.post(name: .appOpenScanComposer, object: nil)
+                }
             }
         case .history:
             selectedTab = .history

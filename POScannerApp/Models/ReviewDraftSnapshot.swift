@@ -6,6 +6,35 @@
 import Foundation
 
 struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
+    enum WorkflowState: String, Codable, Hashable {
+        case scanning
+        case ocrReview
+        case parsing
+        case reviewReady
+        case reviewEdited
+        case submitting
+        case failed
+
+        var statusLabel: String {
+            switch self {
+            case .scanning:
+                return "Scanning"
+            case .ocrReview:
+                return "OCR Review"
+            case .parsing:
+                return "Parsing"
+            case .reviewReady:
+                return "Ready"
+            case .reviewEdited:
+                return "Edited"
+            case .submitting:
+                return "Submitting"
+            case .failed:
+                return "Needs Attention"
+            }
+        }
+    }
+
     struct ParsedLineItemSnapshot: Codable, Hashable {
         var name: String
         var quantity: Int?
@@ -105,6 +134,8 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         var ignoreTaxOverride: Bool
         var selectedPOId: String?
         var selectedTicketId: String?
+        var workflowStateRawValue: String? = nil
+        var workflowDetail: String? = nil
     }
 
     let id: UUID
@@ -127,6 +158,17 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
     }
 
     var displaySecondaryLine: String {
+        switch workflowState {
+        case .scanning, .ocrReview, .parsing, .submitting:
+            if let detail = state.workflowDetail?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !detail.isEmpty {
+                return detail
+            }
+            return workflowState.statusLabel
+        case .reviewReady, .reviewEdited, .failed:
+            break
+        }
+
         let invoice = state.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         if !invoice.isEmpty {
             return "Invoice \(invoice)"
@@ -148,5 +190,22 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         }
 
         return "\(state.items.count) line items"
+    }
+
+    var workflowState: WorkflowState {
+        guard let raw = state.workflowStateRawValue,
+              let parsed = WorkflowState(rawValue: raw) else {
+            return .reviewReady
+        }
+        return parsed
+    }
+
+    var canResumeInReview: Bool {
+        switch workflowState {
+        case .reviewReady, .reviewEdited, .failed, .submitting:
+            return true
+        case .scanning, .ocrReview, .parsing:
+            return false
+        }
     }
 }

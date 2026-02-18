@@ -24,6 +24,7 @@ struct HistoryView: View {
     @State private var isRetryErrorPresented: Bool = false
     @State private var scope: HistoryScope = .all
     @State private var searchText: String = ""
+    @Environment(\.openURL) private var openURL
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -64,25 +65,35 @@ struct HistoryView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(viewModel.inProgressDrafts) { draft in
-                                NavigationLink {
-                                    ReviewView(
-                                        environment: environment,
-                                        parsedInvoice: draft.state.parsedInvoice.parsedInvoice,
-                                        draftSnapshot: draft
-                                    )
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(draft.displayVendorName)
-                                            .font(.headline)
-                                        Text("\(draft.displaySecondaryLine) • Saved \(draft.updatedAt.formatted(date: .omitted, time: .shortened))")
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
+                                if draft.canResumeInReview {
+                                    NavigationLink {
+                                        ReviewView(
+                                            environment: environment,
+                                            parsedInvoice: draft.state.parsedInvoice.parsedInvoice,
+                                            draftSnapshot: draft
+                                        )
+                                    } label: {
+                                        draftRow(draft)
                                     }
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button("Delete", role: .destructive) {
-                                        AppHaptics.warning()
-                                        Task { await viewModel.deleteDraft(draft) }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button("Delete", role: .destructive) {
+                                            AppHaptics.warning()
+                                            Task { await viewModel.deleteDraft(draft) }
+                                        }
+                                    }
+                                } else {
+                                    Button {
+                                        AppHaptics.selection()
+                                        openURL(AppDeepLink.scanURL())
+                                    } label: {
+                                        draftRow(draft)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button("Delete", role: .destructive) {
+                                            AppHaptics.warning()
+                                            Task { await viewModel.deleteDraft(draft) }
+                                        }
                                     }
                                 }
                             }
@@ -169,8 +180,47 @@ struct HistoryView: View {
                 viewModel.loadHistory()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
+            viewModel.loadHistory()
+        }
         .onChange(of: scope) { _, _ in
             AppHaptics.selection()
+        }
+        .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
+    }
+
+    private func draftRow(_ draft: ReviewDraftSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(draft.displayVendorName)
+                    .font(.headline)
+                Spacer()
+                Text(draft.workflowState.statusLabel)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .foregroundStyle(draftBadgeColor(for: draft.workflowState))
+                    .background(draftBadgeColor(for: draft.workflowState).opacity(0.15))
+                    .clipShape(Capsule())
+            }
+
+            Text("\(draft.displaySecondaryLine) • Saved \(draft.updatedAt.formatted(date: .omitted, time: .shortened))")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .animation(.snappy(duration: 0.22), value: draft.updatedAt)
+    }
+
+    private func draftBadgeColor(for state: ReviewDraftSnapshot.WorkflowState) -> Color {
+        switch state {
+        case .scanning, .parsing, .submitting:
+            return .blue
+        case .ocrReview:
+            return .indigo
+        case .reviewReady, .reviewEdited:
+            return .green
+        case .failed:
+            return .orange
         }
     }
 

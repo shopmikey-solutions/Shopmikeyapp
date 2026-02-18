@@ -10,10 +10,10 @@ struct LocalNotificationService {
     static let enabledKey = "scanLocalNotificationsEnabled"
 
     enum Event {
-        case scanReadyForReview(vendor: String?, lineItemCount: Int)
+        case scanReadyForReview(vendor: String?, lineItemCount: Int, draftID: UUID?)
         case scanFailed
         case submissionSucceeded(vendor: String?, totalCents: Int?)
-        case submissionFailed(message: String?)
+        case submissionFailed(message: String?, draftID: UUID?)
     }
 
     private let center: UNUserNotificationCenter
@@ -67,13 +67,13 @@ struct LocalNotificationService {
 
     private func payload(for event: Event) -> NotificationPayload {
         switch event {
-        case let .scanReadyForReview(vendor, lineItemCount):
+        case let .scanReadyForReview(vendor, lineItemCount, draftID):
             let vendorLabel = normalized(vendor) ?? "Supplier invoice"
             return NotificationPayload(
                 identifier: "parts-intake.scan-ready",
                 title: "Parts intake ready",
                 body: "\(vendorLabel): \(lineItemCount) line item\(lineItemCount == 1 ? "" : "s") parsed. Review before posting.",
-                deepLink: AppDeepLink.scanURL(),
+                deepLink: AppDeepLink.scanURL(draftID: draftID),
                 threadIdentifier: "parts-intake"
             )
 
@@ -97,12 +97,12 @@ struct LocalNotificationService {
                 threadIdentifier: "parts-intake"
             )
 
-        case let .submissionFailed(message):
+        case let .submissionFailed(message, draftID):
             return NotificationPayload(
                 identifier: "parts-intake.submit-failed",
                 title: "Submission failed",
                 body: normalized(message) ?? "Open history to retry the parts intake.",
-                deepLink: AppDeepLink.historyURL,
+                deepLink: AppDeepLink.scanURL(draftID: draftID),
                 threadIdentifier: "parts-intake"
             )
         }

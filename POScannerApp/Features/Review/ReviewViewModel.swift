@@ -528,7 +528,11 @@ final class ReviewViewModel: ObservableObject {
 
     func saveDraft() async {
         do {
-            _ = try await persistDraft(showStatusMessage: true)
+            _ = try await persistDraft(
+                showStatusMessage: true,
+                workflowState: .reviewEdited,
+                workflowDetail: "Review updates saved."
+            )
         } catch {
             errorMessage = "Could not save intake draft."
         }
@@ -537,7 +541,11 @@ final class ReviewViewModel: ObservableObject {
     func persistDraftOnExitIfNeeded() async {
         guard !shouldSkipDraftPersistence else { return }
         guard hasMeaningfulDraftContent else { return }
-        _ = try? await persistDraft(showStatusMessage: false)
+        _ = try? await persistDraft(
+            showStatusMessage: false,
+            workflowState: .reviewEdited,
+            workflowDetail: "Review updates saved."
+        )
     }
 
     func discardDraft() async {
@@ -576,6 +584,12 @@ final class ReviewViewModel: ObservableObject {
         errorMessage = nil
         showSuccessAlert = false
 
+        _ = try? await persistDraft(
+            showStatusMessage: false,
+            workflowState: .submitting,
+            workflowDetail: "Submitting to Shopmonkey."
+        )
+
         let submitter = POSubmissionService(shopmonkey: shopmonkeyService)
         let result = await submitter.submitNew(
             payload: submissionPayload,
@@ -597,8 +611,13 @@ final class ReviewViewModel: ObservableObject {
             await clearDraftAfterSuccessfulSubmission()
         } else {
             errorMessage = result.message ?? "Submission failed."
+            _ = try? await persistDraft(
+                showStatusMessage: false,
+                workflowState: .failed,
+                workflowDetail: result.message ?? "Submission failed."
+            )
             await environment.localNotificationService.notify(
-                .submissionFailed(message: result.message)
+                .submissionFailed(message: result.message, draftID: activeDraftID)
             )
         }
 
@@ -1018,7 +1037,11 @@ final class ReviewViewModel: ObservableObject {
     }
 
     @discardableResult
-    private func persistDraft(showStatusMessage: Bool) async throws -> ReviewDraftSnapshot {
+    private func persistDraft(
+        showStatusMessage: Bool,
+        workflowState: ReviewDraftSnapshot.WorkflowState = .reviewEdited,
+        workflowDetail: String? = nil
+    ) async throws -> ReviewDraftSnapshot {
         let now = Date()
         let draftID = activeDraftID ?? UUID()
         let createdAt = draftCreatedAt ?? now
@@ -1041,7 +1064,9 @@ final class ReviewViewModel: ObservableObject {
                 modeUIRawValue: modeUI.rawValue,
                 ignoreTaxOverride: ignoreTaxOverride,
                 selectedPOId: selectedPOId,
-                selectedTicketId: selectedTicketId
+                selectedTicketId: selectedTicketId,
+                workflowStateRawValue: workflowState.rawValue,
+                workflowDetail: workflowDetail
             )
         )
 

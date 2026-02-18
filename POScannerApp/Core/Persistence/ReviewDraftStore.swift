@@ -39,11 +39,13 @@ actor ReviewDraftStore {
             drafts.append(snapshot)
         }
         try writeAll(drafts)
+        notifyDidChange()
     }
 
     func delete(id: UUID) throws {
         let filtered = readAll().filter { $0.id != id }
         try writeAll(filtered)
+        notifyDidChange()
     }
 
     private func readAll() -> [ReviewDraftSnapshot] {
@@ -68,4 +70,14 @@ actor ReviewDraftStore {
             .appendingPathComponent("POScannerApp", isDirectory: true)
             .appendingPathComponent("review_drafts.json", isDirectory: false)
     }
+
+    private func notifyDidChange() {
+        Task { @MainActor in
+            NotificationCenter.default.post(name: .reviewDraftStoreDidChange, object: nil)
+        }
+    }
+}
+
+extension Notification.Name {
+    static let reviewDraftStoreDidChange = Notification.Name("POScannerApp.reviewDraftStoreDidChange")
 }

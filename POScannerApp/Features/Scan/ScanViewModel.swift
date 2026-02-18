@@ -82,6 +82,7 @@ final class ScanViewModel: ObservableObject {
 
     private let minimumOCRFlowDuration: TimeInterval = 0.85
     private let minimumParseFlowDuration: TimeInterval = 1.15
+    private var activeWorkflowDraftID: UUID?
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -147,6 +148,12 @@ final class ScanViewModel: ObservableObject {
         let baseText = reviewedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !baseText.isEmpty else {
             errorMessage = "No readable invoice text was found."
+            await upsertWorkflowDraft(
+                stage: .failed,
+                parsedInvoice: makeWorkflowPlaceholderInvoice(),
+                items: [],
+                detail: errorMessage
+            )
             await environment.localNotificationService.notify(.scanFailed)
             return
         }
@@ -156,6 +163,13 @@ final class ScanViewModel: ObservableObject {
         let flowStart = Date()
         processingStartedAt = flowStart
         processingStage = .parsing
+
+        await upsertWorkflowDraft(
+            stage: .parsing,
+            parsedInvoice: makeWorkflowPlaceholderInvoice(),
+            items: [],
+            detail: "Classifying parts and fees."
+        )
 
         let handoffService = environment.parseHandoffService
         let parser = environment.poParser
@@ -189,9 +203,19 @@ final class ScanViewModel: ObservableObject {
             ignoreTaxAndTotals: ignoreTaxAndTotals
         )
         await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumParseFlowDuration)
-        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice, draftSnapshot: nil)
+        let draftSnapshot = await upsertWorkflowDraft(
+            stage: .reviewReady,
+            parsedInvoice: invoice,
+            items: mapPOItems(from: invoice.items),
+            detail: "Review ready."
+        )
+        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice, draftSnapshot: draftSnapshot)
         await environment.localNotificationService.notify(
-            .scanReadyForReview(vendor: invoice.vendorName, lineItemCount: invoice.items.count)
+            .scanReadyForReview(
+                vendor: invoice.vendorName,
+                lineItemCount: invoice.items.count,
+                draftID: draftSnapshot?.id
+            )
         )
 
         isProcessing = false
@@ -237,13 +261,23 @@ final class ScanViewModel: ObservableObject {
     }
 
     func resumeDraft(_ draft: ReviewDraftSnapshot) {
+        activeWorkflowDraftID = draft.id
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: draft.state.parsedInvoice.parsedInvoice, draftSnapshot: draft)
+    }
+
+    func resumeDraft(id: UUID) async {
+        guard let draft = await environment.reviewDraftStore.load(id: id) else { return }
+        guard draft.canResumeInReview else { return }
+        resumeDraft(draft)
     }
 
     func deleteDraft(_ draft: ReviewDraftSnapshot) {
         Task {
             do {
                 try await environment.reviewDraftStore.delete(id: draft.id)
+                if activeWorkflowDraftID == draft.id {
+                    activeWorkflowDraftID = nil
+                }
                 inProgressDrafts = await environment.reviewDraftStore.list()
             } catch {
                 errorMessage = "Could not remove saved intake draft."
@@ -256,17 +290,30 @@ final class ScanViewModel: ObservableObject {
         orientation: CGImagePropertyOrientation,
         ignoreTaxAndTotals: Bool
     ) async {
+        activeWorkflowDraftID = UUID()
         isProcessing = true
         errorMessage = nil
         let flowStart = Date()
         processingStartedAt = flowStart
         processingStage = .extractingText
+        await upsertWorkflowDraft(
+            stage: .scanning,
+            parsedInvoice: makeWorkflowPlaceholderInvoice(),
+            items: [],
+            detail: "Running OCR on captured invoice."
+        )
 
         do {
             let previewImage = await Self.makePreviewImage(from: image)
             guard let cgImage = await Self.makeCGImage(from: image) else {
                 errorMessage = "Could not process the invoice scan."
                 await environment.localNotificationService.notify(.scanFailed)
+                await upsertWorkflowDraft(
+                    stage: .failed,
+                    parsedInvoice: makeWorkflowPlaceholderInvoice(),
+                    items: [],
+                    detail: errorMessage
+                )
                 isProcessing = false
                 processingStage = nil
                 processingStartedAt = nil
@@ -274,6 +321,12 @@ final class ScanViewModel: ObservableObject {
             }
             let extraction = try await environment.ocrService.extractDocument(from: cgImage, orientation: orientation)
             processingStage = .preparingReview
+            await upsertWorkflowDraft(
+                stage: .ocrReview,
+                parsedInvoice: makeWorkflowPlaceholderInvoice(),
+                items: [],
+                detail: "\(extraction.lines.count) text line\(extraction.lines.count == 1 ? "" : "s") detected."
+            )
             await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumOCRFlowDuration)
             ocrReviewDraft = OCRReviewDraft(
                 image: previewImage,
@@ -283,6 +336,12 @@ final class ScanViewModel: ObservableObject {
         } catch {
             errorMessage = "Could not process the invoice scan."
             await environment.localNotificationService.notify(.scanFailed)
+            await upsertWorkflowDraft(
+                stage: .failed,
+                parsedInvoice: makeWorkflowPlaceholderInvoice(),
+                items: [],
+                detail: errorMessage
+            )
         }
 
         isProcessing = false
@@ -348,6 +407,83 @@ final class ScanViewModel: ObservableObject {
         let remaining = minimum - elapsed
         let nanos = UInt64((remaining * 1_000_000_000).rounded())
         try? await Task.sleep(nanoseconds: nanos)
+    }
+
+    private func makeWorkflowPlaceholderInvoice() -> ParsedInvoice {
+        ParsedInvoice(
+            vendorName: nil,
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: nil,
+            items: [],
+            header: POHeaderFields()
+        )
+    }
+
+    private func mapPOItems(from parsedItems: [ParsedLineItem]) -> [POItem] {
+        parsedItems.map { parsed in
+            let cents = parsed.costCents ?? 0
+            let normalizedSKU = parsed.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return POItem(
+                description: parsed.name,
+                sku: normalizedSKU,
+                quantity: Double(max(1, parsed.quantity ?? 1)),
+                unitCost: cents > 0 ? (Decimal(cents) / 100) : 0,
+                partNumber: parsed.partNumber,
+                confidence: parsed.confidence,
+                kind: parsed.kind,
+                kindConfidence: parsed.kindConfidence,
+                kindReasons: parsed.kindReasons
+            )
+        }
+    }
+
+    @discardableResult
+    private func upsertWorkflowDraft(
+        stage: ReviewDraftSnapshot.WorkflowState,
+        parsedInvoice: ParsedInvoice,
+        items: [POItem],
+        detail: String?
+    ) async -> ReviewDraftSnapshot? {
+        let now = Date()
+        let draftID = activeWorkflowDraftID ?? UUID()
+        if activeWorkflowDraftID == nil {
+            activeWorkflowDraftID = draftID
+        }
+        let existing = await environment.reviewDraftStore.load(id: draftID)
+        let createdAt = existing?.createdAt ?? now
+
+        let snapshot = ReviewDraftSnapshot(
+            id: draftID,
+            createdAt: createdAt,
+            updatedAt: now,
+            state: ReviewDraftSnapshot.State(
+                parsedInvoice: ReviewDraftSnapshot.ParsedInvoiceSnapshot(invoice: parsedInvoice),
+                vendorName: parsedInvoice.vendorName ?? "",
+                vendorPhone: "",
+                vendorInvoiceNumber: parsedInvoice.invoiceNumber ?? "",
+                poReference: parsedInvoice.poNumber ?? "",
+                notes: "",
+                selectedVendorId: nil,
+                orderId: "",
+                serviceId: "",
+                items: items,
+                modeUIRawValue: "quickAdd",
+                ignoreTaxOverride: false,
+                selectedPOId: nil,
+                selectedTicketId: nil,
+                workflowStateRawValue: stage.rawValue,
+                workflowDetail: detail
+            )
+        )
+
+        do {
+            try await environment.reviewDraftStore.upsert(snapshot)
+            inProgressDrafts = await environment.reviewDraftStore.list()
+            return snapshot
+        } catch {
+            return nil
+        }
     }
 
     var processingProgressEstimate: Double {

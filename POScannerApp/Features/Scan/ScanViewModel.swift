@@ -55,6 +55,7 @@ final class ScanViewModel: ObservableObject {
 
     struct OCRReviewDraft: Identifiable {
         let id: UUID = UUID()
+        let draftID: UUID
         let image: UIImage
         let extraction: OCRService.DocumentExtraction
         let ignoreTaxAndTotals: Bool
@@ -83,6 +84,7 @@ final class ScanViewModel: ObservableObject {
     private let minimumOCRFlowDuration: TimeInterval = 0.85
     private let minimumParseFlowDuration: TimeInterval = 1.15
     private var activeWorkflowDraftID: UUID?
+    private var cachedOCRReviewDrafts: [UUID: OCRReviewDraft] = [:]
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -128,6 +130,8 @@ final class ScanViewModel: ObservableObject {
     func continueFromOCRReview(editedText: String, includeDetectedBarcodes: Bool) {
         guard !isProcessing else { return }
         guard let draft = ocrReviewDraft else { return }
+        activeWorkflowDraftID = draft.draftID
+        cachedOCRReviewDrafts[draft.draftID] = nil
         ocrReviewDraft = nil
 
         let barcodes = includeDetectedBarcodes ? draft.extraction.barcodes : []
@@ -209,6 +213,11 @@ final class ScanViewModel: ObservableObject {
             items: mapPOItems(from: invoice.items),
             detail: "Review ready."
         )
+        if let draftID = draftSnapshot?.id {
+            cachedOCRReviewDrafts[draftID] = nil
+        } else if let activeWorkflowDraftID {
+            cachedOCRReviewDrafts[activeWorkflowDraftID] = nil
+        }
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice, draftSnapshot: draftSnapshot)
         await environment.localNotificationService.notify(
             .scanReadyForReview(
@@ -268,6 +277,17 @@ final class ScanViewModel: ObservableObject {
         inProgressDrafts.first(where: \.canResumeInReview)
     }
 
+    func canResumeOCRReview(_ draft: ReviewDraftSnapshot) -> Bool {
+        draft.workflowState == .ocrReview && cachedOCRReviewDrafts[draft.id] != nil
+    }
+
+    func resumeOCRReview(_ draft: ReviewDraftSnapshot) {
+        guard let cached = cachedOCRReviewDrafts[draft.id] else { return }
+        activeWorkflowDraftID = draft.id
+        parsedInvoiceRoute = nil
+        ocrReviewDraft = cached
+    }
+
     func resumeDraft(_ draft: ReviewDraftSnapshot) {
         activeWorkflowDraftID = draft.id
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: draft.state.parsedInvoice.parsedInvoice, draftSnapshot: draft)
@@ -276,6 +296,10 @@ final class ScanViewModel: ObservableObject {
     @discardableResult
     func resumeDraft(id: UUID) async -> Bool {
         guard let draft = await environment.reviewDraftStore.load(id: id) else { return false }
+        if canResumeOCRReview(draft) {
+            resumeOCRReview(draft)
+            return true
+        }
         guard draft.canResumeInReview else { return false }
         resumeDraft(draft)
         return true
@@ -288,6 +312,7 @@ final class ScanViewModel: ObservableObject {
                 if activeWorkflowDraftID == draft.id {
                     activeWorkflowDraftID = nil
                 }
+                cachedOCRReviewDrafts[draft.id] = nil
                 inProgressDrafts = await environment.reviewDraftStore.list()
             } catch {
                 errorMessage = "Could not remove saved intake draft."
@@ -338,11 +363,15 @@ final class ScanViewModel: ObservableObject {
                 detail: "\(extraction.lines.count) text line\(extraction.lines.count == 1 ? "" : "s") detected."
             )
             await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumOCRFlowDuration)
-            ocrReviewDraft = OCRReviewDraft(
+            let draftID = activeWorkflowDraftID ?? UUID()
+            let nextDraft = OCRReviewDraft(
+                draftID: draftID,
                 image: previewImage,
                 extraction: extraction,
                 ignoreTaxAndTotals: ignoreTaxAndTotals
             )
+            cachedOCRReviewDrafts[draftID] = nextDraft
+            ocrReviewDraft = nextDraft
         } catch {
             errorMessage = "Could not process the invoice scan."
             await environment.localNotificationService.notify(.scanFailed)

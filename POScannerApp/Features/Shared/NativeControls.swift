@@ -118,18 +118,44 @@ private struct KeyboardDoneToolbarModifier: ViewModifier {
 private struct AppPrimaryActionButtonModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
+            .lineLimit(1)
+            .minimumScaleFactor(0.9)
             .fontWeight(.semibold)
+            .controlSize(.large)
+            .buttonBorderShape(.capsule)
+            .modifier(ModernPrimaryButtonStyleModifier())
     }
 }
 
 private struct AppSecondaryActionButtonModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
+            .lineLimit(1)
+            .minimumScaleFactor(0.9)
             .controlSize(.large)
+            .buttonBorderShape(.capsule)
+            .modifier(ModernSecondaryButtonStyleModifier())
+    }
+}
+
+private struct ModernPrimaryButtonStyleModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.buttonStyle(.glassProminent)
+        } else {
+            content.buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+private struct ModernSecondaryButtonStyleModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.buttonStyle(.glass)
+        } else {
+            content.buttonStyle(.bordered)
+        }
     }
 }

@@ -121,7 +121,7 @@ struct SettingsView: View {
             AppHaptics.selection()
             guard !enabled else { return }
             PartsIntakeLiveActivityBridge.sync(
-                isProcessing: false,
+                isActive: false,
                 statusText: "",
                 detailText: "",
                 progress: 0
@@ -218,25 +218,23 @@ private struct SettingsDiagnosticsView: View {
             }
 
             Section("Network Capture") {
-                HStack {
+                ControlGroup {
                     Button("Refresh") {
                         AppHaptics.selection()
                         Task { await viewModel.refreshNetworkDiagnostics() }
                     }
-                    .buttonStyle(.bordered)
 
                     Button("Copy") {
                         AppHaptics.selection()
                         Task { await viewModel.copyNetworkDiagnostics() }
                     }
-                    .buttonStyle(.bordered)
 
                     Button("Clear", role: .destructive) {
                         AppHaptics.warning()
                         Task { await viewModel.clearNetworkDiagnostics() }
                     }
-                    .buttonStyle(.bordered)
                 }
+                .controlSize(.small)
 
                 if viewModel.networkDiagnostics.isEmpty {
                     Text("No captured calls yet.")

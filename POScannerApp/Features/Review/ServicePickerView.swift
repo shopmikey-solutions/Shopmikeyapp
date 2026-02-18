@@ -32,7 +32,7 @@ struct ServicePickerView: View {
                     Button("Retry") {
                         Task { await fetchServices() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryActionButton()
                 }
             } else if services.isEmpty {
                 ContentUnavailableView(

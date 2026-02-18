@@ -481,6 +481,7 @@ private struct OCROverlayPreview: View {
     NavigationStack {
         OCRReviewView(
             draft: .init(
+                draftID: UUID(),
                 image: UIImage(systemName: "doc.text.viewfinder") ?? UIImage(),
                 extraction: OCRService.DocumentExtraction(
                     text: "ACD-41-993 Front Brake Pad Set - Ceramic\nMICH-123 225/60/16 Primacy Michelin",

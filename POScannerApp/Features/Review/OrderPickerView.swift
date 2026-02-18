@@ -44,7 +44,7 @@ struct OrderPickerView: View {
                     Button("Retry") {
                         Task { await fetchOrders() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryActionButton()
                 }
             } else if filteredOrders.isEmpty {
                 ContentUnavailableView(

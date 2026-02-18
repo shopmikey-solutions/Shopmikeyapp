@@ -51,7 +51,7 @@ struct ScannerViewControllerWrapper: View {
                 onComplete(text.isEmpty ? nil : text)
                 dismiss()
             }
-            .buttonStyle(.borderedProminent)
+            .appPrimaryActionButton()
         }
         .padding()
         .background(.ultraThinMaterial)

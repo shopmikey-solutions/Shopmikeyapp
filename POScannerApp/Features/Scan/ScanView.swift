@@ -53,8 +53,13 @@ struct ScanView: View {
             isPresented: $showResumeDraftDialog,
             titleVisibility: .visible
         ) {
-            if let latestDraft = viewModel.latestResumableDraft {
-                Button("Resume \(latestDraft.displayVendorName)") {
+            if let latestDraft = viewModel.latestDraft, viewModel.canResumeOCRReview(latestDraft) {
+                Button("Review OCR Draft") {
+                    AppHaptics.selection()
+                    viewModel.resumeOCRReview(latestDraft)
+                }
+            } else if let latestDraft = viewModel.latestResumableDraft {
+                Button("Resume Intake Review") {
                     AppHaptics.selection()
                     viewModel.resumeDraft(latestDraft)
                 }
@@ -75,8 +80,10 @@ struct ScanView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if let latestDraft = viewModel.latestDraft {
-                if latestDraft.canResumeInReview {
-                    Text("\(latestDraft.displaySecondaryLine). You can resume or start a new capture.")
+                if viewModel.canResumeOCRReview(latestDraft) {
+                    Text("\(latestDraft.displaySecondaryLine). You can continue OCR review or start a new capture.")
+                } else if latestDraft.canResumeInReview {
+                    Text("\(latestDraft.displaySecondaryLine). You can resume review or start a new capture.")
                 } else {
                     Text("The previous session did not reach a resumable review state. Start a new capture or remove it.")
                 }
@@ -169,6 +176,9 @@ struct ScanView: View {
         .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
             guard route != nil else { return }
             AppHaptics.success()
+        }
+        .onChange(of: viewModel.inProgressDrafts) { _, _ in
+            syncLiveActivity()
         }
         .onChange(of: viewModel.errorMessage) { _, message in
             guard message != nil else { return }
@@ -413,44 +423,96 @@ struct ScanView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 10) {
-                if draft.canResumeInReview {
-                    Button {
-                        AppHaptics.selection()
-                        viewModel.resumeDraft(draft)
-                    } label: {
-                        Label("Resume Intake", systemImage: "arrow.clockwise.circle")
-                    }
-                    .appPrimaryActionButton()
+            ProgressView(value: draft.workflowProgressEstimate)
+                .progressViewStyle(.linear)
+                .tint(workflowTint(for: draft.workflowState))
+                .animation(.smooth(duration: 0.22), value: draft.workflowProgressEstimate)
 
+            currentSessionActions(for: draft)
+        }
+        .padding(.vertical, 4)
+        .accessibilityIdentifier("scan.currentSessionCard")
+    }
+
+    @ViewBuilder
+    private func currentSessionActions(for draft: ReviewDraftSnapshot) -> some View {
+        let showsResumePrimary = viewModel.canResumeOCRReview(draft) || draft.canResumeInReview
+
+        VStack(spacing: 8) {
+            if viewModel.canResumeOCRReview(draft) {
+                Button {
+                    AppHaptics.selection()
+                    viewModel.resumeOCRReview(draft)
+                } label: {
+                    actionButtonLabel(title: "Review OCR Draft", systemImage: "text.viewfinder")
+                }
+                .appPrimaryActionButton()
+                .frame(maxWidth: .infinity)
+            } else if draft.canResumeInReview {
+                Button {
+                    AppHaptics.selection()
+                    viewModel.resumeDraft(draft)
+                } label: {
+                    actionButtonLabel(title: "Resume Intake Review", systemImage: "arrow.clockwise.circle")
+                }
+                .appPrimaryActionButton()
+                .frame(maxWidth: .infinity)
+            } else {
+                Button {
+                    AppHaptics.selection()
+                    presentCaptureSourcePicker()
+                } label: {
+                    actionButtonLabel(title: "Start New Capture", systemImage: "camera.viewfinder")
+                }
+                .appPrimaryActionButton()
+                .frame(maxWidth: .infinity)
+            }
+
+            if showsResumePrimary {
+                HStack(spacing: 10) {
                     Button {
                         AppHaptics.selection()
                         presentCaptureSourcePicker()
                     } label: {
-                        Text("New Capture")
+                        actionButtonLabel(title: "New Capture")
                     }
                     .appSecondaryActionButton()
-                } else {
-                    Button {
-                        AppHaptics.selection()
-                        presentCaptureSourcePicker()
-                    } label: {
-                        Label("Start New Capture", systemImage: "camera.viewfinder")
-                    }
-                    .appPrimaryActionButton()
+                    .frame(maxWidth: .infinity)
 
                     Button(role: .destructive) {
                         AppHaptics.warning()
                         viewModel.deleteDraft(draft)
                     } label: {
-                        Text("Remove")
+                        actionButtonLabel(title: "Remove Draft")
                     }
                     .appSecondaryActionButton()
+                    .frame(maxWidth: .infinity)
                 }
+            } else {
+                Button(role: .destructive) {
+                    AppHaptics.warning()
+                    viewModel.deleteDraft(draft)
+                } label: {
+                    actionButtonLabel(title: "Remove Draft")
+                }
+                .appSecondaryActionButton()
+                .frame(maxWidth: .infinity)
             }
         }
-        .padding(.vertical, 4)
-        .accessibilityIdentifier("scan.currentSessionCard")
+    }
+
+    private func actionButtonLabel(title: String, systemImage: String? = nil) -> some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.semibold))
+            }
+            Text(title)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 22)
     }
 
     private func workflowTint(for state: ReviewDraftSnapshot.WorkflowState) -> Color {
@@ -593,11 +655,60 @@ struct ScanView: View {
     }
 
     private func syncLiveActivity() {
+        let payload = liveActivityPayload()
         PartsIntakeLiveActivityBridge.sync(
-            isProcessing: viewModel.isProcessing,
-            statusText: viewModel.processingStatusText,
-            detailText: viewModel.processingDetailText,
-            progress: viewModel.processingProgressEstimate
+            isActive: payload.isActive,
+            statusText: payload.status,
+            detailText: payload.detail,
+            progress: payload.progress,
+            deepLinkURL: payload.deepLinkURL
+        )
+    }
+
+    private func liveActivityPayload() -> (
+        isActive: Bool,
+        status: String,
+        detail: String,
+        progress: Double,
+        deepLinkURL: URL?
+    ) {
+        if viewModel.isProcessing {
+            let activeDraftID = viewModel.latestDraft?.id
+            return (
+                true,
+                viewModel.processingStatusText,
+                viewModel.processingDetailText,
+                viewModel.processingProgressEstimate,
+                activeDraftID.map { AppDeepLink.scanURL(draftID: $0) } ?? AppDeepLink.scanURL(openComposer: true)
+            )
+        }
+
+        guard let latestDraft = viewModel.latestDraft else {
+            return (false, "", "", 0, nil)
+        }
+
+        guard latestDraft.isLiveIntakeSession else {
+            return (false, "", "", 0, nil)
+        }
+
+        let statusText: String
+        switch latestDraft.workflowState {
+        case .ocrReview:
+            statusText = "OCR review ready"
+        case .reviewReady:
+            statusText = "Ready for intake review"
+        case .reviewEdited:
+            statusText = "Review edits saved"
+        default:
+            statusText = latestDraft.workflowState.statusLabel
+        }
+
+        return (
+            true,
+            statusText,
+            latestDraft.displaySecondaryLine,
+            latestDraft.workflowProgressEstimate,
+            AppDeepLink.scanURL(draftID: latestDraft.id)
         )
     }
 
@@ -639,12 +750,14 @@ private struct ScanSourceSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            Form {
                 Section {
                     Text("Use camera for a new capture, or choose an existing invoice photo.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                }
 
+                Section("Capture Source") {
                     Button {
                         AppHaptics.selection()
                         dismiss()
@@ -655,7 +768,6 @@ private struct ScanSourceSheet: View {
                     } label: {
                         Label("Scan with Camera", systemImage: "camera.viewfinder")
                     }
-                    .appPrimaryActionButton()
 
                     Button {
                         AppHaptics.selection()
@@ -667,12 +779,14 @@ private struct ScanSourceSheet: View {
                     } label: {
                         Label("Choose from Photos", systemImage: "photo.on.rectangle")
                     }
-                    .appSecondaryActionButton()
-                } footer: {
+                }
+
+                Section {
                     Text("Camera uses live document scanning. Photos lets you import an existing invoice image.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("Add Parts Invoice")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -681,7 +795,7 @@ private struct ScanSourceSheet: View {
                 }
             }
         }
-        .presentationDetents([.height(320)])
+        .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
     }
 }
@@ -773,7 +887,7 @@ private struct ArcadeWebContainerView: View {
                         isLoading = true
                         reloadToken = UUID()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryActionButton()
                 }
                 .padding()
                 .background(.ultraThinMaterial)

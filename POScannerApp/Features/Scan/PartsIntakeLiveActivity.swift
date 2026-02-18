@@ -15,6 +15,7 @@ struct PartsIntakeActivityAttributes: ActivityAttributes {
         var detailText: String
         var progress: Double
         var updatedAt: Date
+        var deepLinkURL: String?
     }
 
     var title: String
@@ -26,7 +27,13 @@ actor PartsIntakeLiveActivityManager {
 
     private var activity: Activity<PartsIntakeActivityAttributes>?
 
-    func sync(isProcessing: Bool, statusText: String, detailText: String, progress: Double) async {
+    func sync(
+        isActive: Bool,
+        statusText: String,
+        detailText: String,
+        progress: Double,
+        deepLinkURL: URL?
+    ) async {
         guard isEnabled else {
             await endCurrent(dismissalPolicy: .immediate)
             return
@@ -37,7 +44,7 @@ actor PartsIntakeLiveActivityManager {
             return
         }
 
-        guard isProcessing else {
+        guard isActive else {
             await endCurrent(dismissalPolicy: .default)
             return
         }
@@ -46,7 +53,8 @@ actor PartsIntakeLiveActivityManager {
             statusText: statusText,
             detailText: detailText,
             progress: min(1, max(0, progress)),
-            updatedAt: Date()
+            updatedAt: Date(),
+            deepLinkURL: deepLinkURL?.absoluteString
         )
         let content = ActivityContent(
             state: state,
@@ -82,7 +90,8 @@ actor PartsIntakeLiveActivityManager {
             statusText: "Completed",
             detailText: "Parts intake finished.",
             progress: 1,
-            updatedAt: Date()
+            updatedAt: Date(),
+            deepLinkURL: nil
         )
         let content = ActivityContent(
             state: state,
@@ -95,15 +104,22 @@ actor PartsIntakeLiveActivityManager {
 #endif
 
 enum PartsIntakeLiveActivityBridge {
-    static func sync(isProcessing: Bool, statusText: String, detailText: String, progress: Double) {
+    static func sync(
+        isActive: Bool,
+        statusText: String,
+        detailText: String,
+        progress: Double,
+        deepLinkURL: URL? = nil
+    ) {
         #if canImport(ActivityKit)
         guard #available(iOS 16.1, *) else { return }
         Task {
             await PartsIntakeLiveActivityManager.shared.sync(
-                isProcessing: isProcessing,
+                isActive: isActive,
                 statusText: statusText,
                 detailText: detailText,
-                progress: progress
+                progress: progress,
+                deepLinkURL: deepLinkURL
             )
         }
         #endif

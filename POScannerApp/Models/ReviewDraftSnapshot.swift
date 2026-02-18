@@ -200,6 +200,34 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         return parsed
     }
 
+    var workflowProgressEstimate: Double {
+        switch workflowState {
+        case .scanning:
+            return 0.20
+        case .ocrReview:
+            return 0.42
+        case .parsing:
+            return 0.66
+        case .reviewReady:
+            return 0.86
+        case .reviewEdited:
+            return 0.92
+        case .submitting:
+            return 0.98
+        case .failed:
+            return 0.55
+        }
+    }
+
+    var isLiveIntakeSession: Bool {
+        switch workflowState {
+        case .scanning, .ocrReview, .parsing, .reviewReady, .reviewEdited, .submitting:
+            return true
+        case .failed:
+            return false
+        }
+    }
+
     var canResumeInReview: Bool {
         switch workflowState {
         case .reviewReady, .reviewEdited, .failed, .submitting:

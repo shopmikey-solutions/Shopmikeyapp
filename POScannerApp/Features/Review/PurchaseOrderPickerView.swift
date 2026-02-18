@@ -44,7 +44,7 @@ struct PurchaseOrderPickerView: View {
                     Button("Retry") {
                         Task { await fetchPurchaseOrders() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryActionButton()
                 }
             } else if filteredPurchaseOrders.isEmpty {
                 ContentUnavailableView(

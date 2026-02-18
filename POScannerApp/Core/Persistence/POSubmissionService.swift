@@ -181,7 +181,10 @@ final class POSubmissionService {
 
         let now = Date()
         poRecord.vendorName = payload.vendorName.trimmingCharacters(in: .whitespacesAndNewlines)
-        poRecord.poNumber = payload.poNumber?.trimmingCharacters(in: .whitespacesAndNewlines)
+        poRecord.poNumber =
+            payload.poReference?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? payload.poNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? payload.invoiceNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         poRecord.orderId = payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         poRecord.serviceId = payload.serviceId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         poRecord.date = now
@@ -272,99 +275,301 @@ final class POSubmissionService {
         let resolvedMode = mode ?? .attachToExistingPO
         switch resolvedMode {
         case .attachToExistingPO:
-            guard let orderId = payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                  let serviceId = payload.serviceId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
-                if mode == nil {
-                    // Backward-compatible behavior for legacy callsites/tests.
+            if mode == nil {
+                // Backward-compatible behavior for legacy callsites/tests.
+                guard let orderId = payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                      let serviceId = payload.serviceId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
                     return
                 }
-                throw ValidationError.invalidPayload("Attach mode requires both work order ID and service ID.")
+
+                try await submitAttachModeItems(
+                    orderId: orderId,
+                    serviceId: serviceId,
+                    vendorId: vendorId,
+                    purchaseOrderId: nil,
+                    items: candidates
+                )
+                return
             }
 
+            try await submitDraftPurchaseOrder(
+                payload: payload,
+                vendorId: vendorId,
+                scannedItems: candidates
+            )
+
+        case .quickAddToTicket:
+            guard let orderId = payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                  let serviceId = payload.serviceId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
+                throw ValidationError.invalidPayload("Quick Add requires both work order ID and service ID.")
+            }
+
+            if let inventoryValidationError = quickAddInventoryValidationError(for: candidates) {
+                throw ValidationError.invalidPayload(inventoryValidationError)
+            }
+
+            let selectedDraftPOID = try await validatedDraftPurchaseOrderID(from: payload.purchaseOrderId)
             try await submitAttachModeItems(
                 orderId: orderId,
                 serviceId: serviceId,
                 vendorId: vendorId,
+                purchaseOrderId: selectedDraftPOID,
                 items: candidates
             )
 
-        case .quickAddToTicket, .inventoryRestock:
-            let lineItems = candidates.map { item in
-                let safeDescription = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                let safeSKU = item.sku.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                let safePartNumber = item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? safeSKU
-                let unitCostCents = item.costCents
-                return CreatePurchaseOrderLineItemRequest(
-                    description: safeDescription,
-                    quantity: item.quantityForSubmission,
-                    unitCostCents: unitCostCents,
-                    name: safeDescription,
-                    partNumber: safePartNumber,
-                    costCents: unitCostCents,
-                    unitCost: Decimal(unitCostCents) / 100
-                )
-            }
-
-            let parts = candidates.compactMap { item -> CreatePurchaseOrderPartRequest? in
-                guard classify(item) == .part else { return nil }
-
-                let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                let safeSKU = item.sku.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                let safePartNumber = item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                    ?? safeSKU
-                    ?? fallbackPartNumber(for: safeName, itemID: item.id)
-                return CreatePurchaseOrderPartRequest(
-                    name: safeName,
-                    quantity: item.quantityForSubmission,
-                    costCents: item.costCents,
-                    number: safePartNumber,
-                    description: safeName,
-                    partNumber: safePartNumber
-                )
-            }
-
-            let fees = candidates.compactMap { item -> CreatePurchaseOrderFeeRequest? in
-                guard classify(item) == .fee else { return nil }
-
-                let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                let amountCents = max(item.costCents * item.quantityForSubmission, item.costCents)
-                return CreatePurchaseOrderFeeRequest(
-                    name: safeName,
-                    amountCents: amountCents,
-                    description: safeName
-                )
-            }
-
-            let tires = candidates.compactMap { item -> CreatePurchaseOrderTireRequest? in
-                guard classify(item) == .tire else { return nil }
-
-                let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                let safeSKU = item.sku.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                let safePartNumber = item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                    ?? safeSKU
-                    ?? fallbackPartNumber(for: safeName, itemID: item.id)
-                return CreatePurchaseOrderTireRequest(
-                    name: safeName,
-                    quantity: item.quantityForSubmission,
-                    costCents: item.costCents,
-                    number: safePartNumber,
-                    description: safeName,
-                    partNumber: safePartNumber
-                )
-            }
-
-            let request = CreatePurchaseOrderRequest(
+        case .inventoryRestock:
+            try await submitDraftPurchaseOrder(
+                payload: payload,
                 vendorId: vendorId,
-                invoiceNumber: payload.poNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                status: nil,
-                lineItems: lineItems,
-                parts: parts,
-                fees: fees,
-                tires: tires
+                scannedItems: candidates
             )
-
-            _ = try await shopmonkey.createPurchaseOrder(request)
         }
+    }
+
+    private func submitDraftPurchaseOrder(
+        payload: POSubmissionPayload,
+        vendorId: String,
+        scannedItems: [POItem]
+    ) async throws {
+        let selectedDraftPO = try await resolveDraftPurchaseOrder(
+            explicitID: payload.purchaseOrderId,
+            scannedPONumber: payload.allowExistingPOLinking ? (payload.poReference ?? payload.poNumber) : nil
+        )
+        let selectedDraftPOID = selectedDraftPO?.id.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+
+        let mergedItems: [POItem]
+        var resolvedOrderID = payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+
+        if let selectedPO = selectedDraftPO {
+            let existingItems = poItems(from: selectedPO)
+            mergedItems = mergePurchaseOrderItems(existingItems: existingItems, scannedItems: scannedItems)
+            if resolvedOrderID == nil {
+                resolvedOrderID = selectedPO.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            }
+        } else {
+            mergedItems = scannedItems
+        }
+
+        let request = buildPurchaseOrderRequest(
+            vendorId: vendorId,
+            payload: payload,
+            purchaseOrderId: selectedDraftPOID,
+            orderId: resolvedOrderID,
+            items: mergedItems
+        )
+
+        _ = try await shopmonkey.createPurchaseOrder(request)
+    }
+
+    private func validatedDraftPurchaseOrderID(from rawID: String?) async throws -> String? {
+        guard let candidateID = rawID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
+            return nil
+        }
+
+        return try await resolveDraftPurchaseOrder(explicitID: candidateID, scannedPONumber: nil)?
+            .id
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    private func resolveDraftPurchaseOrder(
+        explicitID rawID: String?,
+        scannedPONumber rawNumber: String?
+    ) async throws -> PurchaseOrderResponse? {
+        if let candidateID = rawID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            let all = try await shopmonkey.getPurchaseOrders()
+            guard let selectedPO = all.first(where: { candidate in
+                candidate.id.trimmingCharacters(in: .whitespacesAndNewlines) == candidateID
+            }) else {
+                throw ValidationError.invalidPayload("Selected purchase order could not be found. Refresh and select again.")
+            }
+
+            guard selectedPO.isDraft else {
+                throw ValidationError.invalidPayload("Selected purchase order is not Draft. Choose a Draft PO or create a new one.")
+            }
+
+            return selectedPO
+        }
+
+        guard let normalizedReference = normalizePurchaseOrderReference(rawNumber) else {
+            return nil
+        }
+
+        let all = try await shopmonkey.getPurchaseOrders()
+        guard let matchedPO = all.first(where: { candidate in
+            normalizePurchaseOrderReference(candidate.number) == normalizedReference
+        }) else {
+            return nil
+        }
+
+        guard matchedPO.isDraft else {
+            let displayNumber = matchedPO.number?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? matchedPO.id
+            throw ValidationError.invalidPayload(
+                "Matched purchase order \(displayNumber) is \(matchedPO.status). Only Draft purchase orders can be updated."
+            )
+        }
+
+        return matchedPO
+    }
+
+    private func normalizePurchaseOrderReference(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+
+        let normalized = value
+            .uppercased()
+            .unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func poItems(from purchaseOrder: PurchaseOrderResponse) -> [POItem] {
+        purchaseOrder.allLineItems.map { line in
+            POItem(
+                description: line.name,
+                sku: line.partNumber ?? "",
+                quantity: Double(max(1, line.quantity)),
+                unitCost: Decimal(max(0, line.costCents)) / 100,
+                partNumber: line.partNumber,
+                confidence: 1.0,
+                kind: itemKind(for: line.kind),
+                kindConfidence: 1.0,
+                kindReasons: ["Imported from selected draft PO \(purchaseOrder.number ?? purchaseOrder.id)"]
+            )
+        }
+    }
+
+    private func mergePurchaseOrderItems(existingItems: [POItem], scannedItems: [POItem]) -> [POItem] {
+        var signatures = Set(existingItems.map(itemSignature))
+        var merged = existingItems
+
+        for item in scannedItems {
+            let signature = itemSignature(item)
+            guard !signatures.contains(signature) else { continue }
+            signatures.insert(signature)
+            merged.append(item)
+        }
+
+        return merged
+    }
+
+    private func itemSignature(_ item: POItem) -> String {
+        let name = item.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let partNumber = (item.partNumber ?? item.sku).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(name)|\(partNumber)|\(item.quantityForSubmission)|\(item.costCents)|\(classify(item).rawValue)"
+    }
+
+    private func itemKind(for lineKind: PurchaseOrderResponse.LineItemKind) -> POItemKind {
+        switch lineKind {
+        case .part:
+            return .part
+        case .fee:
+            return .fee
+        case .tire:
+            return .tire
+        }
+    }
+
+    private func quickAddInventoryValidationError(for items: [POItem]) -> String? {
+        let missingInventoryIdentifiers = items.filter { item in
+            let lineType = classify(item)
+            guard lineType == .part || lineType == .tire else { return false }
+            let identifier = (item.partNumber ?? item.sku).trimmingCharacters(in: .whitespacesAndNewlines)
+            return identifier.isEmpty
+        }
+
+        guard !missingInventoryIdentifiers.isEmpty else { return nil }
+        return "Quick Add requires a barcode, SKU, or part number on each part/tire line. Use Attach to PO or Restock for non-inventory purchases."
+    }
+
+    private func buildPurchaseOrderRequest(
+        vendorId: String,
+        payload: POSubmissionPayload,
+        purchaseOrderId: String?,
+        orderId: String?,
+        items: [POItem]
+    ) -> CreatePurchaseOrderRequest {
+        let lineItems = items.map { item in
+            let safeDescription = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let safeSKU = item.sku.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            let safePartNumber = item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? safeSKU
+            let unitCostCents = item.costCents
+            return CreatePurchaseOrderLineItemRequest(
+                description: safeDescription,
+                quantity: item.quantityForSubmission,
+                unitCostCents: unitCostCents,
+                name: safeDescription,
+                partNumber: safePartNumber,
+                costCents: unitCostCents,
+                unitCost: Decimal(unitCostCents) / 100
+            )
+        }
+
+        let parts = items.compactMap { item -> CreatePurchaseOrderPartRequest? in
+            guard classify(item) == .part else { return nil }
+
+            let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let safeSKU = item.sku.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            let safePartNumber = item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? safeSKU
+                ?? fallbackPartNumber(for: safeName, itemID: item.id)
+            return CreatePurchaseOrderPartRequest(
+                name: safeName,
+                quantity: item.quantityForSubmission,
+                costCents: item.costCents,
+                number: safePartNumber,
+                description: safeName,
+                partNumber: safePartNumber
+            )
+        }
+
+        let fees = items.compactMap { item -> CreatePurchaseOrderFeeRequest? in
+            guard classify(item) == .fee else { return nil }
+
+            let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let amountCents = max(item.costCents * item.quantityForSubmission, item.costCents)
+            return CreatePurchaseOrderFeeRequest(
+                name: safeName,
+                amountCents: amountCents,
+                description: safeName
+            )
+        }
+
+        let tires = items.compactMap { item -> CreatePurchaseOrderTireRequest? in
+            guard classify(item) == .tire else { return nil }
+
+            let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let safeSKU = item.sku.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            let safePartNumber = item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? safeSKU
+                ?? fallbackPartNumber(for: safeName, itemID: item.id)
+            return CreatePurchaseOrderTireRequest(
+                name: safeName,
+                quantity: item.quantityForSubmission,
+                costCents: item.costCents,
+                number: safePartNumber,
+                description: safeName,
+                partNumber: safePartNumber
+            )
+        }
+
+        return CreatePurchaseOrderRequest(
+            vendorId: vendorId,
+            invoiceNumber:
+                payload.invoiceNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? payload.poNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            status: "draft",
+            purchaseOrderId: purchaseOrderId,
+            orderId: orderId,
+            lineItems: lineItems,
+            parts: parts,
+            fees: fees,
+            tires: tires
+        )
     }
 
     private func submittableItems(from payload: POSubmissionPayload) -> [POItem] {
@@ -381,6 +586,7 @@ final class POSubmissionService {
         orderId: String,
         serviceId: String,
         vendorId: String,
+        purchaseOrderId: String?,
         items: [POItem]
     ) async throws {
         for item in items {
@@ -392,13 +598,18 @@ final class POSubmissionService {
                     quantity: item.quantityForSubmission,
                     partNumber: item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
                     wholesaleCostCents: item.costCents,
-                    vendorId: vendorId
+                    vendorId: vendorId,
+                    purchaseOrderId: purchaseOrderId
                 )
                 _ = try await shopmonkey.createPart(orderId: orderId, serviceId: serviceId, request: request)
 
             case .fee:
                 let amountCents = max(item.costCents * item.quantityForSubmission, item.costCents)
-                let request = CreateFeeRequest(description: description, amountCents: amountCents)
+                let request = CreateFeeRequest(
+                    description: description,
+                    amountCents: amountCents,
+                    purchaseOrderId: purchaseOrderId
+                )
                 _ = try await shopmonkey.createFee(orderId: orderId, serviceId: serviceId, request: request)
 
             case .tire:
@@ -406,7 +617,8 @@ final class POSubmissionService {
                     description: description,
                     quantity: item.quantityForSubmission,
                     costCents: item.costCents,
-                    vendorId: vendorId
+                    vendorId: vendorId,
+                    purchaseOrderId: purchaseOrderId
                 )
                 _ = try await shopmonkey.createTire(orderId: orderId, serviceId: serviceId, request: request)
             }

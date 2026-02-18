@@ -256,7 +256,7 @@ struct POSubmissionServiceTests {
         #expect(counts.getPurchaseOrders == 1)
     }
 
-    @Test @MainActor func quickAddCreatesSinglePurchaseOrderWithAllLineItems() async throws {
+    @Test @MainActor func quickAddPostsInventoryAndFeesToSelectedService() async throws {
         let controller = DataController(inMemory: true)
         await controller.waitUntilLoaded()
         #expect(controller.loadError == nil)
@@ -264,7 +264,8 @@ struct POSubmissionServiceTests {
 
         let mock = MockShopmonkeyService()
         mock.createVendorResult = .success(.init(id: "v_1", name: "ACME"))
-        mock.createPurchaseOrderResult = .success(.init(id: "po_1", vendorId: "v_1", status: "received"))
+        mock.createPartResult = .success(.init(id: "p_1", name: "Brake Pads"))
+        mock.createFeeResult = .success(.init(id: "f_1"))
         mock.getPurchaseOrdersResult = .success([])
 
         let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
@@ -274,10 +275,10 @@ struct POSubmissionServiceTests {
             vendorName: "ACME",
             vendorPhone: nil,
             poNumber: "INV-100",
-            orderId: nil,
-            serviceId: nil,
+            orderId: "o_1",
+            serviceId: "s_1",
             items: [
-                POItem(name: "Brake Pads", quantity: 2, cost: 19.99),
+                POItem(name: "Brake Pads", quantity: 2, cost: 19.99, partNumber: "BP-200"),
                 POItem(name: "Shop Supplies", quantity: 1, cost: 5.50)
             ]
         )
@@ -293,23 +294,14 @@ struct POSubmissionServiceTests {
         #expect(result.message == nil)
 
         let counts = mock.counts
-        #expect(counts.createPurchaseOrder == 1)
-        #expect(counts.createPart == 0)
-        #expect(counts.createFee == 0)
+        #expect(counts.createPurchaseOrder == 0)
+        #expect(counts.createPart == 1)
+        #expect(counts.createFee == 1)
         #expect(counts.createTire == 0)
-
-        #expect(mock.capturedPurchaseOrderRequests.count == 1)
-        guard let request = mock.capturedPurchaseOrderRequests.first else { return }
-        #expect(request.lineItems.count == 2)
-        #expect(request.parts.count == 1)
-        #expect(request.fees.count == 1)
-        #expect(request.tires.count == 0)
-        #expect(request.lineItems[0].description == "Brake Pads")
-        #expect(request.lineItems[1].description == "Shop Supplies")
-        #expect(request.fees[0].name == "Shop Supplies")
+        #expect(mock.capturedPurchaseOrderRequests.isEmpty)
     }
 
-    @Test @MainActor func quickAddPurchaseOrderPayloadIncludesPartFeeAndTireCollections() async throws {
+    @Test @MainActor func quickAddRoutesPartFeeAndTireToServiceEndpoints() async throws {
         let controller = DataController(inMemory: true)
         await controller.waitUntilLoaded()
         #expect(controller.loadError == nil)
@@ -317,7 +309,9 @@ struct POSubmissionServiceTests {
 
         let mock = MockShopmonkeyService()
         mock.createVendorResult = .success(.init(id: "v_1", name: "ACME"))
-        mock.createPurchaseOrderResult = .success(.init(id: "po_1", vendorId: "v_1", status: "draft"))
+        mock.createPartResult = .success(.init(id: "p_1", name: "Brake Pads"))
+        mock.createFeeResult = .success(.init(id: "f_1"))
+        mock.createTireResult = .success(.init(id: "t_1"))
         mock.getPurchaseOrdersResult = .success([])
 
         let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
@@ -327,8 +321,8 @@ struct POSubmissionServiceTests {
             vendorName: "ACME",
             vendorPhone: nil,
             poNumber: "INV-200",
-            orderId: nil,
-            serviceId: nil,
+            orderId: "o_1",
+            serviceId: "s_1",
             items: [
                 POItem(name: "Brake Pads", quantity: 2, cost: 45.00, partNumber: "BP-123"),
                 POItem(name: "Shipping Freight", quantity: 1, cost: 20.00),
@@ -344,25 +338,14 @@ struct POSubmissionServiceTests {
         )
 
         #expect(result.succeeded == true)
-        #expect(mock.capturedPurchaseOrderRequests.count == 1)
-        guard let request = mock.capturedPurchaseOrderRequests.first else { return }
-
-        #expect(request.lineItems.count == 3)
-        #expect(request.parts.count == 1)
-        #expect(request.fees.count == 1)
-        #expect(request.tires.count == 1)
-
-        #expect(request.parts[0].name == "Brake Pads")
-        #expect(request.parts[0].number == "BP-123")
-        #expect(request.parts[0].costCents == 4_500)
-        #expect(request.fees[0].name == "Shipping Freight")
-        #expect(request.fees[0].amountCents == 2_000)
-        #expect(request.tires[0].name == "All-Season Tire 225/45R17")
-        #expect(request.tires[0].number == "T-22545")
-        #expect(request.tires[0].costCents == 11_000)
+        let counts = mock.counts
+        #expect(counts.createPart == 1)
+        #expect(counts.createFee == 1)
+        #expect(counts.createTire == 1)
+        #expect(counts.createPurchaseOrder == 0)
     }
 
-    @Test @MainActor func attachModeClassifiesFeeAndTireSeparately() async throws {
+    @Test @MainActor func attachModeBuildsDraftPurchaseOrderWithTypedCollections() async throws {
         let controller = DataController(inMemory: true)
         await controller.waitUntilLoaded()
         #expect(controller.loadError == nil)
@@ -370,9 +353,7 @@ struct POSubmissionServiceTests {
 
         let mock = MockShopmonkeyService()
         mock.createVendorResult = .success(.init(id: "v_1", name: "ACME"))
-        mock.createPartResult = .success(.init(id: "p_1", name: "Part"))
-        mock.createFeeResult = .success(.init(id: "f_1"))
-        mock.createTireResult = .success(.init(id: "t_1"))
+        mock.createPurchaseOrderResult = .success(.init(id: "po_1", vendorId: "v_1", status: "draft"))
         mock.getPurchaseOrdersResult = .success([])
 
         let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
@@ -402,10 +383,15 @@ struct POSubmissionServiceTests {
         #expect(result.message == nil)
 
         let counts = mock.counts
-        #expect(counts.createPart == 1)
-        #expect(counts.createFee == 1)
-        #expect(counts.createTire == 1)
-        #expect(counts.createPurchaseOrder == 0)
+        #expect(counts.createPart == 0)
+        #expect(counts.createFee == 0)
+        #expect(counts.createTire == 0)
+        #expect(counts.createPurchaseOrder == 1)
+        #expect(mock.capturedPurchaseOrderRequests.count == 1)
+        guard let request = mock.capturedPurchaseOrderRequests.first else { return }
+        #expect(request.parts.count == 1)
+        #expect(request.fees.count == 1)
+        #expect(request.tires.count == 1)
     }
 
     @Test @MainActor func quickAddUsesExplicitItemKindWhenProvided() async throws {
@@ -425,12 +411,12 @@ struct POSubmissionServiceTests {
             vendorName: "ACME",
             vendorPhone: nil,
             poNumber: "INV-900",
-            orderId: nil,
-            serviceId: nil,
+            orderId: "o_1",
+            serviceId: "s_1",
             items: [
-                POItem(name: "Flat line", quantity: 1, cost: 10.00, kind: .part, kindConfidence: 0.9),
+                POItem(name: "Flat line", quantity: 1, cost: 10.00, partNumber: "P-1", kind: .part, kindConfidence: 0.9),
                 POItem(name: "Flat line", quantity: 1, cost: 5.00, kind: .fee, kindConfidence: 0.9),
-                POItem(name: "Flat line", quantity: 2, cost: 12.00, kind: .tire, kindConfidence: 0.9)
+                POItem(name: "Flat line", quantity: 2, cost: 12.00, partNumber: "T-2", kind: .tire, kindConfidence: 0.9)
             ]
         )
 
@@ -442,11 +428,11 @@ struct POSubmissionServiceTests {
         )
 
         #expect(result.succeeded == true)
-        #expect(mock.capturedPurchaseOrderRequests.count == 1)
-        guard let request = mock.capturedPurchaseOrderRequests.first else { return }
-        #expect(request.parts.count == 1)
-        #expect(request.fees.count == 1)
-        #expect(request.tires.count == 1)
+        let counts = mock.counts
+        #expect(counts.createPart == 1)
+        #expect(counts.createFee == 1)
+        #expect(counts.createTire == 1)
+        #expect(counts.createPurchaseOrder == 0)
     }
 
     @Test @MainActor func quickAddMapsUnknownMountAndBalanceLineToFee() async throws {
@@ -466,8 +452,8 @@ struct POSubmissionServiceTests {
             vendorName: "ACME",
             vendorPhone: nil,
             poNumber: "INV-902",
-            orderId: nil,
-            serviceId: nil,
+            orderId: "o_1",
+            serviceId: "s_1",
             items: [
                 POItem(name: "Mount and Balance Service", quantity: 1, cost: 120.00, kind: .unknown, kindConfidence: 0.2)
             ]
@@ -481,11 +467,11 @@ struct POSubmissionServiceTests {
         )
 
         #expect(result.succeeded == true)
-        #expect(mock.capturedPurchaseOrderRequests.count == 1)
-        guard let request = mock.capturedPurchaseOrderRequests.first else { return }
-        #expect(request.parts.count == 0)
-        #expect(request.fees.count == 1)
-        #expect(request.tires.count == 0)
+        let counts = mock.counts
+        #expect(counts.createPart == 0)
+        #expect(counts.createFee == 1)
+        #expect(counts.createTire == 0)
+        #expect(counts.createPurchaseOrder == 0)
     }
 
     @Test @MainActor func unknownItemKindFallsBackToPartSafely() async throws {
@@ -505,10 +491,10 @@ struct POSubmissionServiceTests {
             vendorName: "ACME",
             vendorPhone: nil,
             poNumber: "INV-901",
-            orderId: nil,
-            serviceId: nil,
+            orderId: "o_1",
+            serviceId: "s_1",
             items: [
-                POItem(name: "Mystery Component", quantity: 1, cost: 22.00, kind: .unknown, kindConfidence: 0.2)
+                POItem(name: "Mystery Component", quantity: 1, cost: 22.00, sku: "MC-1", kind: .unknown, kindConfidence: 0.2)
             ]
         )
 
@@ -520,10 +506,193 @@ struct POSubmissionServiceTests {
         )
 
         #expect(result.succeeded == true)
+        let counts = mock.counts
+        #expect(counts.createPart == 1)
+        #expect(counts.createFee == 0)
+        #expect(counts.createTire == 0)
+        #expect(counts.createPurchaseOrder == 0)
+    }
+
+    @Test @MainActor func attachModeRejectsNonDraftExistingPurchaseOrder() async throws {
+        let controller = DataController(inMemory: true)
+        await controller.waitUntilLoaded()
+        #expect(controller.loadError == nil)
+        guard controller.loadError == nil else { return }
+
+        let mock = MockShopmonkeyService()
+        mock.getPurchaseOrdersResult = .success([
+            PurchaseOrderResponse(id: "po_1", vendorId: "v_1", status: "Ordered")
+        ])
+
+        let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
+
+        let payload = POSubmissionPayload(
+            vendorId: "v_1",
+            vendorName: "ACME",
+            vendorPhone: nil,
+            poNumber: "INV-903",
+            purchaseOrderId: "po_1",
+            orderId: nil,
+            serviceId: nil,
+            items: [POItem(name: "Brake Pads", quantity: 1, cost: 22.00, partNumber: "BP-1")]
+        )
+
+        let result = await submitter.submitNew(
+            payload: payload,
+            mode: .attachToExistingPO,
+            shouldPersist: false,
+            context: controller.viewContext
+        )
+
+        #expect(result.succeeded == false)
+        #expect(result.message?.contains("not Draft") == true)
+        #expect(mock.counts.createPurchaseOrder == 0)
+    }
+
+    @Test @MainActor func attachModeMergesExistingDraftPOLinesWithScannedLines() async throws {
+        let controller = DataController(inMemory: true)
+        await controller.waitUntilLoaded()
+        #expect(controller.loadError == nil)
+        guard controller.loadError == nil else { return }
+
+        let existingPart = PurchaseOrderResponse.LineItem(
+            name: "Existing Rotor",
+            quantity: 1,
+            costCents: 9_500,
+            partNumber: "ROT-9",
+            kind: .part
+        )
+        let existingPO = PurchaseOrderResponse(
+            id: "po_2",
+            vendorId: "v_1",
+            vendorName: "ACME",
+            number: "PO-100",
+            orderId: "o_1",
+            status: "Draft",
+            parts: [existingPart]
+        )
+
+        let mock = MockShopmonkeyService()
+        mock.createPurchaseOrderResult = .success(.init(id: "po_2", vendorId: "v_1", status: "draft"))
+        mock.getPurchaseOrdersResult = .success([existingPO])
+
+        let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
+
+        let payload = POSubmissionPayload(
+            vendorId: "v_1",
+            vendorName: "ACME",
+            vendorPhone: nil,
+            poNumber: "INV-904",
+            purchaseOrderId: "po_2",
+            orderId: nil,
+            serviceId: nil,
+            items: [POItem(name: "New Brake Pad", quantity: 2, cost: 42.00, partNumber: "BP-2")]
+        )
+
+        let result = await submitter.submitNew(
+            payload: payload,
+            mode: .attachToExistingPO,
+            shouldPersist: false,
+            context: controller.viewContext
+        )
+
+        #expect(result.succeeded == true)
         #expect(mock.capturedPurchaseOrderRequests.count == 1)
         guard let request = mock.capturedPurchaseOrderRequests.first else { return }
-        #expect(request.parts.count == 1)
-        #expect(request.fees.count == 0)
-        #expect(request.tires.count == 0)
+        #expect(request.purchaseOrderId == "po_2")
+        #expect(request.parts.count == 2)
+    }
+
+    @Test @MainActor func attachModeAutoMatchesDraftPurchaseOrderByScannedNumber() async throws {
+        let controller = DataController(inMemory: true)
+        await controller.waitUntilLoaded()
+        #expect(controller.loadError == nil)
+        guard controller.loadError == nil else { return }
+
+        let existingPO = PurchaseOrderResponse(
+            id: "po_3",
+            vendorId: "v_1",
+            vendorName: "ACME",
+            number: "PO-99012",
+            orderId: nil,
+            status: "Draft",
+            parts: [
+                .init(name: "Existing Rotor", quantity: 1, costCents: 9_500, partNumber: "ROT-9", kind: .part)
+            ]
+        )
+
+        let mock = MockShopmonkeyService()
+        mock.createPurchaseOrderResult = .success(.init(id: "po_3", vendorId: "v_1", status: "draft"))
+        mock.getPurchaseOrdersResult = .success([existingPO])
+
+        let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
+
+        let payload = POSubmissionPayload(
+            vendorId: "v_1",
+            vendorName: "ACME",
+            vendorPhone: nil,
+            poNumber: "PO-99012",
+            purchaseOrderId: nil,
+            orderId: nil,
+            serviceId: nil,
+            items: [POItem(name: "New Brake Pad", quantity: 2, cost: 42.00, partNumber: "BP-2")],
+            allowExistingPOLinking: true
+        )
+
+        let result = await submitter.submitNew(
+            payload: payload,
+            mode: .attachToExistingPO,
+            shouldPersist: false,
+            context: controller.viewContext
+        )
+
+        #expect(result.succeeded == true)
+        guard let request = mock.capturedPurchaseOrderRequests.first else { return }
+        #expect(request.purchaseOrderId == "po_3")
+        #expect(request.parts.count == 2)
+    }
+
+    @Test @MainActor func attachModeRejectsMatchedNonDraftPurchaseOrderByScannedNumber() async throws {
+        let controller = DataController(inMemory: true)
+        await controller.waitUntilLoaded()
+        #expect(controller.loadError == nil)
+        guard controller.loadError == nil else { return }
+
+        let nonDraftPO = PurchaseOrderResponse(
+            id: "po_4",
+            vendorId: "v_1",
+            vendorName: "ACME",
+            number: "PO-99012",
+            orderId: nil,
+            status: "Ordered"
+        )
+
+        let mock = MockShopmonkeyService()
+        mock.getPurchaseOrdersResult = .success([nonDraftPO])
+
+        let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
+
+        let payload = POSubmissionPayload(
+            vendorId: "v_1",
+            vendorName: "ACME",
+            vendorPhone: nil,
+            poNumber: "PO-99012",
+            purchaseOrderId: nil,
+            orderId: nil,
+            serviceId: nil,
+            items: [POItem(name: "Brake Pads", quantity: 1, cost: 22.00, partNumber: "BP-1")],
+            allowExistingPOLinking: true
+        )
+
+        let result = await submitter.submitNew(
+            payload: payload,
+            mode: .attachToExistingPO,
+            shouldPersist: false,
+            context: controller.viewContext
+        )
+
+        #expect(result.succeeded == false)
+        #expect(result.message?.contains("Only Draft purchase orders can be updated.") == true)
+        #expect(mock.counts.createPurchaseOrder == 0)
     }
 }

@@ -50,10 +50,12 @@ final class ReviewViewModel: ObservableObject {
 
     @Published var selectedOrder: OrderSummary?
     @Published var selectedService: ServiceSummary?
+    @Published var selectedPurchaseOrder: PurchaseOrderResponse?
+    @Published private(set) var purchaseOrderMatchMessage: String?
     @Published var selectedPOId: String?
     @Published var selectedTicketId: String?
 
-    @Published var modeUI: ModeUI = .restock {
+    @Published var modeUI: ModeUI = .quickAdd {
         didSet {
             synchronizeForModeChange(from: oldValue, to: modeUI)
         }
@@ -68,13 +70,26 @@ final class ReviewViewModel: ObservableObject {
     @Published var focusedItemId: UUID?
     @Published var todayCount: Int = 0
     @Published var todayTotal: Decimal = 0
+    @Published private(set) var activeDraftID: UUID?
+    @Published private(set) var lastDraftSavedAt: Date?
 
     private var vendorLookupTask: Task<Void, Never>?
     private var lineItemSuggestionTask: Task<Void, Never>?
+    private var purchaseOrderLookupTask: Task<Void, Never>?
     private var vendorAutoSelectAttempts: Int = 0
     private var vendorAutoSelectSuccesses: Int = 0
+    private var lastSubmissionFingerprint: Int?
+    private var lastSubmissionDate: Date?
+    private var autoMatchedPurchaseOrderID: String?
+    private var draftCreatedAt: Date?
+    private var shouldSkipDraftPersistence: Bool = false
 
-    init(environment: AppEnvironment, parsedInvoice: ParsedInvoice, shopmonkeyService: ShopmonkeyServicing? = nil) {
+    init(
+        environment: AppEnvironment,
+        parsedInvoice: ParsedInvoice,
+        shopmonkeyService: ShopmonkeyServicing? = nil,
+        draftSnapshot: ReviewDraftSnapshot? = nil
+    ) {
         self.environment = environment
         self.shopmonkeyService = shopmonkeyService ?? environment.shopmonkeyAPI
         self.parsedInvoice = parsedInvoice
@@ -118,6 +133,21 @@ final class ReviewViewModel: ObservableObject {
             scheduleVendorLookup(for: suggestedVendorName, debounce: false)
         }
 
+        let poLookupSeed = Self.trimmedValue(poReference) ?? suggestedPONumber
+        if isExperimentalLinkingEnabled, let poLookupSeed, !poLookupSeed.isEmpty {
+            schedulePurchaseOrderLookup(for: poLookupSeed, debounce: false)
+        }
+
+        if let draftSnapshot {
+            restore(from: draftSnapshot)
+            if trimmedOrNil(selectedVendorId) == nil, !vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                scheduleVendorLookup(for: vendorName, debounce: false)
+            }
+            if isExperimentalLinkingEnabled, !poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                schedulePurchaseOrderLookup(for: poReference, debounce: false)
+            }
+        }
+
         applyLineItemSuggestions()
     }
 
@@ -135,7 +165,7 @@ final class ReviewViewModel: ObservableObject {
     // Backward-compatible alias.
     var poNumber: String? {
         get { trimmedOrNil(poReference) }
-        set { poReference = newValue ?? "" }
+        set { setPOReference(newValue ?? "") }
     }
 
     var confidenceScore: Double {
@@ -183,13 +213,24 @@ final class ReviewViewModel: ObservableObject {
 
         switch modeUI {
         case .attach:
-            let hasOrder = trimmedOrNil(selectedPOId) != nil || trimmedOrNil(orderId) != nil
-            let hasService = trimmedOrNil(selectedTicketId) != nil || trimmedOrNil(serviceId) != nil
-            return hasOrder && hasService
+            if let selectedPOId = trimmedOrNil(selectedPOId) {
+                guard selectedPurchaseOrder?.id == selectedPOId else { return false }
+                return selectedPurchaseOrder?.isDraft == true
+            }
+            // Attach mode also supports creating a new draft PO from scan data.
+            return true
         case .quickAdd:
-            return true
+            if trimmedOrNil(selectedPOId) != nil, selectedPurchaseOrder?.isDraft != true {
+                return false
+            }
+            return resolvedOrderID != nil
+                && resolvedServiceID != nil
+                && quickAddMissingInventoryIdentifiersCount == 0
         case .restock:
-            return true
+            if trimmedOrNil(selectedPOId) == nil {
+                return true
+            }
+            return selectedPurchaseOrder?.isDraft == true
         }
     }
 
@@ -240,11 +281,21 @@ final class ReviewViewModel: ObservableObject {
         let contextReady: Double
         switch modeUI {
         case .attach:
-            let hasOrder = trimmedOrNil(selectedPOId) != nil || trimmedOrNil(orderId) != nil
-            let hasService = trimmedOrNil(selectedTicketId) != nil || trimmedOrNil(serviceId) != nil
-            contextReady = hasOrder && hasService ? 1 : 0
-        case .quickAdd, .restock:
-            contextReady = 1
+            if trimmedOrNil(selectedPOId) != nil {
+                contextReady = selectedPurchaseOrder?.isDraft == true ? 1 : 0
+            } else {
+                contextReady = 1
+            }
+        case .quickAdd:
+            let hasTicketContext = resolvedOrderID != nil && resolvedServiceID != nil
+            let hasValidLinkedPO = trimmedOrNil(selectedPOId) == nil || selectedPurchaseOrder?.isDraft == true
+            contextReady = hasTicketContext && hasValidLinkedPO ? 1 : 0
+        case .restock:
+            if trimmedOrNil(selectedPOId) == nil {
+                contextReady = 1
+            } else {
+                contextReady = selectedPurchaseOrder?.isDraft == true ? 1 : 0
+            }
         }
 
         return (vendorReady + itemReadiness + contextReady) / 3.0
@@ -255,15 +306,30 @@ final class ReviewViewModel: ObservableObject {
             vendorId: selectedVendorId,
             vendorName: vendorName,
             vendorPhone: trimmedOrNil(vendorPhone),
+            invoiceNumber: trimmedOrNil(vendorInvoiceNumber),
+            poReference: trimmedOrNil(poReference),
             poNumber: effectivePONumber,
+            purchaseOrderId: resolvedPurchaseOrderID,
             orderId: resolvedOrderID,
             serviceId: resolvedServiceID,
-            items: items
+            items: items,
+            allowExistingPOLinking: experimentalOrderPOLinkingSetting
         )
     }
 
     var validationMessage: String? {
         submissionPayload.validationMessage
+    }
+
+    var modeGuidanceText: String {
+        switch modeUI {
+        case .attach:
+            return "Attach creates or updates a draft purchase order. Only Shopmonkey draft POs can be targeted."
+        case .quickAdd:
+            return "Quick Add posts inventory lines directly to the selected work order service."
+        case .restock:
+            return "Restock keeps stock intake on draft purchase orders."
+        }
     }
 
     var parsedConfidenceScore: Double {
@@ -322,13 +388,61 @@ final class ReviewViewModel: ObservableObject {
 
     func selectOrder(_ order: OrderSummary) {
         selectedOrder = order
-        selectedPOId = order.id
         orderId = order.id
-        modeUI = .attach
+        modeUI = .quickAdd
 
         selectedService = nil
         selectedTicketId = nil
         serviceId = ""
+    }
+
+    func selectPurchaseOrder(
+        _ purchaseOrder: PurchaseOrderResponse,
+        forceAttachMode: Bool = false,
+        isAutoMatch: Bool = false
+    ) {
+        selectedPurchaseOrder = purchaseOrder
+        selectedPOId = purchaseOrder.id
+        autoMatchedPurchaseOrderID = isAutoMatch ? purchaseOrder.id : nil
+        if forceAttachMode {
+            modeUI = .attach
+        }
+
+        if let existingOrderID = trimmedOrNil(purchaseOrder.orderId),
+           trimmedOrNil(orderId) == nil {
+            orderId = existingOrderID
+        }
+
+        if let poNumber = trimmedOrNil(purchaseOrder.number),
+           trimmedOrNil(poReference) == nil {
+            poReference = poNumber
+        }
+
+        if purchaseOrder.isDraft {
+            let existingItems = purchaseOrder.allLineItems.map { line in
+                POItem(
+                    description: line.name,
+                    sku: line.partNumber ?? "",
+                    quantity: Double(max(1, line.quantity)),
+                    unitCost: Decimal(max(0, line.costCents)) / 100,
+                    partNumber: line.partNumber,
+                    confidence: 1.0,
+                    kind: map(kind: line.kind),
+                    kindConfidence: 1.0,
+                    kindReasons: ["Loaded from draft PO \(purchaseOrder.number ?? purchaseOrder.id)"]
+                )
+            }
+            items = mergeExistingItems(existingItems, into: items)
+            errorMessage = nil
+            if isAutoMatch {
+                purchaseOrderMatchMessage = "Matched draft Shopmonkey PO \(purchaseOrder.number ?? purchaseOrder.id)."
+            } else {
+                purchaseOrderMatchMessage = nil
+            }
+        } else {
+            errorMessage = "Selected purchase order is \(purchaseOrder.status). Only Draft purchase orders can be updated."
+            purchaseOrderMatchMessage = "Matched Shopmonkey PO \(purchaseOrder.number ?? purchaseOrder.id) is \(purchaseOrder.status)."
+        }
     }
 
     func selectService(_ service: ServiceSummary) {
@@ -343,7 +457,6 @@ final class ReviewViewModel: ObservableObject {
 
     func setOrderIdManually(_ value: String) {
         orderId = value
-        selectedPOId = trimmedOrNil(value)
         selectedOrder = nil
 
         selectedService = nil
@@ -376,7 +489,68 @@ final class ReviewViewModel: ObservableObject {
 
     func applySuggestedPONumber() {
         guard let suggestedPONumber, !suggestedPONumber.isEmpty else { return }
-        poReference = suggestedPONumber
+        setPOReference(suggestedPONumber)
+    }
+
+    func setPOReference(_ value: String) {
+        poReference = value
+
+        guard isExperimentalLinkingEnabled else {
+            purchaseOrderLookupTask?.cancel()
+            purchaseOrderMatchMessage = nil
+            return
+        }
+
+        if let selectedPO = selectedPurchaseOrder,
+           autoMatchedPurchaseOrderID == selectedPO.id,
+           normalizePurchaseOrderReference(value) != normalizePurchaseOrderReference(selectedPO.number) {
+            selectedPurchaseOrder = nil
+            selectedPOId = nil
+            autoMatchedPurchaseOrderID = nil
+        }
+
+        schedulePurchaseOrderLookup(for: value, debounce: true)
+    }
+
+    func applyProductionPolishMode() {
+        if modeUI != .attach {
+            modeUI = .attach
+        }
+        selectedOrder = nil
+        selectedService = nil
+        selectedTicketId = nil
+        serviceId = ""
+        selectedPurchaseOrder = nil
+        selectedPOId = nil
+        autoMatchedPurchaseOrderID = nil
+        purchaseOrderMatchMessage = nil
+    }
+
+    func saveDraft() async {
+        do {
+            _ = try await persistDraft(showStatusMessage: true)
+        } catch {
+            errorMessage = "Could not save intake draft."
+        }
+    }
+
+    func persistDraftOnExitIfNeeded() async {
+        guard !shouldSkipDraftPersistence else { return }
+        guard hasMeaningfulDraftContent else { return }
+        _ = try? await persistDraft(showStatusMessage: false)
+    }
+
+    func discardDraft() async {
+        guard let draftID = activeDraftID else { return }
+        do {
+            try await environment.reviewDraftStore.delete(id: draftID)
+            activeDraftID = nil
+            draftCreatedAt = nil
+            lastDraftSavedAt = nil
+            statusMessage = "Saved intake draft removed."
+        } catch {
+            errorMessage = "Could not remove intake draft."
+        }
     }
 
     func selectVendorSuggestion(_ vendor: VendorSummary) {
@@ -396,6 +570,7 @@ final class ReviewViewModel: ObservableObject {
     }
 
     func submitToShopmonkey(saveHistoryEnabled: Bool, ignoreTaxAndTotals: Bool) async {
+        guard !isSubmitting else { return }
         isSubmitting = true
         statusMessage = nil
         errorMessage = nil
@@ -413,6 +588,7 @@ final class ReviewViewModel: ObservableObject {
         if result.succeeded {
             statusMessage = "Repair-order payload submitted to sandbox."
             showSuccessAlert = true
+            await clearDraftAfterSuccessfulSubmission()
         } else {
             errorMessage = result.message ?? "Submission failed."
         }
@@ -437,8 +613,22 @@ final class ReviewViewModel: ObservableObject {
 
     @MainActor
     func submitTapped() async {
+        guard !isSubmitting else { return }
+
+        let fingerprint = submissionFingerprint
+        if let lastSubmissionFingerprint,
+           let lastSubmissionDate,
+           lastSubmissionFingerprint == fingerprint,
+           Date().timeIntervalSince(lastSubmissionDate) < 2 {
+            return
+        }
+
         do {
             try await submit()
+            if showSuccessAlert {
+                lastSubmissionFingerprint = fingerprint
+                lastSubmissionDate = Date()
+            }
         } catch SubmissionExecutionError.failed(let message) {
             errorMessage = message
         } catch {
@@ -473,17 +663,43 @@ final class ReviewViewModel: ObservableObject {
 
         switch newValue {
         case .attach:
-            selectedTicketId = nil
-            selectedService = nil
+            break
         case .quickAdd:
-            selectedPOId = nil
-            selectedOrder = nil
-            orderId = ""
+            break
         case .restock:
-            selectedPOId = nil
             selectedTicketId = nil
-            selectedOrder = nil
             selectedService = nil
+        }
+    }
+
+    private func mergeExistingItems(_ existingItems: [POItem], into currentItems: [POItem]) -> [POItem] {
+        var merged = existingItems
+        var signatures = Set(existingItems.map(itemSignature))
+
+        for item in currentItems {
+            let signature = itemSignature(item)
+            guard !signatures.contains(signature) else { continue }
+            signatures.insert(signature)
+            merged.append(item)
+        }
+
+        return merged
+    }
+
+    private func itemSignature(_ item: POItem) -> String {
+        let normalizedName = item.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedPart = (item.partNumber ?? item.sku).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(normalizedName)|\(normalizedPart)|\(item.quantityForSubmission)|\(item.costCents)|\(item.kind.rawValue)"
+    }
+
+    private func map(kind: PurchaseOrderResponse.LineItemKind) -> POItemKind {
+        switch kind {
+        case .part:
+            return .part
+        case .fee:
+            return .fee
+        case .tire:
+            return .tire
         }
     }
 
@@ -566,6 +782,75 @@ final class ReviewViewModel: ObservableObject {
         }
     }
 
+    private func schedulePurchaseOrderLookup(for rawValue: String, debounce: Bool) {
+        purchaseOrderLookupTask?.cancel()
+
+        let query = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizePurchaseOrderReference(query) != nil else {
+            if let selectedPO = selectedPurchaseOrder, autoMatchedPurchaseOrderID == selectedPO.id {
+                selectedPurchaseOrder = nil
+                selectedPOId = nil
+                autoMatchedPurchaseOrderID = nil
+            }
+            purchaseOrderMatchMessage = nil
+            return
+        }
+
+        purchaseOrderLookupTask = Task { [weak self] in
+            if debounce {
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+            guard !Task.isCancelled, let self else { return }
+
+            do {
+                let purchaseOrders = try await self.shopmonkeyService.getPurchaseOrders()
+                guard !Task.isCancelled else { return }
+                self.applyPurchaseOrderLookupResult(query: query, purchaseOrders: purchaseOrders)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.purchaseOrderMatchMessage = nil
+            }
+        }
+    }
+
+    private func applyPurchaseOrderLookupResult(query: String, purchaseOrders: [PurchaseOrderResponse]) {
+        guard let match = bestPurchaseOrderMatch(for: query, in: purchaseOrders) else {
+            if let selectedPO = selectedPurchaseOrder, autoMatchedPurchaseOrderID == selectedPO.id {
+                selectedPurchaseOrder = nil
+                selectedPOId = nil
+                autoMatchedPurchaseOrderID = nil
+            }
+            purchaseOrderMatchMessage = "No Shopmonkey PO match for \(query). Attach/Restock will create a new draft PO."
+            return
+        }
+
+        if match.isDraft {
+            selectPurchaseOrder(match, isAutoMatch: true)
+            return
+        }
+
+        if let selectedPO = selectedPurchaseOrder, autoMatchedPurchaseOrderID == selectedPO.id {
+            selectedPurchaseOrder = nil
+            selectedPOId = nil
+            autoMatchedPurchaseOrderID = nil
+        }
+
+        purchaseOrderMatchMessage = "Found Shopmonkey PO \(match.number ?? match.id) in \(match.status). Draft is required to update."
+    }
+
+    private func bestPurchaseOrderMatch(for query: String, in purchaseOrders: [PurchaseOrderResponse]) -> PurchaseOrderResponse? {
+        guard let normalizedQuery = normalizePurchaseOrderReference(query) else { return nil }
+        let matches = purchaseOrders.filter { purchaseOrder in
+            normalizePurchaseOrderReference(purchaseOrder.number) == normalizedQuery
+        }
+
+        if let draftMatch = matches.first(where: \.isDraft) {
+            return draftMatch
+        }
+
+        return matches.first
+    }
+
     private func applyVendorAutoSelectionIfNeeded(_ ranked: [RankedVendorMatch], query: String) {
         guard let top = ranked.first else {
             selectedVendorId = nil
@@ -607,18 +892,33 @@ final class ReviewViewModel: ObservableObject {
         VendorMatcher.rankVendors(vendors, query: query, minimumScore: VendorMatcher.minimumSuggestionScore)
     }
 
+    private func normalizePurchaseOrderReference(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+
+        let normalized = value
+            .uppercased()
+            .unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+
+        return normalized.isEmpty ? nil : normalized
+    }
+
     private var effectivePONumber: String? {
-        trimmedOrNil(vendorInvoiceNumber) ?? trimmedOrNil(poReference)
+        trimmedOrNil(poReference) ?? trimmedOrNil(vendorInvoiceNumber)
     }
 
     private var resolvedOrderID: String? {
         switch modeUI {
         case .attach:
-            return trimmedOrNil(selectedPOId) ?? trimmedOrNil(orderId)
+            return trimmedOrNil(orderId) ?? trimmedOrNil(selectedPurchaseOrder?.orderId)
         case .quickAdd:
-            return nil
+            return trimmedOrNil(selectedOrder?.id) ?? trimmedOrNil(orderId)
         case .restock:
-            return trimmedOrNil(orderId)
+            return trimmedOrNil(orderId) ?? trimmedOrNil(selectedPurchaseOrder?.orderId)
         }
     }
 
@@ -633,6 +933,10 @@ final class ReviewViewModel: ObservableObject {
         }
     }
 
+    private var resolvedPurchaseOrderID: String? {
+        trimmedOrNil(selectedPOId) ?? trimmedOrNil(selectedPurchaseOrder?.id)
+    }
+
     private var submissionGuardMessage: String {
         if trimmedOrNil(selectedVendorId) == nil {
             return "Select an existing vendor from suggestions before submitting."
@@ -640,18 +944,137 @@ final class ReviewViewModel: ObservableObject {
 
         switch modeUI {
         case .attach:
-            return "Select an existing PO before submitting."
+            if trimmedOrNil(selectedPOId) != nil, selectedPurchaseOrder?.isDraft != true {
+                return "Selected purchase order must be Draft before attaching scan items."
+            }
+            return "Attach mode submits scan items to a draft PO. Pick a Draft PO or create a new one."
         case .quickAdd:
+            if trimmedOrNil(selectedPOId) != nil, selectedPurchaseOrder?.isDraft != true {
+                return "Linked purchase order must be Draft."
+            }
+            if resolvedOrderID == nil || resolvedServiceID == nil {
+                return "Quick Add requires both work order ID and service ID."
+            }
+            if quickAddMissingInventoryIdentifiersCount > 0 {
+                return "Quick Add requires barcode/SKU/part # for each part/tire line."
+            }
             return "Review line items before submitting."
         case .restock:
-            return "Review required fields before submitting."
+            if trimmedOrNil(selectedPOId) != nil, selectedPurchaseOrder?.isDraft != true {
+                return "Selected purchase order must be Draft for restock updates."
+            }
+            return "Restock creates or updates a draft stock PO."
         }
+    }
+
+    private var submissionFingerprint: Int {
+        var hasher = Hasher()
+        hasher.combine(submissionMode)
+        hasher.combine(submissionPayload)
+        return hasher.finalize()
+    }
+
+    private var hasMeaningfulDraftContent: Bool {
+        if !items.isEmpty {
+            return true
+        }
+
+        if trimmedOrNil(vendorName) != nil || trimmedOrNil(vendorInvoiceNumber) != nil || trimmedOrNil(poReference) != nil {
+            return true
+        }
+
+        return false
+    }
+
+    private func restore(from snapshot: ReviewDraftSnapshot) {
+        let state = snapshot.state
+        vendorName = state.vendorName
+        vendorPhone = state.vendorPhone
+        vendorInvoiceNumber = state.vendorInvoiceNumber
+        poReference = state.poReference
+        notes = state.notes
+        selectedVendorId = trimmedOrNil(state.selectedVendorId)
+        orderId = state.orderId
+        serviceId = state.serviceId
+        if !state.items.isEmpty {
+            items = state.items
+        }
+        modeUI = ModeUI(rawValue: state.modeUIRawValue) ?? .attach
+        ignoreTaxOverride = state.ignoreTaxOverride
+        selectedPOId = nil
+        selectedTicketId = trimmedOrNil(state.selectedTicketId)
+        activeDraftID = snapshot.id
+        draftCreatedAt = snapshot.createdAt
+        lastDraftSavedAt = snapshot.updatedAt
+    }
+
+    @discardableResult
+    private func persistDraft(showStatusMessage: Bool) async throws -> ReviewDraftSnapshot {
+        let now = Date()
+        let draftID = activeDraftID ?? UUID()
+        let createdAt = draftCreatedAt ?? now
+
+        let snapshot = ReviewDraftSnapshot(
+            id: draftID,
+            createdAt: createdAt,
+            updatedAt: now,
+            state: ReviewDraftSnapshot.State(
+                parsedInvoice: ReviewDraftSnapshot.ParsedInvoiceSnapshot(invoice: parsedInvoice),
+                vendorName: vendorName,
+                vendorPhone: vendorPhone,
+                vendorInvoiceNumber: vendorInvoiceNumber,
+                poReference: poReference,
+                notes: notes,
+                selectedVendorId: selectedVendorId,
+                orderId: orderId,
+                serviceId: serviceId,
+                items: items,
+                modeUIRawValue: modeUI.rawValue,
+                ignoreTaxOverride: ignoreTaxOverride,
+                selectedPOId: selectedPOId,
+                selectedTicketId: selectedTicketId
+            )
+        )
+
+        try await environment.reviewDraftStore.upsert(snapshot)
+        activeDraftID = draftID
+        draftCreatedAt = createdAt
+        lastDraftSavedAt = now
+        if showStatusMessage {
+            statusMessage = "Saved intake draft locally."
+        }
+        return snapshot
+    }
+
+    private func clearDraftAfterSuccessfulSubmission() async {
+        shouldSkipDraftPersistence = true
+        guard let draftID = activeDraftID else { return }
+        try? await environment.reviewDraftStore.delete(id: draftID)
+        activeDraftID = nil
+        draftCreatedAt = nil
+        lastDraftSavedAt = nil
     }
 
     private func trimmedOrNil(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var quickAddMissingInventoryIdentifiersCount: Int {
+        items.filter { item in
+            let lineKind = item.kind == .unknown
+                ? LineItemSuggestionService.classify(
+                    description: item.name,
+                    partNumber: item.partNumber ?? item.sku,
+                    contextText: item.name
+                ).kind
+                : item.kind
+
+            guard lineKind == .part || lineKind == .tire else { return false }
+            return (item.partNumber ?? item.sku).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        .count
     }
 
     private var saveHistoryEnabledSetting: Bool {
@@ -664,6 +1087,14 @@ final class ReviewViewModel: ObservableObject {
 
     private var ignoreTaxAndTotalsSetting: Bool {
         UserDefaults.standard.bool(forKey: "ignoreTaxAndTotals")
+    }
+
+    private var isExperimentalLinkingEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "experimentalOrderPOLinking")
+    }
+
+    private var experimentalOrderPOLinkingSetting: Bool {
+        isExperimentalLinkingEnabled
     }
 
     private let taxRate: Decimal = Decimal(string: "0.13") ?? (Decimal(13) / Decimal(100))

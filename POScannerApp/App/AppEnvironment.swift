@@ -3,6 +3,7 @@
 //  POScannerApp
 //
 
+import Foundation
 import SwiftUI
 
 /// Lightweight dependency container injected through SwiftUI Environment.
@@ -11,6 +12,7 @@ struct AppEnvironment {
     let keychainService: KeychainService
     let secureStorage: SecureStorage
     let networkDiagnostics: NetworkDiagnosticsRecorder
+    let reviewDraftStore: ReviewDraftStore
     let apiClient: APIClient
     let shopmonkeyAPI: ShopmonkeyAPI
     let ocrService: OCRService
@@ -36,6 +38,7 @@ extension AppEnvironment {
         let keychainService = KeychainService(service: "POScannerApp.preview")
         let secureStorage = SecureStorage(keychainService: keychainService)
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
+        let reviewDraftStore = ReviewDraftStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("preview_review_drafts.json"))
 
         let apiClient = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
@@ -48,6 +51,7 @@ extension AppEnvironment {
             keychainService: keychainService,
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
+            reviewDraftStore: reviewDraftStore,
             apiClient: apiClient,
             shopmonkeyAPI: ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics),
             ocrService: OCRService(),

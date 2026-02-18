@@ -16,6 +16,7 @@ struct POScannerApp: App {
         let keychainService = KeychainService()
         let secureStorage = SecureStorage(keychainService: keychainService)
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
+        let reviewDraftStore = ReviewDraftStore()
 
         let apiClient = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
@@ -38,6 +39,7 @@ struct POScannerApp: App {
             keychainService: keychainService,
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
+            reviewDraftStore: reviewDraftStore,
             apiClient: apiClient,
             shopmonkeyAPI: shopmonkeyAPI,
             ocrService: OCRService(),

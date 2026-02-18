@@ -50,6 +50,7 @@ final class ScanViewModel: ObservableObject {
     struct ParsedInvoiceRoute: Hashable {
         let id: UUID = UUID()
         let invoice: ParsedInvoice
+        let draftSnapshot: ReviewDraftSnapshot?
     }
 
     struct OCRReviewDraft: Identifiable {
@@ -77,6 +78,7 @@ final class ScanViewModel: ObservableObject {
     @Published var submittedCount: Int = 0
     @Published var failedCount: Int = 0
     @Published var mostRecentSummary: RecentSummary?
+    @Published var inProgressDrafts: [ReviewDraftSnapshot] = []
 
     private let minimumOCRFlowDuration: TimeInterval = 0.85
     private let minimumParseFlowDuration: TimeInterval = 1.15
@@ -179,7 +181,7 @@ final class ScanViewModel: ObservableObject {
             ignoreTaxAndTotals: ignoreTaxAndTotals
         )
         await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumParseFlowDuration)
-        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice)
+        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice, draftSnapshot: nil)
 
         isProcessing = false
         processingStage = nil
@@ -192,7 +194,28 @@ final class ScanViewModel: ObservableObject {
 
     func openUITestReviewFixture() {
         guard uiTestReviewFixtureEnabled else { return }
-        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: Self.uiTestReviewInvoice)
+        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: Self.uiTestReviewInvoice, draftSnapshot: nil)
+    }
+
+    func loadInProgressDrafts() {
+        Task {
+            inProgressDrafts = await environment.reviewDraftStore.list()
+        }
+    }
+
+    func resumeDraft(_ draft: ReviewDraftSnapshot) {
+        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: draft.state.parsedInvoice.parsedInvoice, draftSnapshot: draft)
+    }
+
+    func deleteDraft(_ draft: ReviewDraftSnapshot) {
+        Task {
+            do {
+                try await environment.reviewDraftStore.delete(id: draft.id)
+                inProgressDrafts = await environment.reviewDraftStore.list()
+            } catch {
+                errorMessage = "Could not remove saved intake draft."
+            }
+        }
     }
 
     private func processScannedImage(

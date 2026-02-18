@@ -22,6 +22,7 @@ struct OrderPickerView: View {
 
         return orders.filter { order in
             if order.displayTitle.localizedCaseInsensitiveContains(query) { return true }
+            if let orderName = order.orderName, orderName.localizedCaseInsensitiveContains(query) { return true }
             if let customer = order.customerName, customer.localizedCaseInsensitiveContains(query) { return true }
             return false
         }
@@ -64,8 +65,18 @@ struct OrderPickerView: View {
                             dismiss()
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(order.displayTitle)
+                                Text(order.orderName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                                     ? (order.orderName ?? "")
+                                     : order.displayTitle)
                                     .font(.headline)
+
+                                if let number = order.number?.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   !number.isEmpty {
+                                    Text("Order #\(number)")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+
                                 if let customer = order.customerName, !customer.isEmpty {
                                     Text(customer)
                                         .font(.subheadline)

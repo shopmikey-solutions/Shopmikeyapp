@@ -15,6 +15,7 @@ final class SettingsViewModel: ObservableObject {
     let environment: AppEnvironment
 
     @AppStorage("ignoreTaxAndTotals") var ignoreTaxAndTotals: Bool = false
+    @AppStorage("experimentalOrderPOLinking") var experimentalOrderPOLinking: Bool = false
 
     @Published var apiKeyInput: String = ""
     @Published var isTestingConnection: Bool = false
@@ -61,9 +62,9 @@ final class SettingsViewModel: ObservableObject {
             endpointProbeReport = report
 
             if report.createPurchaseOrderLikelySupported {
-                statusMessage = "Probe complete: repair-order create route looks available."
+                statusMessage = "Probe complete: purchase-order read/search routes are reachable."
             } else {
-                statusMessage = "Probe complete: repair-order create route not confirmed."
+                statusMessage = "Probe complete: purchase-order routes not fully confirmed."
             }
         } catch {
             statusMessage = userMessage(for: error)

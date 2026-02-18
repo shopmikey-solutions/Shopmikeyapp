@@ -10,10 +10,14 @@ struct POSubmissionPayload: Hashable {
     var vendorId: String? = nil
     var vendorName: String
     var vendorPhone: String?
+    var invoiceNumber: String? = nil
+    var poReference: String? = nil
     var poNumber: String?
+    var purchaseOrderId: String? = nil
     var orderId: String?
     var serviceId: String?
     var items: [POItem]
+    var allowExistingPOLinking: Bool = false
 
     var isValid: Bool {
         validationMessage == nil

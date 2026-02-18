@@ -4,6 +4,7 @@
 //
 
 import Testing
+import Foundation
 @testable import POScannerApp
 
 private struct StubShopmonkeyService: ShopmonkeyServicing {
@@ -119,5 +120,44 @@ struct ShopmonkeyOrderServiceTests {
         }
 
         #expect(await MainActor.run { vm.submissionPayload.vendorId } == nil)
+    }
+
+    @Test func orderSummaryDecoderUsesOrderFieldsForDisplayName() throws {
+        let payload = """
+        {
+          "id": "ord_123",
+          "number": "1105",
+          "coalescedName": "Standard Oil Change Package",
+          "generatedCustomerName": "Alex Driver"
+        }
+        """
+
+        let order = try JSONDecoder().decode(OrderSummary.self, from: Data(payload.utf8))
+
+        #expect(order.id == "ord_123")
+        #expect(order.number == "1105")
+        #expect(order.orderName == "Standard Oil Change Package")
+        #expect(order.customerName == "Alex Driver")
+        #expect(order.displayTitle == "Order #1105 • Standard Oil Change Package")
+    }
+
+    @Test func orderSummaryDecoderDoesNotBackfillOrderNameFromNestedServiceName() throws {
+        let payload = """
+        {
+          "id": "ord_456",
+          "number": "2107",
+          "name": null,
+          "services": [
+            { "id": "svc_1", "name": "Brake Service" }
+          ]
+        }
+        """
+
+        let order = try JSONDecoder().decode(OrderSummary.self, from: Data(payload.utf8))
+
+        #expect(order.id == "ord_456")
+        #expect(order.number == "2107")
+        #expect(order.orderName == nil)
+        #expect(order.displayTitle == "Order #2107")
     }
 }

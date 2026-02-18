@@ -59,10 +59,13 @@ struct ShopmonkeyEndpointProbeReport: Hashable {
     let results: [EndpointProbeResult]
 
     var createPurchaseOrderLikelySupported: Bool {
-        guard let result = results.first(where: { $0.endpoint == "/purchase_order" && $0.method == .post }) else {
-            return false
+        let purchaseOrderListSupported = results.contains {
+            $0.endpoint == "/purchase_order" && $0.method == .get && $0.supported
         }
-        return result.supported
+        let purchaseOrderSearchSupported = results.contains {
+            $0.endpoint == "/purchase_order/search" && $0.method == .post && $0.supported
+        }
+        return purchaseOrderListSupported || purchaseOrderSearchSupported
     }
 }
 
@@ -360,8 +363,6 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
             (.get, "/order", nil),
             (.get, "/purchase_order", nil),
             (.post, "/purchase_order/search", ["query": ""]),
-            // Intentionally invalid payload to detect whether create endpoint exists for this tenant.
-            (.post, "/purchase_order", ["probe": "true"]),
             (.post, "/order/invalid/service/invalid/part", ["name": "probe"]),
             (.post, "/order/invalid/service/invalid/fee", ["name": "probe"]),
             (.post, "/order/invalid/service/invalid/tire", ["name": "probe"])
@@ -669,6 +670,18 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
         if let invoiceNumber = request.invoiceNumber, !invoiceNumber.isEmpty {
             json["invoice_number"] = invoiceNumber
             json["invoiceNumber"] = invoiceNumber
+        }
+
+        if let purchaseOrderId = request.purchaseOrderId, !purchaseOrderId.isEmpty {
+            // Some tenants accept explicit PO identifiers when appending to a draft PO.
+            json["purchase_order_id"] = purchaseOrderId
+            json["purchaseOrderId"] = purchaseOrderId
+            json["id"] = purchaseOrderId
+        }
+
+        if let orderId = request.orderId, !orderId.isEmpty {
+            json["order_id"] = orderId
+            json["orderId"] = orderId
         }
 
         if let status = request.status, !status.isEmpty {
@@ -1302,6 +1315,7 @@ struct CreatePartRequest: Encodable {
     let partNumber: String?
     let wholesaleCostCents: Int
     let vendorId: String
+    let purchaseOrderId: String?
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -1309,6 +1323,7 @@ struct CreatePartRequest: Encodable {
         case partNumber = "part_number"
         case wholesaleCostCents = "wholesale_cost_cents"
         case vendorId = "vendor_id"
+        case purchaseOrderId = "purchase_order_id"
     }
 }
 
@@ -1320,10 +1335,12 @@ struct CreatePartResponse: Decodable {
 struct CreateFeeRequest: Encodable {
     let description: String
     let amountCents: Int
+    let purchaseOrderId: String?
 
     enum CodingKeys: String, CodingKey {
         case description
         case amountCents = "amount_cents"
+        case purchaseOrderId = "purchase_order_id"
     }
 }
 
@@ -1332,12 +1349,14 @@ struct CreateTireRequest: Encodable {
     let quantity: Int
     let costCents: Int
     let vendorId: String?
+    let purchaseOrderId: String?
 
     enum CodingKeys: String, CodingKey {
         case description
         case quantity
         case costCents = "cost_cents"
         case vendorId = "vendor_id"
+        case purchaseOrderId = "purchase_order_id"
     }
 }
 
@@ -1431,6 +1450,8 @@ struct CreatePurchaseOrderRequest: Encodable {
     let vendorId: String
     let invoiceNumber: String?
     let status: String?
+    let purchaseOrderId: String?
+    let orderId: String?
     let lineItems: [CreatePurchaseOrderLineItemRequest]
     let parts: [CreatePurchaseOrderPartRequest]
     let fees: [CreatePurchaseOrderFeeRequest]
@@ -1440,6 +1461,8 @@ struct CreatePurchaseOrderRequest: Encodable {
         vendorId: String,
         invoiceNumber: String?,
         status: String?,
+        purchaseOrderId: String? = nil,
+        orderId: String? = nil,
         lineItems: [CreatePurchaseOrderLineItemRequest],
         parts: [CreatePurchaseOrderPartRequest] = [],
         fees: [CreatePurchaseOrderFeeRequest] = [],
@@ -1448,6 +1471,8 @@ struct CreatePurchaseOrderRequest: Encodable {
         self.vendorId = vendorId
         self.invoiceNumber = invoiceNumber
         self.status = status
+        self.purchaseOrderId = purchaseOrderId
+        self.orderId = orderId
         self.lineItems = lineItems
         self.parts = parts
         self.fees = fees
@@ -1458,6 +1483,8 @@ struct CreatePurchaseOrderRequest: Encodable {
         case vendorId = "vendor_id"
         case invoiceNumber = "invoice_number"
         case status
+        case purchaseOrderId = "purchase_order_id"
+        case orderId = "order_id"
         case lineItems = "line_items"
         case parts
         case fees
@@ -1509,6 +1536,8 @@ private extension CreatePurchaseOrderRequest {
             vendorId: vendorId,
             invoiceNumber: invoiceNumber,
             status: status,
+            purchaseOrderId: purchaseOrderId,
+            orderId: orderId,
             lineItems: lineItems,
             parts: parts,
             fees: fees,
@@ -1722,15 +1751,59 @@ private enum JSONValue: Decodable {
     }
 }
 
-struct PurchaseOrderResponse: Decodable {
+struct PurchaseOrderResponse: Decodable, Identifiable {
+    enum LineItemKind: String, Hashable {
+        case part
+        case fee
+        case tire
+    }
+
+    struct LineItem: Hashable {
+        let name: String
+        let quantity: Int
+        let costCents: Int
+        let partNumber: String?
+        let kind: LineItemKind
+    }
+
     let id: String
     let vendorId: String?
+    let vendorName: String?
+    let number: String?
+    let orderId: String?
     let status: String
+    let parts: [LineItem]
+    let fees: [LineItem]
+    let tires: [LineItem]
 
-    init(id: String, vendorId: String?, status: String) {
+    var isDraft: Bool {
+        status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "draft"
+    }
+
+    var allLineItems: [LineItem] {
+        parts + fees + tires
+    }
+
+    init(
+        id: String,
+        vendorId: String?,
+        vendorName: String? = nil,
+        number: String? = nil,
+        orderId: String? = nil,
+        status: String,
+        parts: [LineItem] = [],
+        fees: [LineItem] = [],
+        tires: [LineItem] = []
+    ) {
         self.id = id
         self.vendorId = vendorId
+        self.vendorName = vendorName
+        self.number = number
+        self.orderId = orderId
         self.status = status
+        self.parts = parts
+        self.fees = fees
+        self.tires = tires
     }
 
     init(from decoder: Decoder) throws {
@@ -1755,11 +1828,23 @@ struct PurchaseOrderResponse: Decodable {
         }
 
         let resolvedVendorID = Self.firstString(keys: ["vendor_id", "vendorId"], in: root)
+        let resolvedVendorName = Self.firstString(keys: ["vendor_name", "vendorName", "name"], in: root)
+        let resolvedNumber = Self.firstString(keys: ["number", "external_number", "externalNumber"], in: root)
+        let resolvedOrderID = Self.firstString(keys: ["order_id", "orderId"], in: root)
         let resolvedStatus = Self.firstString(keys: ["status", "state"], in: root) ?? "unknown"
+        let resolvedParts = Self.parseLineItems(from: root, key: "parts", kind: .part)
+        let resolvedFees = Self.parseLineItems(from: root, key: "fees", kind: .fee)
+        let resolvedTires = Self.parseLineItems(from: root, key: "tires", kind: .tire)
 
         self.id = resolvedID
         self.vendorId = resolvedVendorID
+        self.vendorName = resolvedVendorName
+        self.number = resolvedNumber
+        self.orderId = resolvedOrderID
         self.status = resolvedStatus
+        self.parts = resolvedParts
+        self.fees = resolvedFees
+        self.tires = resolvedTires
     }
 
     private static func firstString(keys: [String], in value: JSONValue) -> String? {
@@ -1820,18 +1905,267 @@ struct PurchaseOrderResponse: Decodable {
             return nil
         }
     }
+
+    private static func parseLineItems(from value: JSONValue, key: String, kind: LineItemKind) -> [LineItem] {
+        guard let collection = findNestedValue(forKey: key, in: value) else {
+            return []
+        }
+
+        guard case .array(let values) = collection else {
+            return []
+        }
+
+        var parsed: [LineItem] = []
+        for candidate in values {
+            guard case .object(let itemObject) = candidate else { continue }
+
+            let name = scalarString(from: itemObject["name"] ?? itemObject["description"] ?? .null)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if name.isEmpty { continue }
+
+            let quantity = scalarInt(from: itemObject["quantity"] ?? .int(1)) ?? 1
+            let costCents = scalarInt(
+                from: itemObject["cost_cents"]
+                    ?? itemObject["costCents"]
+                    ?? itemObject["unit_cost_cents"]
+                    ?? itemObject["unitCostCents"]
+                    ?? itemObject["amount_cents"]
+                    ?? itemObject["amountCents"]
+                    ?? .int(0)
+            ) ?? 0
+            let partNumber = scalarString(from: itemObject["part_number"] ?? itemObject["partNumber"] ?? itemObject["number"] ?? .null)
+
+            parsed.append(
+                LineItem(
+                    name: name,
+                    quantity: max(1, quantity),
+                    costCents: max(0, costCents),
+                    partNumber: partNumber,
+                    kind: kind
+                )
+            )
+        }
+
+        return parsed
+    }
+
+    private static func findNestedValue(forKey targetKey: String, in value: JSONValue) -> JSONValue? {
+        switch value {
+        case .object(let object):
+            for (rawKey, nested) in object where rawKey.lowercased() == targetKey.lowercased() {
+                return nested
+            }
+
+            for nested in object.values {
+                if let found = findNestedValue(forKey: targetKey, in: nested) {
+                    return found
+                }
+            }
+            return nil
+
+        case .array(let values):
+            for nested in values {
+                if let found = findNestedValue(forKey: targetKey, in: nested) {
+                    return found
+                }
+            }
+            return nil
+
+        default:
+            return nil
+        }
+    }
+
+    private static func scalarInt(from value: JSONValue) -> Int? {
+        switch value {
+        case .int(let raw):
+            return raw
+        case .double(let raw):
+            return Int(raw.rounded())
+        case .string(let raw):
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let intValue = Int(trimmed) {
+                return intValue
+            }
+            if let decimal = Decimal(string: trimmed) {
+                return NSDecimalNumber(decimal: decimal).intValue
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
 }
 
 struct OrderSummary: Decodable, Identifiable {
     let id: String
     let number: String?
+    let orderName: String?
     let customerName: String?
 
     var displayTitle: String {
-        if let number, !number.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Order #\(number)"
+        let trimmedNumber = number?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOrderName = orderName?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let trimmedNumber, !trimmedNumber.isEmpty, let trimmedOrderName, !trimmedOrderName.isEmpty {
+            return "Order #\(trimmedNumber) • \(trimmedOrderName)"
         }
+
+        if let trimmedNumber, !trimmedNumber.isEmpty {
+            return "Order #\(trimmedNumber)"
+        }
+
+        if let trimmedOrderName, !trimmedOrderName.isEmpty {
+            return trimmedOrderName
+        }
+
         return "Order \(id)"
+    }
+
+    init(id: String, number: String?, orderName: String? = nil, customerName: String? = nil) {
+        self.id = id
+        self.number = number
+        self.orderName = orderName
+        self.customerName = customerName
+    }
+
+    init(from decoder: Decoder) throws {
+        let rootValue = try JSONValue(from: decoder)
+        guard case .object(let rootObject) = rootValue else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Expected order object.")
+            )
+        }
+
+        let orderObject = Self.resolveOrderObject(from: rootObject)
+
+        guard let resolvedID = Self.firstNonEmpty([
+            Self.string(in: orderObject, keys: ["id", "public_id", "publicId"]),
+            Self.string(in: rootObject, keys: ["id", "public_id", "publicId"]),
+            Self.string(in: orderObject, keys: ["order_id", "orderId"]),
+            Self.string(in: rootObject, keys: ["order_id", "orderId"])
+        ]) else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing order identifier.")
+            )
+        }
+
+        let orderContainer = Self.object(in: orderObject, keys: ["order", "order_summary", "orderSummary"])
+        let customerContainer = Self.object(in: rootObject, keys: ["customer", "customer_info", "customerInfo"])
+
+        self.id = resolvedID
+        self.number = Self.firstNonEmpty([
+            Self.string(in: orderObject, keys: ["number", "external_number", "externalNumber"]),
+            Self.string(in: orderContainer, keys: ["number", "external_number", "externalNumber"]),
+            Self.string(in: rootObject, keys: ["number", "external_number", "externalNumber"])
+        ])
+        self.orderName = Self.firstNonEmpty([
+            Self.string(in: orderObject, keys: ["coalesced_name", "coalescedName"]),
+            Self.string(in: orderObject, keys: ["generated_name", "generatedName"]),
+            Self.string(in: orderObject, keys: ["name"]),
+            Self.string(in: orderContainer, keys: ["coalesced_name", "coalescedName", "generated_name", "generatedName", "name"]),
+            Self.string(in: rootObject, keys: ["coalesced_name", "coalescedName", "generated_name", "generatedName", "name"])
+        ])
+        self.customerName = Self.firstNonEmpty([
+            Self.string(in: orderObject, keys: ["generated_customer_name", "generatedCustomerName", "customer_name", "customerName"]),
+            Self.string(in: rootObject, keys: ["generated_customer_name", "generatedCustomerName", "customer_name", "customerName"]),
+            Self.string(in: customerContainer, keys: ["name"])
+        ])
+    }
+
+    private static func resolveOrderObject(from root: [String: JSONValue]) -> [String: JSONValue] {
+        if containsOrderIdentityFields(root) {
+            return root
+        }
+
+        if let nestedOrder = object(in: root, keys: ["order", "order_summary", "orderSummary"]) {
+            return nestedOrder
+        }
+
+        if let dataEntry = firstObject(in: root, keys: ["data", "result", "results"]) {
+            return dataEntry
+        }
+
+        return root
+    }
+
+    private static func containsOrderIdentityFields(_ object: [String: JSONValue]) -> Bool {
+        let lookup = Set(["id", "number", "coalescedname", "generatedname", "orderid", "order_id"])
+        for key in object.keys where lookup.contains(key.lowercased()) {
+            return true
+        }
+        return false
+    }
+
+    private static func object(in object: [String: JSONValue]?, keys: [String]) -> [String: JSONValue]? {
+        guard let object else { return nil }
+        let lookup = Set(keys.map { $0.lowercased() })
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            if case .object(let nested) = value {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private static func firstObject(in object: [String: JSONValue], keys: [String]) -> [String: JSONValue]? {
+        let lookup = Set(keys.map { $0.lowercased() })
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            switch value {
+            case .object(let nested):
+                return nested
+            case .array(let values):
+                for entry in values {
+                    if case .object(let nested) = entry {
+                        return nested
+                    }
+                }
+            default:
+                break
+            }
+        }
+        return nil
+    }
+
+    private static func string(in object: [String: JSONValue]?, keys: [String]) -> String? {
+        guard let object else { return nil }
+        let lookup = Set(keys.map { $0.lowercased() })
+
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            if let scalar = scalarString(from: value) {
+                let trimmed = scalar.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func firstNonEmpty(_ candidates: [String?]) -> String? {
+        for candidate in candidates {
+            guard let candidate else { continue }
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func scalarString(from value: JSONValue) -> String? {
+        switch value {
+        case .string(let value):
+            return value
+        case .int(let value):
+            return String(value)
+        case .double(let value):
+            return String(value)
+        case .bool(let value):
+            return value ? "true" : "false"
+        default:
+            return nil
+        }
     }
 }
 

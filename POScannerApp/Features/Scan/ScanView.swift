@@ -33,6 +33,35 @@ struct ScanView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("In-Progress Intake") {
+                if viewModel.inProgressDrafts.isEmpty {
+                    Text("No saved intake drafts.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(viewModel.inProgressDrafts) { draft in
+                        Button {
+                            AppHaptics.selection()
+                            viewModel.resumeDraft(draft)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(draft.displayVendorName)
+                                    .font(.headline)
+                                Text("\(draft.displaySecondaryLine) • Saved \(draft.updatedAt.formatted(date: .omitted, time: .shortened))")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Delete", role: .destructive) {
+                                AppHaptics.warning()
+                                viewModel.deleteDraft(draft)
+                            }
+                        }
+                    }
+                }
+            }
+
             Section("Recent Repair Orders") {
                 if let recent = viewModel.mostRecentSummary {
                     NavigationLink {
@@ -159,10 +188,15 @@ struct ScanView: View {
             }
         }
         .navigationDestination(item: $viewModel.parsedInvoiceRoute) { route in
-            ReviewView(environment: viewModel.environment, parsedInvoice: route.invoice)
+            ReviewView(
+                environment: viewModel.environment,
+                parsedInvoice: route.invoice,
+                draftSnapshot: route.draftSnapshot
+            )
         }
         .onAppear {
             viewModel.loadTodayMetrics()
+            viewModel.loadInProgressDrafts()
         }
         .onChange(of: viewModel.processingStage) { _, stage in
             guard stage != nil else { return }

@@ -6,12 +6,19 @@
 import SwiftUI
 
 struct ReviewView: View {
+    @AppStorage("experimentalOrderPOLinking") private var experimentalOrderPOLinking: Bool = false
     @StateObject var viewModel: ReviewViewModel
     @State private var focusNeedsReviewOnly: Bool = false
     @Environment(\.dismiss) private var dismiss
 
-    init(environment: AppEnvironment, parsedInvoice: ParsedInvoice) {
-        _viewModel = StateObject(wrappedValue: ReviewViewModel(environment: environment, parsedInvoice: parsedInvoice))
+    init(environment: AppEnvironment, parsedInvoice: ParsedInvoice, draftSnapshot: ReviewDraftSnapshot? = nil) {
+        _viewModel = StateObject(
+            wrappedValue: ReviewViewModel(
+                environment: environment,
+                parsedInvoice: parsedInvoice,
+                draftSnapshot: draftSnapshot
+            )
+        )
     }
 
     var body: some View {
@@ -20,6 +27,13 @@ struct ReviewView: View {
                 Section {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
+                }
+            }
+
+            if let status = viewModel.statusMessage, !status.isEmpty {
+                Section {
+                    Label(status, systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
                 }
             }
 
@@ -64,9 +78,37 @@ struct ReviewView: View {
             }
 
             Section("Submission Route") {
-                submissionModePicker
-                submissionContextLinks
+                if experimentalOrderPOLinking {
+                    submissionModePicker
+                    submissionContextLinks
+                } else {
+                    Text("Production intake keeps this flow simple: submit to a draft purchase order from scan data.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 taxBehaviorRow
+                Text(experimentalOrderPOLinking ? viewModel.modeGuidanceText : "Enable Experimental Order / PO Linking in Settings > Diagnostics for advanced linking tools.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button("Save Intake Draft") {
+                    AppHaptics.impact(.light, intensity: 0.85)
+                    Task { await viewModel.saveDraft() }
+                }
+
+                if let lastSaved = viewModel.lastDraftSavedAt {
+                    Text("Saved \(lastSaved.formatted(date: .omitted, time: .shortened))")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                if viewModel.activeDraftID != nil {
+                    Button("Discard Saved Draft", role: .destructive) {
+                        AppHaptics.warning()
+                        Task { await viewModel.discardDraft() }
+                    }
+                }
             }
 
             Section("RO Totals") {
@@ -122,6 +164,17 @@ struct ReviewView: View {
         }
         .onAppear {
             viewModel.loadTodayMetrics()
+            if !experimentalOrderPOLinking {
+                viewModel.applyProductionPolishMode()
+            }
+        }
+        .onDisappear {
+            Task { await viewModel.persistDraftOnExitIfNeeded() }
+        }
+        .onChange(of: experimentalOrderPOLinking) { _, enabled in
+            if !enabled {
+                viewModel.applyProductionPolishMode()
+            }
         }
         .onChange(of: viewModel.modeUI) { _, _ in
             AppHaptics.selection()
@@ -238,7 +291,10 @@ struct ReviewView: View {
                 viewModel.poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? (viewModel.suggestedPONumber ?? "PO Reference (optional)")
                     : "PO Reference (optional)",
-                text: $viewModel.poReference
+                text: Binding(
+                    get: { viewModel.poReference },
+                    set: { viewModel.setPOReference($0) }
+                )
             )
             .textInputAutocapitalization(.characters)
 
@@ -249,6 +305,12 @@ struct ReviewView: View {
                     viewModel.applySuggestedPONumber()
                 }
                 .font(.footnote)
+            }
+
+            if experimentalOrderPOLinking, let poMatch = viewModel.purchaseOrderMatchMessage, !poMatch.isEmpty {
+                Text(poMatch)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -266,17 +328,61 @@ struct ReviewView: View {
     private var submissionContextLinks: some View {
         switch viewModel.modeUI {
         case .attach:
-            NavigationLink("Select Existing PO") {
+            NavigationLink("Select Existing Draft PO") {
+                PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
+                    viewModel.selectPurchaseOrder(purchaseOrder, forceAttachMode: true)
+                }
+            }
+
+            if let selectedPO = viewModel.selectedPurchaseOrder {
+                LabeledContent("Selected PO", value: selectedPO.number ?? selectedPO.id)
+                Label(
+                    selectedPO.isDraft ? "Draft PO ready" : "PO is \(selectedPO.status)",
+                    systemImage: selectedPO.isDraft ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
+                )
+                .font(.footnote)
+                .foregroundStyle(selectedPO.isDraft ? .green : .orange)
+            } else {
+                Text("No PO selected. Submitting in Attach mode creates a new draft purchase order.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            TextField("Work Order ID (optional PO link)", text: orderIdBinding)
+
+        case .quickAdd:
+            Text("Quick Add is inventory-first: barcode/SKU lines post directly to a work order service.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            NavigationLink("Select Work Order") {
                 OrderPickerView(service: viewModel.shopmonkeyService) { order in
                     viewModel.selectOrder(order)
                 }
             }
 
-            TextField("Work Order ID", text: orderIdBinding)
-            TextField("Service ID", text: serviceIdBinding)
+            if let selectedOrder = viewModel.selectedOrder {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(selectedOrder.orderName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                         ? (selectedOrder.orderName ?? selectedOrder.displayTitle)
+                         : selectedOrder.displayTitle)
+                        .font(.subheadline.weight(.semibold))
+                    if let number = selectedOrder.number?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !number.isEmpty {
+                        Text("Order #\(number)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let customer = selectedOrder.customerName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !customer.isEmpty {
+                        Text(customer)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
 
-        case .quickAdd:
-            TextField("Work Order ID (for lookup)", text: orderIdBinding)
+            TextField("Work Order ID", text: orderIdBinding)
 
             if !orderIdBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 NavigationLink("Select Ticket / Service") {
@@ -291,9 +397,34 @@ struct ReviewView: View {
 
             TextField("Ticket / Service ID", text: serviceIdBinding)
 
+            NavigationLink("Link to Draft PO (optional)") {
+                PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
+                    viewModel.selectPurchaseOrder(purchaseOrder)
+                }
+            }
+
         case .restock:
+            Text("Restock keeps inventory procurement in draft PO workflow.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            NavigationLink("Select Existing Draft PO") {
+                PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
+                    viewModel.selectPurchaseOrder(purchaseOrder)
+                }
+            }
+
+            if let selectedPO = viewModel.selectedPurchaseOrder {
+                LabeledContent("Selected PO", value: selectedPO.number ?? selectedPO.id)
+                Label(
+                    selectedPO.isDraft ? "Draft PO selected" : "PO is \(selectedPO.status)",
+                    systemImage: selectedPO.isDraft ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
+                )
+                .font(.footnote)
+                .foregroundStyle(selectedPO.isDraft ? .green : .orange)
+            }
+
             TextField("Work Order ID (optional)", text: orderIdBinding)
-            TextField("Service ID (optional)", text: serviceIdBinding)
         }
     }
 
@@ -497,7 +628,7 @@ struct ReviewView: View {
     private func modeTitle(for mode: ReviewViewModel.ModeUI) -> String {
         switch mode {
         case .attach:
-            return "Attach to PO"
+            return "Attach"
         case .quickAdd:
             return "Quick Add"
         case .restock:

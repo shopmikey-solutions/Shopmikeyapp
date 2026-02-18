@@ -80,6 +80,13 @@ struct SettingsView: View {
             }
 
             Section("Diagnostics") {
+                Toggle("Experimental Order / PO Linking", isOn: $viewModel.experimentalOrderPOLinking)
+                    .accessibilityIdentifier("settings.experimentalLinkingToggle")
+
+                Text("Shows advanced linking flows for existing work orders and draft purchase orders in intake review.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
                 NavigationLink("Endpoint Probe & Network Capture") {
                     SettingsDiagnosticsView(viewModel: viewModel)
                 }
@@ -96,6 +103,9 @@ struct SettingsView: View {
             AppHaptics.selection()
         }
         .onChange(of: viewModel.ignoreTaxAndTotals) { _, _ in
+            AppHaptics.selection()
+        }
+        .onChange(of: viewModel.experimentalOrderPOLinking) { _, _ in
             AppHaptics.selection()
         }
         .onChange(of: viewModel.statusMessage) { _, message in

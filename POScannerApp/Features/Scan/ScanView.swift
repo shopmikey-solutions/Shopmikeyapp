@@ -27,124 +27,19 @@ struct ScanView: View {
     }
 
     var body: some View {
-        List {
-            if let latestDraft = viewModel.latestResumableDraft {
-                Section("Current Intake Session") {
-                    currentIntakeSessionCard(latestDraft)
-                }
-            }
-
-            Section("Parts Intake Overview") {
-                dashboardSummary
-            }
-
-            Section("Intake Preferences") {
-                Toggle("Ignore tax and totals", isOn: $ignoreTaxAndTotals)
-                    .accessibilityIdentifier("scan.ignoreTaxToggle")
-                Text("Use this when supplier totals are noisy and line-item pricing is the source of truth.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("In-Progress Parts Intake") {
-                if additionalDrafts.isEmpty {
-                    Text(viewModel.latestResumableDraft == nil ? "No saved intake drafts." : "No additional saved intake drafts.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(additionalDrafts) { draft in
-                        Button {
-                            AppHaptics.selection()
-                            viewModel.resumeDraft(draft)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(draft.displayVendorName)
-                                    .font(.headline)
-                                Text("\(draft.displaySecondaryLine) • Saved \(draft.updatedAt.formatted(date: .omitted, time: .shortened))")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button("Delete", role: .destructive) {
-                                AppHaptics.warning()
-                                viewModel.deleteDraft(draft)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Section("Recent Purchase Order Posts") {
-                if let recent = viewModel.mostRecentSummary {
-                    NavigationLink {
-                        HistoryView(environment: viewModel.environment)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(recent.vendor)
-                                .font(.headline)
-                            Text("\(recent.total) • \(recent.date)")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } else {
-                    Text("No recent purchase-order submissions yet.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Shopmonkey Tools") {
-                NavigationLink("Purchase Order History") {
-                    HistoryView(environment: viewModel.environment)
-                }
-                .accessibilityIdentifier("scan.quickHistory")
-
-                NavigationLink("Intake Settings") {
-                    SettingsView(environment: viewModel.environment)
-                }
-                .accessibilityIdentifier("scan.quickSettings")
-            }
-
-            if viewModel.uiTestReviewFixtureEnabled {
-                Section {
-                    Button("Open Review Fixture") {
-                        viewModel.openUITestReviewFixture()
-                    }
-                    .accessibilityIdentifier("scan.openReviewFixture")
-                }
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                Section {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                }
-            }
-        }
+        scanList
         .listStyle(.insetGrouped)
         .nativeListSurface()
         .refreshable {
             viewModel.loadTodayMetrics()
         }
+        .sensoryFeedback(.selection, trigger: ignoreTaxAndTotals)
         .safeAreaPadding(.top, viewModel.isProcessing ? 116 : 0)
         .navigationTitle("ShopMikey")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
-                    AppHaptics.impact(.medium, intensity: 0.9)
-                    if viewModel.latestResumableDraft != nil {
-                        showResumeDraftDialog = true
-                    } else {
-                        showSourceSheet = true
-                    }
-                } label: {
-                    Label(viewModel.latestResumableDraft == nil ? "Scan Parts Invoice" : "New Capture", systemImage: "doc.viewfinder")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(showScanner || viewModel.isProcessing || isImportingPhoto)
-                .accessibilityIdentifier("scan.scanButton")
+                toolbarCaptureButton
             }
         }
         .sheet(isPresented: $showSourceSheet) {
@@ -167,13 +62,24 @@ struct ScanView: View {
 
             Button("Start New Capture") {
                 AppHaptics.selection()
-                showSourceSheet = true
+                presentCaptureSourcePicker()
+            }
+
+            if let latestDraft = viewModel.latestDraft, !latestDraft.canResumeInReview {
+                Button("Remove Previous Session", role: .destructive) {
+                    AppHaptics.warning()
+                    viewModel.deleteDraft(latestDraft)
+                }
             }
 
             Button("Cancel", role: .cancel) {}
         } message: {
-            if let latestDraft = viewModel.latestResumableDraft {
-                Text("\(latestDraft.displaySecondaryLine). You can resume or start a new capture.")
+            if let latestDraft = viewModel.latestDraft {
+                if latestDraft.canResumeInReview {
+                    Text("\(latestDraft.displaySecondaryLine). You can resume or start a new capture.")
+                } else {
+                    Text("The previous session did not reach a resumable review state. Start a new capture or remove it.")
+                }
             }
         }
         .photosPicker(
@@ -291,12 +197,7 @@ struct ScanView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
-            guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
-            if viewModel.latestResumableDraft != nil {
-                showResumeDraftDialog = true
-            } else {
-                showSourceSheet = true
-            }
+            presentCaptureFlow()
         }
         .onReceive(NotificationCenter.default.publisher(for: .appResumeScanDraft)) { notification in
             guard let draftID = notification.object as? UUID else { return }
@@ -305,7 +206,7 @@ struct ScanView: View {
                 let resumed = await viewModel.resumeDraft(id: draftID)
                 if !resumed {
                     await MainActor.run {
-                        showSourceSheet = true
+                        presentCaptureSourcePicker()
                     }
                 }
             }
@@ -314,6 +215,176 @@ struct ScanView: View {
             viewModel.loadInProgressDrafts()
         }
         .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
+    }
+
+    private var scanList: some View {
+        List {
+            currentSessionSection
+            dashboardSection
+            preferencesSection
+            draftsSection
+            recentPostsSection
+            toolsSection
+            uiTestSection
+            errorSection
+        }
+    }
+
+    @ViewBuilder
+    private var currentSessionSection: some View {
+        if let latestDraft = viewModel.latestDraft {
+            Section("Current Intake Session") {
+                currentIntakeSessionCard(latestDraft)
+            }
+        }
+    }
+
+    private var dashboardSection: some View {
+        Section("Parts Intake Overview") {
+            dashboardSummary
+        }
+    }
+
+    private var preferencesSection: some View {
+        Section("Intake Preferences") {
+            Toggle("Ignore tax and totals", isOn: $ignoreTaxAndTotals)
+                .accessibilityIdentifier("scan.ignoreTaxToggle")
+            Text("Use this when supplier totals are noisy and line-item pricing is the source of truth.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var draftsSection: some View {
+        Section("In-Progress Parts Intake") {
+            if additionalDrafts.isEmpty {
+                Text(viewModel.latestDraft == nil ? "No saved intake drafts." : "No additional saved intake drafts.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(additionalDrafts) { draft in
+                    draftRow(draft)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Delete", role: .destructive) {
+                                AppHaptics.warning()
+                                viewModel.deleteDraft(draft)
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var recentPostsSection: some View {
+        Section("Recent Purchase Order Posts") {
+            if let recent = viewModel.mostRecentSummary {
+                NavigationLink {
+                    HistoryView(environment: viewModel.environment)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(recent.vendor)
+                            .font(.headline)
+                        Text("\(recent.total) • \(recent.date)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Text("No recent purchase-order submissions yet.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var toolsSection: some View {
+        Section("Shopmonkey Tools") {
+            NavigationLink("Purchase Order History") {
+                HistoryView(environment: viewModel.environment)
+            }
+            .accessibilityIdentifier("scan.quickHistory")
+
+            NavigationLink("Intake Settings") {
+                SettingsView(environment: viewModel.environment)
+            }
+            .accessibilityIdentifier("scan.quickSettings")
+        }
+    }
+
+    @ViewBuilder
+    private var uiTestSection: some View {
+        if viewModel.uiTestReviewFixtureEnabled {
+            Section {
+                Button("Open Review Fixture") {
+                    viewModel.openUITestReviewFixture()
+                }
+                .accessibilityIdentifier("scan.openReviewFixture")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var errorSection: some View {
+        if let errorMessage = viewModel.errorMessage {
+            Section {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var toolbarCaptureButton: some View {
+        Button {
+            presentCaptureFlow()
+        } label: {
+            Label(
+                viewModel.latestDraft == nil ? "Scan Parts Invoice" : "New Capture",
+                systemImage: "doc.viewfinder"
+            )
+        }
+        .appPrimaryActionButton()
+        .disabled(showScanner || viewModel.isProcessing || isImportingPhoto)
+        .accessibilityIdentifier("scan.scanButton")
+    }
+
+    @ViewBuilder
+    private func draftRow(_ draft: ReviewDraftSnapshot) -> some View {
+        if draft.canResumeInReview {
+            Button {
+                AppHaptics.selection()
+                viewModel.resumeDraft(draft)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(draft.displayVendorName)
+                        .font(.headline)
+                    Text("\(draft.displaySecondaryLine) • Saved \(draft.updatedAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(draft.displayVendorName)
+                    .font(.headline)
+                Text("\(draft.workflowState.statusLabel) • Start a new capture to continue.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func presentCaptureFlow() {
+        guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
+        AppHaptics.impact(.medium, intensity: 0.9)
+        if viewModel.latestDraft != nil {
+            showResumeDraftDialog = true
+        } else {
+            presentCaptureSourcePicker()
+        }
+    }
+
+    private func presentCaptureSourcePicker() {
+        guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
+        showSourceSheet = true
     }
 
     private var additionalDrafts: [ReviewDraftSnapshot] {
@@ -326,7 +397,7 @@ struct ScanView: View {
             HStack(spacing: 8) {
                 Label(draft.workflowState.statusLabel, systemImage: "clock.arrow.circlepath")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(workflowTint(for: draft.workflowState))
 
                 Spacer()
 
@@ -343,25 +414,54 @@ struct ScanView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
-                Button {
-                    AppHaptics.selection()
-                    viewModel.resumeDraft(draft)
-                } label: {
-                    Label("Resume Intake", systemImage: "arrow.clockwise.circle")
-                }
-                .buttonStyle(.borderedProminent)
+                if draft.canResumeInReview {
+                    Button {
+                        AppHaptics.selection()
+                        viewModel.resumeDraft(draft)
+                    } label: {
+                        Label("Resume Intake", systemImage: "arrow.clockwise.circle")
+                    }
+                    .appPrimaryActionButton()
 
-                Button {
-                    AppHaptics.selection()
-                    showSourceSheet = true
-                } label: {
-                    Text("New Capture")
+                    Button {
+                        AppHaptics.selection()
+                        presentCaptureSourcePicker()
+                    } label: {
+                        Text("New Capture")
+                    }
+                    .appSecondaryActionButton()
+                } else {
+                    Button {
+                        AppHaptics.selection()
+                        presentCaptureSourcePicker()
+                    } label: {
+                        Label("Start New Capture", systemImage: "camera.viewfinder")
+                    }
+                    .appPrimaryActionButton()
+
+                    Button(role: .destructive) {
+                        AppHaptics.warning()
+                        viewModel.deleteDraft(draft)
+                    } label: {
+                        Text("Remove")
+                    }
+                    .appSecondaryActionButton()
                 }
-                .buttonStyle(.bordered)
             }
         }
         .padding(.vertical, 4)
         .accessibilityIdentifier("scan.currentSessionCard")
+    }
+
+    private func workflowTint(for state: ReviewDraftSnapshot.WorkflowState) -> Color {
+        switch state {
+        case .failed:
+            return AppSurfaceStyle.warning
+        case .reviewReady, .reviewEdited:
+            return AppSurfaceStyle.success
+        case .scanning, .ocrReview, .parsing, .submitting:
+            return AppSurfaceStyle.info
+        }
     }
 
     @ViewBuilder
@@ -541,6 +641,10 @@ private struct ScanSourceSheet: View {
         NavigationStack {
             List {
                 Section {
+                    Text("Use camera for a new capture, or choose an existing invoice photo.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
                     Button {
                         AppHaptics.selection()
                         dismiss()
@@ -551,6 +655,7 @@ private struct ScanSourceSheet: View {
                     } label: {
                         Label("Scan with Camera", systemImage: "camera.viewfinder")
                     }
+                    .appPrimaryActionButton()
 
                     Button {
                         AppHaptics.selection()
@@ -562,8 +667,9 @@ private struct ScanSourceSheet: View {
                     } label: {
                         Label("Choose from Photos", systemImage: "photo.on.rectangle")
                     }
+                    .appSecondaryActionButton()
                 } footer: {
-                    Text("Use camera for a new capture, or choose an existing invoice photo.")
+                    Text("Camera uses live document scanning. Photos lets you import an existing invoice image.")
                 }
             }
             .listStyle(.insetGrouped)
@@ -575,7 +681,7 @@ private struct ScanSourceSheet: View {
                 }
             }
         }
-        .presentationDetents([.height(280)])
+        .presentationDetents([.height(320)])
         .presentationDragIndicator(.visible)
     }
 }

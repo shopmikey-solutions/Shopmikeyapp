@@ -7,6 +7,7 @@
 
 import WidgetKit
 import SwiftUI
+import AppIntents
 
 struct PartsIntakeWidgetSnapshot: Codable {
     let generatedAt: Date
@@ -17,7 +18,9 @@ struct PartsIntakeWidgetSnapshot: Codable {
     let totalValueCents: Int
 }
 
-struct Provider: TimelineProvider {
+struct Provider: AppIntentTimelineProvider {
+    typealias Intent = ConfigurationAppIntent
+
     func placeholder(in context: Context) -> SimpleEntry {
         SimpleEntry(
             date: Date(),
@@ -29,14 +32,14 @@ struct Provider: TimelineProvider {
         )
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> Void) {
-        completion(loadEntry(fallbackDate: Date()))
+    func snapshot(for configuration: ConfigurationAppIntent, in context: Context) async -> SimpleEntry {
+        loadEntry(fallbackDate: Date())
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> Void) {
+    func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<SimpleEntry> {
         let entry = loadEntry(fallbackDate: Date())
         let refresh = Calendar.current.date(byAdding: .minute, value: 15, to: entry.date) ?? entry.date.addingTimeInterval(900)
-        completion(Timeline(entries: [entry], policy: .after(refresh)))
+        return Timeline(entries: [entry], policy: .after(refresh))
     }
 
     private func loadEntry(fallbackDate: Date) -> SimpleEntry {
@@ -136,7 +139,7 @@ struct ShopMikey_Scanner: Widget {
     let kind: String = "ShopMikey_Scanner"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: Provider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: ConfigurationAppIntent.self, provider: Provider()) { entry in
             ShopMikey_ScannerEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }

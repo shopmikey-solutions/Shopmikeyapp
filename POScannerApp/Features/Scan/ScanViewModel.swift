@@ -256,13 +256,16 @@ final class ScanViewModel: ObservableObject {
 
     func loadInProgressDrafts() {
         Task {
-            let drafts = await environment.reviewDraftStore.list()
-            inProgressDrafts = drafts.filter(\.canResumeInReview)
+            inProgressDrafts = await environment.reviewDraftStore.list()
         }
     }
 
-    var latestResumableDraft: ReviewDraftSnapshot? {
+    var latestDraft: ReviewDraftSnapshot? {
         inProgressDrafts.first
+    }
+
+    var latestResumableDraft: ReviewDraftSnapshot? {
+        inProgressDrafts.first(where: \.canResumeInReview)
     }
 
     func resumeDraft(_ draft: ReviewDraftSnapshot) {
@@ -285,8 +288,7 @@ final class ScanViewModel: ObservableObject {
                 if activeWorkflowDraftID == draft.id {
                     activeWorkflowDraftID = nil
                 }
-                let drafts = await environment.reviewDraftStore.list()
-                inProgressDrafts = drafts.filter(\.canResumeInReview)
+                inProgressDrafts = await environment.reviewDraftStore.list()
             } catch {
                 errorMessage = "Could not remove saved intake draft."
             }
@@ -487,8 +489,7 @@ final class ScanViewModel: ObservableObject {
 
         do {
             try await environment.reviewDraftStore.upsert(snapshot)
-            let drafts = await environment.reviewDraftStore.list()
-            inProgressDrafts = drafts.filter(\.canResumeInReview)
+            inProgressDrafts = await environment.reviewDraftStore.list()
             return snapshot
         } catch {
             return nil

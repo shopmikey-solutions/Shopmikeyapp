@@ -6,9 +6,18 @@
 import SwiftUI
 
 struct ReviewView: View {
+    private enum FocusedField: Hashable {
+        case vendor
+        case invoice
+        case po
+        case order
+        case service
+    }
+
     @AppStorage("experimentalOrderPOLinking") private var experimentalOrderPOLinking: Bool = false
     @StateObject var viewModel: ReviewViewModel
     @State private var focusNeedsReviewOnly: Bool = false
+    @FocusState private var focusedField: FocusedField?
     @Environment(\.dismiss) private var dismiss
 
     init(environment: AppEnvironment, parsedInvoice: ParsedInvoice, draftSnapshot: ReviewDraftSnapshot? = nil) {
@@ -33,7 +42,7 @@ struct ReviewView: View {
             if let status = viewModel.statusMessage, !status.isEmpty {
                 Section {
                     Label(status, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(AppSurfaceStyle.success)
                 }
             }
 
@@ -75,6 +84,7 @@ struct ReviewView: View {
                 } label: {
                     Label("Add Part Line", systemImage: "plus")
                 }
+                .appSecondaryActionButton()
             }
 
             Section("Shopmonkey Destination") {
@@ -96,6 +106,7 @@ struct ReviewView: View {
                     AppHaptics.impact(.light, intensity: 0.85)
                     Task { await viewModel.saveDraft() }
                 }
+                .appSecondaryActionButton()
 
                 if let lastSaved = viewModel.lastDraftSavedAt {
                     Text("Saved \(lastSaved.formatted(date: .omitted, time: .shortened))")
@@ -140,10 +151,14 @@ struct ReviewView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .keyboardDoneToolbar()
         .scrollDismissesKeyboard(.interactively)
         .toolbar(.hidden, for: .tabBar)
         .navigationTitle("Parts Intake Review")
         .navigationBarTitleDisplayMode(.inline)
+        .onSubmit {
+            advanceKeyboardFocus()
+        }
         .animation(.snappy(duration: 0.24), value: focusNeedsReviewOnly)
         .animation(.snappy(duration: 0.24), value: filteredItemIndices.count)
         .toolbar {
@@ -234,6 +249,8 @@ struct ReviewView: View {
                 )
             )
             .textInputAutocapitalization(.words)
+            .focused($focusedField, equals: .vendor)
+            .submitLabel(.next)
             .accessibilityIdentifier("review.vendorField")
 
             Label(
@@ -241,7 +258,7 @@ struct ReviewView: View {
                 systemImage: viewModel.selectedVendorId == nil ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
             )
             .font(.footnote)
-            .foregroundStyle(viewModel.selectedVendorId == nil ? .orange : .green)
+            .foregroundStyle(viewModel.selectedVendorId == nil ? AppSurfaceStyle.warning : AppSurfaceStyle.success)
 
             if let suggestedVendorName = viewModel.suggestedVendorName, !suggestedVendorName.isEmpty {
                 Text("OCR suggested vendor: \(suggestedVendorName)")
@@ -272,7 +289,7 @@ struct ReviewView: View {
                                 if viewModel.selectedVendorId == vendor.id ||
                                     vendor.name.normalizedVendorName == viewModel.vendorName.normalizedVendorName {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(AppSurfaceStyle.success)
                                 }
                             }
                         }
@@ -292,6 +309,8 @@ struct ReviewView: View {
                 text: $viewModel.vendorInvoiceNumber
             )
             .textInputAutocapitalization(.characters)
+            .focused($focusedField, equals: .invoice)
+            .submitLabel(.next)
 
             if viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let suggestedInvoice = viewModel.suggestedInvoiceNumber,
@@ -312,6 +331,8 @@ struct ReviewView: View {
                 )
             )
             .textInputAutocapitalization(.characters)
+            .focused($focusedField, equals: .po)
+            .submitLabel(.done)
 
             if viewModel.poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let suggestedPO = viewModel.suggestedPONumber,
@@ -356,7 +377,7 @@ struct ReviewView: View {
                     systemImage: selectedPO.isDraft ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
                 )
                 .font(.footnote)
-                .foregroundStyle(selectedPO.isDraft ? .green : .orange)
+                .foregroundStyle(selectedPO.isDraft ? AppSurfaceStyle.success : AppSurfaceStyle.warning)
             } else {
                 Text("No PO selected. Submitting in Attach mode creates a new draft purchase order.")
                     .font(.footnote)
@@ -364,6 +385,8 @@ struct ReviewView: View {
             }
 
             TextField("Order ID (optional PO link)", text: orderIdBinding)
+                .focused($focusedField, equals: .order)
+                .submitLabel(.done)
 
         case .quickAdd:
             Text("Add to Order is inventory-first: barcode/SKU lines post directly to a Shopmonkey order service.")
@@ -398,6 +421,8 @@ struct ReviewView: View {
             }
 
             TextField("Order ID", text: orderIdBinding)
+                .focused($focusedField, equals: .order)
+                .submitLabel(.next)
 
             if !orderIdBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 NavigationLink("Select Ticket / Service") {
@@ -411,6 +436,8 @@ struct ReviewView: View {
             }
 
             TextField("Ticket / Service ID", text: serviceIdBinding)
+                .focused($focusedField, equals: .service)
+                .submitLabel(.done)
 
             NavigationLink("Link to Draft PO (optional)") {
                 PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
@@ -436,10 +463,12 @@ struct ReviewView: View {
                     systemImage: selectedPO.isDraft ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
                 )
                 .font(.footnote)
-                .foregroundStyle(selectedPO.isDraft ? .green : .orange)
+                .foregroundStyle(selectedPO.isDraft ? AppSurfaceStyle.success : AppSurfaceStyle.warning)
             }
 
             TextField("Order ID (optional)", text: orderIdBinding)
+                .focused($focusedField, equals: .order)
+                .submitLabel(.done)
         }
     }
 
@@ -465,8 +494,8 @@ struct ReviewView: View {
                 lineItemRow(item: viewModel.items[index])
             }
             .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                kindSwipeButton(title: "Part", kind: .part, color: .blue, at: index)
-                kindSwipeButton(title: "Tire", kind: .tire, color: .orange, at: index)
+                kindSwipeButton(title: "Part", kind: .part, color: AppSurfaceStyle.info, at: index)
+                kindSwipeButton(title: "Tire", kind: .tire, color: AppSurfaceStyle.warning, at: index)
                 kindSwipeButton(title: "Fee", kind: .fee, color: .teal, at: index)
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -596,9 +625,9 @@ struct ReviewView: View {
     private func kindTint(for kind: POItemKind) -> Color {
         switch kind {
         case .part:
-            return .blue
+            return AppSurfaceStyle.info
         case .tire:
-            return .orange
+            return AppSurfaceStyle.warning
         case .fee:
             return .teal
         case .unknown:
@@ -665,6 +694,23 @@ struct ReviewView: View {
             return "Add to Purchase Order"
         case .quickAdd:
             return "Add to Order"
+        }
+    }
+
+    private func advanceKeyboardFocus() {
+        switch focusedField {
+        case .vendor:
+            focusedField = .invoice
+        case .invoice:
+            focusedField = .po
+        case .po:
+            focusedField = nil
+        case .order:
+            focusedField = viewModel.modeUI == .quickAdd ? .service : nil
+        case .service:
+            focusedField = nil
+        case .none:
+            break
         }
     }
 }

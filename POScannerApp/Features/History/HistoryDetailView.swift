@@ -79,11 +79,11 @@ struct HistoryDetailView: View {
         let color: Color
         switch title.lowercased() {
         case "submitted":
-            color = .green
+            color = AppSurfaceStyle.success
         case "failed":
             color = .red
         case "submitting":
-            color = .orange
+            color = AppSurfaceStyle.warning
         default:
             color = .gray
         }

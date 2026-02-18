@@ -6,8 +6,16 @@
 import SwiftUI
 
 struct LineItemEditView: View {
+    private enum FocusField: Hashable {
+        case sku
+        case description
+        case quantity
+        case unitCost
+    }
+
     @Binding var item: POItem
     var onKindChanged: ((POItemKind, POItemKind) -> Void)? = nil
+    @FocusState private var focusedField: FocusField?
 
     init(item: Binding<POItem>, onKindChanged: ((POItemKind, POItemKind) -> Void)? = nil) {
         self._item = item
@@ -19,7 +27,7 @@ struct LineItemEditView: View {
             Section("Summary") {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
-                        statusChip(title: item.kind.displayName, color: item.kind == .unknown ? .orange : .green)
+                        statusChip(title: item.kind.displayName, color: item.kind == .unknown ? AppSurfaceStyle.warning : AppSurfaceStyle.success)
                         Text(item.subtotalFormatted)
                             .font(.headline)
                     }
@@ -39,7 +47,7 @@ struct LineItemEditView: View {
                 if item.kind == .unknown {
                     Label("Auto-classification needs review.", systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppSurfaceStyle.warning)
                 } else if item.isKindConfidenceMedium {
                     Label("Suggested (\(Int((item.kindConfidence * 100).rounded()))%)", systemImage: "lightbulb")
                         .font(.footnote)
@@ -62,20 +70,32 @@ struct LineItemEditView: View {
             Section("Line Item") {
                 TextField("SKU / Part #", text: $item.sku)
                     .textInputAutocapitalization(.characters)
+                    .focused($focusedField, equals: .sku)
+                    .submitLabel(.next)
 
                 TextField("Description", text: $item.description)
+                    .focused($focusedField, equals: .description)
+                    .submitLabel(.next)
             }
 
             Section("Quantity & Cost") {
                 TextField("Quantity", value: $item.quantity, format: .number)
                     .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .quantity)
+                    .submitLabel(.next)
 
                 Stepper(value: $item.quantity, in: 1...999, step: 1) {
                     LabeledContent("Adjust Quantity", value: quantityString(item.quantity))
                 }
+                .onChange(of: item.quantity) { oldValue, newValue in
+                    guard oldValue != newValue, focusedField != .quantity else { return }
+                    AppHaptics.selection()
+                }
 
                 TextField("Unit Cost", value: $item.unitCost, format: .currency(code: "USD"))
                     .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .unitCost)
+                    .submitLabel(.done)
 
                 Toggle("Taxable", isOn: $item.isTaxable)
             }
@@ -87,12 +107,30 @@ struct LineItemEditView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .keyboardDoneToolbar()
         .scrollDismissesKeyboard(.interactively)
         .toolbar(.hidden, for: .tabBar)
         .navigationTitle("Line Item")
         .navigationBarTitleDisplayMode(.inline)
+        .onSubmit {
+            switch focusedField {
+            case .sku:
+                focusedField = .description
+            case .description:
+                focusedField = .quantity
+            case .quantity:
+                focusedField = .unitCost
+            case .unitCost:
+                focusedField = nil
+            case .none:
+                break
+            }
+        }
         .onChange(of: item.kind) { oldValue, newValue in
             onKindChanged?(oldValue, newValue)
+        }
+        .onChange(of: item.isTaxable) { _, _ in
+            AppHaptics.selection()
         }
     }
 

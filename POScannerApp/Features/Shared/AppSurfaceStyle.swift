@@ -10,18 +10,18 @@ enum AppSurfaceStyle {
     static let info: Color = accent
     static let warning: Color = Color(uiColor: .systemOrange)
     static let success: Color = Color(uiColor: .systemGreen)
-    static let listCardFill: Color = Color(red: 0.22, green: 0.28, blue: 0.40).opacity(0.94)
+    static let listCardFill: Color = Color(uiColor: .secondarySystemGroupedBackground)
     static let cardFill: LinearGradient = LinearGradient(
         colors: [
-            Color(red: 0.20, green: 0.25, blue: 0.34).opacity(0.92),
-            Color(red: 0.16, green: 0.22, blue: 0.31).opacity(0.92)
+            Color(uiColor: .secondarySystemGroupedBackground),
+            Color(uiColor: .tertiarySystemGroupedBackground)
         ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
-    static let cardStroke: Color = Color.white.opacity(0.14)
-    static let sectionHeaderFont: Font = .system(.title3, design: .rounded).weight(.semibold)
-    static let cardTitleFont: Font = .system(.title3, design: .rounded).weight(.semibold)
+    static let cardStroke: Color = Color(uiColor: .separator).opacity(0.45)
+    static let sectionHeaderFont: Font = .headline
+    static let cardTitleFont: Font = .headline
 }
 
 struct AppCardSurfaceModifier: ViewModifier {
@@ -79,6 +79,6 @@ extension View {
         self
             .textCase(nil)
             .font(AppSurfaceStyle.sectionHeaderFont)
-            .foregroundStyle(.white.opacity(0.86))
+            .foregroundStyle(.secondary)
     }
 }

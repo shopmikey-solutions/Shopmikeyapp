@@ -129,10 +129,10 @@ struct PurchaseOrderPickerView: View {
     private func statusBadge(for status: String, isDraft: Bool) -> some View {
         Text(status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unknown" : status)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(isDraft ? .green : .orange)
+            .foregroundStyle(isDraft ? AppSurfaceStyle.success : AppSurfaceStyle.warning)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background((isDraft ? Color.green : Color.orange).opacity(0.16))
+            .background((isDraft ? AppSurfaceStyle.success : AppSurfaceStyle.warning).opacity(0.16))
             .clipShape(Capsule())
     }
 }

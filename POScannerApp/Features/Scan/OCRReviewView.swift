@@ -31,6 +31,7 @@ struct OCRReviewView: View {
     @State private var hasLineEdits: Bool = false
     @State private var lastProgrammaticReviewedText: String?
     @State private var lockListScroll: Bool = false
+    @State private var recentlyDeletedLine: (line: EditableRecognizedLine, index: Int)?
 
     init(
         draft: ScanViewModel.OCRReviewDraft,
@@ -162,10 +163,20 @@ struct OCRReviewView: View {
                     }
                 }
             } footer: {
-                if hasManualTextEdits && hasLineEdits {
-                    Button("Apply line edits to OCR text") {
-                        hasManualTextEdits = false
-                        syncReviewedTextFromLinesIfNeeded(force: true)
+                VStack(alignment: .leading, spacing: 8) {
+                    if hasManualTextEdits && hasLineEdits {
+                        Button("Apply line edits to OCR text") {
+                            hasManualTextEdits = false
+                            syncReviewedTextFromLinesIfNeeded(force: true)
+                        }
+                    }
+
+                    if let deleted = recentlyDeletedLine {
+                        Button("Undo delete: \(deleted.line.text)") {
+                            AppHaptics.selection()
+                            restoreDeletedLine()
+                        }
+                        .lineLimit(1)
                     }
                 }
             }
@@ -185,6 +196,7 @@ struct OCRReviewView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .keyboardDoneToolbar()
         .scrollDisabled(lockListScroll)
         .scrollDismissesKeyboard(.interactively)
         .toolbar(.hidden, for: .tabBar)
@@ -253,9 +265,25 @@ struct OCRReviewView: View {
     }
 
     private func deleteLine(id: OCRService.RecognizedLine.ID) {
-        editableLines.removeAll { $0.id == id }
-        if selectedLineID == id {
-            selectedLineID = nil
+        guard let index = editableLines.firstIndex(where: { $0.id == id }) else { return }
+        withAnimation(.snappy(duration: 0.18)) {
+            recentlyDeletedLine = (editableLines[index], index)
+            editableLines.remove(at: index)
+            if selectedLineID == id {
+                selectedLineID = nil
+            }
+        }
+        hasLineEdits = true
+        syncReviewedTextFromLinesIfNeeded()
+    }
+
+    private func restoreDeletedLine() {
+        guard let deleted = recentlyDeletedLine else { return }
+        withAnimation(.snappy(duration: 0.2)) {
+            let restoreIndex = min(max(deleted.index, 0), editableLines.count)
+            editableLines.insert(deleted.line, at: restoreIndex)
+            selectedLineID = deleted.line.id
+            recentlyDeletedLine = nil
         }
         hasLineEdits = true
         syncReviewedTextFromLinesIfNeeded()
@@ -335,10 +363,10 @@ private struct OCROverlayPreview: View {
                     ForEach(barcodes) { barcode in
                         let rect = rectInView(for: barcode.boundingBox, in: proxy.size)
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .stroke(selectedBarcodeID == barcode.id ? Color.green : Color.teal, lineWidth: selectedBarcodeID == barcode.id ? 2 : 1)
+                            .stroke(selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal, lineWidth: selectedBarcodeID == barcode.id ? 2 : 1)
                             .background(
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill((selectedBarcodeID == barcode.id ? Color.green : Color.teal).opacity(0.16))
+                                    .fill((selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal).opacity(0.16))
                             )
                             .frame(width: rect.width, height: rect.height)
                             .position(x: rect.midX, y: rect.midY)

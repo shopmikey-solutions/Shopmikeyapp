@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct NativeSegmentedControl<Option: Hashable>: View {
     let options: [Option]
@@ -81,5 +82,54 @@ struct NativeListSurfaceModifier: ViewModifier {
 extension View {
     func nativeListSurface() -> some View {
         modifier(NativeListSurfaceModifier())
+    }
+
+    func keyboardDoneToolbar() -> some View {
+        modifier(KeyboardDoneToolbarModifier())
+    }
+
+    func appPrimaryActionButton() -> some View {
+        modifier(AppPrimaryActionButtonModifier())
+    }
+
+    func appSecondaryActionButton() -> some View {
+        modifier(AppSecondaryActionButtonModifier())
+    }
+}
+
+private struct KeyboardDoneToolbarModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil,
+                        from: nil,
+                        for: nil
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct AppPrimaryActionButtonModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .fontWeight(.semibold)
+    }
+}
+
+private struct AppSecondaryActionButtonModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
     }
 }

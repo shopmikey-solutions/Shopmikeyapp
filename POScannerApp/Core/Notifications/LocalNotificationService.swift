@@ -33,6 +33,8 @@ struct LocalNotificationService {
         content.sound = .default
         content.threadIdentifier = payload.threadIdentifier
         content.userInfo = ["deepLink": payload.deepLink.absoluteString]
+        content.interruptionLevel = payload.interruptionLevel
+        content.relevanceScore = payload.relevanceScore
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.35, repeats: false)
         let request = UNNotificationRequest(
@@ -74,7 +76,9 @@ struct LocalNotificationService {
                 title: "Parts intake ready",
                 body: "\(vendorLabel): \(lineItemCount) line item\(lineItemCount == 1 ? "" : "s") parsed. Review before posting.",
                 deepLink: AppDeepLink.scanURL(draftID: draftID),
-                threadIdentifier: "parts-intake"
+                threadIdentifier: "parts-intake",
+                interruptionLevel: .active,
+                relevanceScore: 0.9
             )
 
         case .scanFailed:
@@ -83,7 +87,9 @@ struct LocalNotificationService {
                 title: "Scan needs attention",
                 body: "Invoice scan could not be completed. Try another capture.",
                 deepLink: AppDeepLink.scanURL(openComposer: true),
-                threadIdentifier: "parts-intake"
+                threadIdentifier: "parts-intake",
+                interruptionLevel: .active,
+                relevanceScore: 0.85
             )
 
         case let .submissionSucceeded(vendor, totalCents):
@@ -94,7 +100,9 @@ struct LocalNotificationService {
                 title: "Submitted to Shopmonkey",
                 body: "\(vendorLabel) • \(total)",
                 deepLink: AppDeepLink.historyURL,
-                threadIdentifier: "parts-intake"
+                threadIdentifier: "parts-intake",
+                interruptionLevel: .passive,
+                relevanceScore: 0.5
             )
 
         case let .submissionFailed(message, draftID):
@@ -103,7 +111,9 @@ struct LocalNotificationService {
                 title: "Submission failed",
                 body: normalized(message) ?? "Open history to retry the parts intake.",
                 deepLink: AppDeepLink.scanURL(draftID: draftID),
-                threadIdentifier: "parts-intake"
+                threadIdentifier: "parts-intake",
+                interruptionLevel: .active,
+                relevanceScore: 0.9
             )
         }
     }
@@ -126,4 +136,6 @@ private struct NotificationPayload {
     let body: String
     let deepLink: URL
     let threadIdentifier: String
+    let interruptionLevel: UNNotificationInterruptionLevel
+    let relevanceScore: Double
 }

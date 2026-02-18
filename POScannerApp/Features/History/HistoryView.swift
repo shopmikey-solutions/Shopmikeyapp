@@ -152,7 +152,7 @@ struct HistoryView: View {
                                             AppHaptics.impact(.medium, intensity: 0.8)
                                             Task { await retry(row) }
                                         }
-                                        .tint(.orange)
+                                        .tint(AppSurfaceStyle.warning)
                                     }
                                 }
                             }
@@ -213,14 +213,12 @@ struct HistoryView: View {
 
     private func draftBadgeColor(for state: ReviewDraftSnapshot.WorkflowState) -> Color {
         switch state {
-        case .scanning, .parsing, .submitting:
-            return .blue
-        case .ocrReview:
-            return .indigo
+        case .scanning, .ocrReview, .parsing, .submitting:
+            return AppSurfaceStyle.info
         case .reviewReady, .reviewEdited:
-            return .green
+            return AppSurfaceStyle.success
         case .failed:
-            return .orange
+            return AppSurfaceStyle.warning
         }
     }
 
@@ -379,9 +377,9 @@ private struct StatusBadge: View {
         case "draft":
             return .gray
         case "submitting":
-            return .blue
+            return AppSurfaceStyle.info
         case "submitted":
-            return .green
+            return AppSurfaceStyle.success
         case "failed":
             return .red
         default:

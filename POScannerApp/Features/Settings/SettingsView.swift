@@ -22,7 +22,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: AppSurfaceStyle.info)
-                        healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : .green)
+                        healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : AppSurfaceStyle.success)
                     }
 
                     if let statusMessage = viewModel.statusMessage, !statusMessage.isEmpty {
@@ -78,7 +78,7 @@ struct SettingsView: View {
                         Text("Test Connection")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .appPrimaryActionButton()
                 .disabled(viewModel.isTestingConnection)
                 .accessibilityIdentifier("settings.testConnectionButton")
 
@@ -107,6 +107,7 @@ struct SettingsView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .keyboardDoneToolbar()
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Shopmonkey Settings")
         .navigationBarTitleDisplayMode(.large)
@@ -197,7 +198,7 @@ private struct SettingsDiagnosticsView: View {
                                 Spacer()
                                 Text(result.statusCode.map(String.init) ?? "n/a")
                                     .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(result.supported ? .green : .orange)
+                                    .foregroundStyle(result.supported ? AppSurfaceStyle.success : AppSurfaceStyle.warning)
                             }
 
                             Text(result.hint)
@@ -253,7 +254,7 @@ private struct SettingsDiagnosticsView: View {
                                 Spacer()
                                 Text(entry.statusCode.map(String.init) ?? "n/a")
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(entry.isFailure ? .red : .green)
+                                    .foregroundStyle(entry.isFailure ? .red : AppSurfaceStyle.success)
                             }
 
                             Text("\(entry.method) \(entry.url)")

@@ -57,11 +57,15 @@ final class HistoryViewModel: ObservableObject {
 
         Task(priority: .userInitiated) {
             async let drafts = reviewDraftStore.list()
-
+            await self.dataController.waitUntilLoaded()
             let backgroundContext = container.newBackgroundContext()
             backgroundContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
             let mapped: [HistoryRow] = await backgroundContext.perform {
+                guard NSEntityDescription.entity(forEntityName: "PurchaseOrder", in: backgroundContext) != nil else {
+                    return []
+                }
+
                 let request: NSFetchRequest<PurchaseOrder> = PurchaseOrder.fetchRequest()
                 request.sortDescriptors = [
                     NSSortDescriptor(key: "date", ascending: false)

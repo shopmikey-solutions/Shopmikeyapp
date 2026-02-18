@@ -654,10 +654,23 @@ final class ScanViewModel: ObservableObject {
     }
 
     func loadTodayMetrics() {
-        let container = environment.dataController.container
+        let dataController = environment.dataController
 
         Task(priority: .userInitiated) {
+            await dataController.waitUntilLoaded()
+            let container = dataController.container
             let context = container.newBackgroundContext()
+            let hasPurchaseOrderEntity = NSEntityDescription.entity(forEntityName: "PurchaseOrder", in: context) != nil
+            guard hasPurchaseOrderEntity else {
+                todayCount = 0
+                todayTotal = 0
+                pendingCount = 0
+                submittedCount = 0
+                failedCount = 0
+                mostRecentSummary = nil
+                return
+            }
+            
             let metrics = await context.perform { () -> (
                 count: Int,
                 pending: Int,

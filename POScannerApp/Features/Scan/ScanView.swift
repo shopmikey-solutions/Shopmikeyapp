@@ -112,10 +112,11 @@ struct ScanView: View {
         .sheet(isPresented: $showScanner) {
             if VNDocumentCameraViewController.isSupported {
                 VisionDocumentScanner(
-                    onScan: { cgImage, orientation in
+                    onScan: { image, cgImage, orientation in
                         showScanner = false
                         viewModel.handleScannedImage(
-                            cgImage,
+                            image,
+                            cgImage: cgImage,
                             orientation: orientation,
                             ignoreTaxAndTotals: ignoreTaxAndTotals
                         )
@@ -131,6 +132,22 @@ struct ScanView: View {
                     description: Text("Document scanning is not supported on this device.")
                 )
                 .padding()
+            }
+        }
+        .sheet(item: $viewModel.ocrReviewDraft) { draft in
+            NavigationStack {
+                OCRReviewView(
+                    draft: draft,
+                    onCancel: {
+                        viewModel.cancelOCRReview()
+                    },
+                    onContinue: { reviewedText, includeDetectedBarcodes in
+                        viewModel.continueFromOCRReview(
+                            editedText: reviewedText,
+                            includeDetectedBarcodes: includeDetectedBarcodes
+                        )
+                    }
+                )
             }
         }
         .fullScreenCover(isPresented: $showArcade) {

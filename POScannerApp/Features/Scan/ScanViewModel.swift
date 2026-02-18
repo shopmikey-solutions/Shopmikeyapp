@@ -8,11 +8,13 @@ import Combine
 import CoreGraphics
 import CoreData
 import ImageIO
+import UIKit
 
 @MainActor
 final class ScanViewModel: ObservableObject {
     enum ProcessingStage: String {
         case extractingText = "Extracting text"
+        case preparingReview = "Preparing OCR review"
         case parsing = "Classifying line items"
         case finalizing = "Preparing review"
 
@@ -20,6 +22,8 @@ final class ScanViewModel: ObservableObject {
             switch self {
             case .extractingText:
                 return 0.28
+            case .preparingReview:
+                return 0.45
             case .parsing:
                 return 0.64
             case .finalizing:
@@ -31,6 +35,8 @@ final class ScanViewModel: ObservableObject {
             switch self {
             case .extractingText:
                 return "Running OCR on your document."
+            case .preparingReview:
+                return "Building a highlighted review draft."
             case .parsing:
                 return "Applying AI + rules to structure fields."
             case .finalizing:
@@ -46,6 +52,13 @@ final class ScanViewModel: ObservableObject {
         let invoice: ParsedInvoice
     }
 
+    struct OCRReviewDraft: Identifiable {
+        let id: UUID = UUID()
+        let image: UIImage
+        let extraction: OCRService.DocumentExtraction
+        let ignoreTaxAndTotals: Bool
+    }
+
     struct RecentSummary: Hashable {
         let vendor: String
         let total: String
@@ -55,6 +68,7 @@ final class ScanViewModel: ObservableObject {
     @Published var isProcessing: Bool = false
     @Published var errorMessage: String?
     @Published var parsedInvoiceRoute: ParsedInvoiceRoute?
+    @Published var ocrReviewDraft: OCRReviewDraft?
     @Published private(set) var processingStartedAt: Date?
     @Published private(set) var processingStage: ProcessingStage?
     @Published var todayCount: Int = 0
@@ -68,11 +82,94 @@ final class ScanViewModel: ObservableObject {
         self.environment = environment
     }
 
-    func handleScannedImage(_ cgImage: CGImage, orientation: CGImagePropertyOrientation, ignoreTaxAndTotals: Bool) {
+    func handleScannedImage(
+        _ image: UIImage,
+        cgImage: CGImage,
+        orientation: CGImagePropertyOrientation,
+        ignoreTaxAndTotals: Bool
+    ) {
         errorMessage = nil
         Task {
-            await processScannedImage(cgImage, orientation: orientation, ignoreTaxAndTotals: ignoreTaxAndTotals)
+            await processScannedImage(
+                image,
+                cgImage: cgImage,
+                orientation: orientation,
+                ignoreTaxAndTotals: ignoreTaxAndTotals
+            )
         }
+    }
+
+    func handleScannedImage(_ cgImage: CGImage, orientation: CGImagePropertyOrientation, ignoreTaxAndTotals: Bool) {
+        let previewImage = UIImage(cgImage: cgImage, scale: 1, orientation: orientation.uiImageOrientation)
+        handleScannedImage(
+            previewImage,
+            cgImage: cgImage,
+            orientation: orientation,
+            ignoreTaxAndTotals: ignoreTaxAndTotals
+        )
+    }
+
+    func cancelOCRReview() {
+        ocrReviewDraft = nil
+    }
+
+    func continueFromOCRReview(editedText: String, includeDetectedBarcodes: Bool) {
+        guard let draft = ocrReviewDraft else { return }
+        ocrReviewDraft = nil
+
+        let barcodes = includeDetectedBarcodes ? draft.extraction.barcodes : []
+        Task {
+            await parseReviewedText(
+                editedText,
+                barcodeHints: barcodes,
+                ignoreTaxAndTotals: draft.ignoreTaxAndTotals
+            )
+        }
+    }
+
+    private func parseReviewedText(
+        _ reviewedText: String,
+        barcodeHints: [OCRService.DetectedBarcode],
+        ignoreTaxAndTotals: Bool
+    ) async {
+        let baseText = reviewedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !baseText.isEmpty else {
+            errorMessage = "No text available to parse."
+            return
+        }
+
+        errorMessage = nil
+        isProcessing = true
+        processingStartedAt = Date()
+        processingStage = .parsing
+
+        let parseInput: String
+        if barcodeHints.isEmpty {
+            parseInput = baseText
+        } else {
+            let barcodeBlock = barcodeHints
+                .map { "[BARCODE \($0.symbology)] \($0.payload)" }
+                .joined(separator: "\n")
+            parseInput = "\(baseText)\n\nDetected barcodes:\n\(barcodeBlock)"
+        }
+
+        let ai = await environment.foundationModelService.parseInvoiceIfAvailable(
+            from: parseInput,
+            ignoreTaxAndTotals: ignoreTaxAndTotals
+        )
+        let invoice = ai ?? environment.poParser.parse(from: parseInput, ignoreTaxAndTotals: ignoreTaxAndTotals)
+        processingStage = .finalizing
+        logScanDiagnostics(
+            extractedText: parseInput,
+            invoice: invoice,
+            usedAI: ai != nil,
+            ignoreTaxAndTotals: ignoreTaxAndTotals
+        )
+        parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice)
+
+        isProcessing = false
+        processingStage = nil
+        processingStartedAt = nil
     }
 
     var uiTestReviewFixtureEnabled: Bool {
@@ -84,25 +181,25 @@ final class ScanViewModel: ObservableObject {
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: Self.uiTestReviewInvoice)
     }
 
-    private func processScannedImage(_ cgImage: CGImage, orientation: CGImagePropertyOrientation, ignoreTaxAndTotals: Bool) async {
+    private func processScannedImage(
+        _ image: UIImage,
+        cgImage: CGImage,
+        orientation: CGImagePropertyOrientation,
+        ignoreTaxAndTotals: Bool
+    ) async {
         isProcessing = true
         errorMessage = nil
         processingStartedAt = Date()
         processingStage = .extractingText
 
         do {
-            let extracted = try await environment.ocrService.extractText(from: cgImage, orientation: orientation)
-            processingStage = .parsing
-            let ai = await environment.foundationModelService.parseInvoiceIfAvailable(from: extracted, ignoreTaxAndTotals: ignoreTaxAndTotals)
-            let invoice = ai ?? environment.poParser.parse(from: extracted, ignoreTaxAndTotals: ignoreTaxAndTotals)
-            processingStage = .finalizing
-            logScanDiagnostics(
-                extractedText: extracted,
-                invoice: invoice,
-                usedAI: ai != nil,
+            let extraction = try await environment.ocrService.extractDocument(from: cgImage, orientation: orientation)
+            processingStage = .preparingReview
+            ocrReviewDraft = OCRReviewDraft(
+                image: image,
+                extraction: extraction,
                 ignoreTaxAndTotals: ignoreTaxAndTotals
             )
-            parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice)
         } catch {
             errorMessage = "Failed to process scan."
         }
@@ -279,4 +376,29 @@ final class ScanViewModel: ObservableObject {
             )
         )
     }()
+}
+
+private extension CGImagePropertyOrientation {
+    var uiImageOrientation: UIImage.Orientation {
+        switch self {
+        case .up:
+            return .up
+        case .down:
+            return .down
+        case .left:
+            return .left
+        case .right:
+            return .right
+        case .upMirrored:
+            return .upMirrored
+        case .downMirrored:
+            return .downMirrored
+        case .leftMirrored:
+            return .leftMirrored
+        case .rightMirrored:
+            return .rightMirrored
+        @unknown default:
+            return .up
+        }
+    }
 }

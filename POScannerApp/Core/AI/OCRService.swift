@@ -14,6 +14,29 @@ final class OCRService {
         case noResults
     }
 
+    struct RecognizedLine: Identifiable, Hashable {
+        let id: UUID = UUID()
+        let text: String
+        let confidence: Double
+        /// Vision normalized bounding box in image coordinates (origin at bottom-left).
+        let boundingBox: CGRect
+    }
+
+    struct DetectedBarcode: Identifiable, Hashable {
+        let id: UUID = UUID()
+        let payload: String
+        let symbology: String
+        let confidence: Double
+        /// Vision normalized bounding box in image coordinates (origin at bottom-left).
+        let boundingBox: CGRect
+    }
+
+    struct DocumentExtraction: Hashable {
+        let text: String
+        let lines: [RecognizedLine]
+        let barcodes: [DetectedBarcode]
+    }
+
     private struct ColumnStats {
         var index: Int
         var numericCount: Int = 0
@@ -22,13 +45,29 @@ final class OCRService {
     }
 
     func extractText(from scannerText: String) async throws -> String {
+        try await extractDocument(from: scannerText).text
+    }
+
+    func extractDocument(from scannerText: String) async throws -> DocumentExtraction {
         // Preserve line structure but normalize whitespace on each line.
         let lines = scannerText
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        return lines.joined(separator: "\n")
+        let recognized = lines.map { line in
+            RecognizedLine(
+                text: line,
+                confidence: 1.0,
+                boundingBox: .zero
+            )
+        }
+
+        return DocumentExtraction(
+            text: lines.joined(separator: "\n"),
+            lines: recognized,
+            barcodes: []
+        )
     }
 
     func extractText(from cgImage: CGImage) async throws -> String {
@@ -36,48 +75,84 @@ final class OCRService {
     }
 
     func extractText(from cgImage: CGImage, orientation: CGImagePropertyOrientation) async throws -> String {
+        try await extractDocument(from: cgImage, orientation: orientation).text
+    }
+
+    func extractDocument(from cgImage: CGImage, orientation: CGImagePropertyOrientation) async throws -> DocumentExtraction {
         try await withCheckedThrowingContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                let observations = (request.results as? [VNRecognizedTextObservation] ?? [])
-                    .sorted { $0.boundingBox.minY > $1.boundingBox.minY }
-                let clusteredRows = self.clusterLinesByRow(observations)
-                let rows = clusteredRows.map { row in
-                    row.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
-                        .compactMap { $0.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines) }
-                        .filter { !$0.isEmpty }
-                }
-
-                let roles = self.inferColumnRoles(from: rows)
-                let rowStrings = rows
-                    .map { self.normalizedRowString(from: $0, roles: roles) }
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-
-                let fullText = rowStrings
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
-
-                guard !fullText.isEmpty else {
-                    continuation.resume(throwing: OCRServiceError.noResults)
-                    return
-                }
-                continuation.resume(returning: fullText)
-            }
-
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
+                    let textRequest = VNRecognizeTextRequest()
+                    textRequest.recognitionLevel = .accurate
+                    textRequest.usesLanguageCorrection = true
+
+                    let barcodeRequest = VNDetectBarcodesRequest()
+
                     let safeImage = OCRService.downscaleIfNeeded(cgImage)
                     let handler = VNImageRequestHandler(cgImage: safeImage, orientation: orientation, options: [:])
-                    try handler.perform([request])
+                    try handler.perform([textRequest, barcodeRequest])
+
+                    let textObservations = (textRequest.results ?? [])
+                        .sorted { $0.boundingBox.minY > $1.boundingBox.minY }
+
+                    let clusteredRows = OCRService.clusterLinesByRow(textObservations)
+                    let rawRows: [[String]] = clusteredRows.map { row in
+                        row.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
+                            .compactMap { $0.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                    }
+
+                    let roles = OCRService.inferColumnRoles(from: rawRows)
+                    let normalizedLines: [RecognizedLine] = clusteredRows.compactMap { row in
+                        let sortedRow = row.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
+                        var rowTexts: [String] = []
+                        var confidences: [Double] = []
+                        for observation in sortedRow {
+                            guard let candidate = observation.topCandidates(1).first else { continue }
+                            let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !text.isEmpty else { continue }
+                            rowTexts.append(text)
+                            confidences.append(Double(candidate.confidence))
+                        }
+
+                        let normalizedText = OCRService.normalizedRowString(from: rowTexts, roles: roles)
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !normalizedText.isEmpty else { return nil }
+
+                        let confidence = confidences.isEmpty ? 0 : (confidences.reduce(0, +) / Double(confidences.count))
+                        return RecognizedLine(
+                            text: normalizedText,
+                            confidence: confidence,
+                            boundingBox: OCRService.unionBoundingBox(for: sortedRow)
+                        )
+                    }
+
+                    let fullText = normalizedLines
+                        .map(\.text)
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "\n")
+
+                    let barcodeObservations = barcodeRequest.results ?? []
+                    let barcodes = OCRService.extractBarcodes(from: barcodeObservations)
+
+                    let barcodeText = barcodes
+                        .map { "[BARCODE \($0.symbology)] \($0.payload)" }
+                        .joined(separator: "\n")
+                    let assembledText = fullText.isEmpty ? barcodeText : fullText
+
+                    guard !assembledText.isEmpty else {
+                        continuation.resume(throwing: OCRServiceError.noResults)
+                        return
+                    }
+
+                    continuation.resume(
+                        returning: DocumentExtraction(
+                            text: assembledText,
+                            lines: normalizedLines,
+                            barcodes: barcodes
+                        )
+                    )
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -121,7 +196,7 @@ final class OCRService {
         return context.makeImage() ?? cgImage
     }
 
-    private func clusterLinesByRow(_ observations: [VNRecognizedTextObservation]) -> [[VNRecognizedTextObservation]] {
+    private static func clusterLinesByRow(_ observations: [VNRecognizedTextObservation]) -> [[VNRecognizedTextObservation]] {
         let sorted = observations.sorted {
             $0.boundingBox.minY > $1.boundingBox.minY
         }
@@ -142,7 +217,7 @@ final class OCRService {
         return rows
     }
 
-    private func inferColumnRoles(from rows: [[String]]) -> (description: Int?, quantity: Int?, price: Int?) {
+    private static func inferColumnRoles(from rows: [[String]]) -> (description: Int?, quantity: Int?, price: Int?) {
         var columnStats: [Int: ColumnStats] = [:]
 
         for row in rows {
@@ -177,7 +252,7 @@ final class OCRService {
         return (description: descriptionColumn, quantity: quantityColumn, price: priceColumn)
     }
 
-    private func normalizedRowString(
+    private static func normalizedRowString(
         from row: [String],
         roles: (description: Int?, quantity: Int?, price: Int?)
     ) -> String {
@@ -222,5 +297,32 @@ final class OCRService {
         }
 
         return parts.joined(separator: " ")
+    }
+
+    private static func unionBoundingBox(for observations: [VNRecognizedTextObservation]) -> CGRect {
+        let union = observations.reduce(into: CGRect.null) { partial, observation in
+            partial = partial.union(observation.boundingBox)
+        }
+        return union.isNull ? .zero : union
+    }
+
+    private static func extractBarcodes(from observations: [VNBarcodeObservation]) -> [DetectedBarcode] {
+        var seen = Set<String>()
+        return observations.compactMap { observation in
+            let payload = observation.payloadStringValue?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !payload.isEmpty else { return nil }
+
+            let symbology = observation.symbology.rawValue.uppercased()
+            let key = "\(symbology)|\(payload)"
+            guard seen.insert(key).inserted else { return nil }
+
+            return DetectedBarcode(
+                payload: payload,
+                symbology: symbology,
+                confidence: Double(observation.confidence),
+                boundingBox: observation.boundingBox
+            )
+        }
     }
 }

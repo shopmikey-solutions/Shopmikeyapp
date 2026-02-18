@@ -12,7 +12,7 @@ import VisionKit
 ///
 /// UIKit is used only here to host `VNDocumentCameraViewController`.
 struct VisionDocumentScanner: UIViewControllerRepresentable {
-    var onScan: (CGImage, CGImagePropertyOrientation) -> Void
+    var onScan: (UIImage, CGImage, CGImagePropertyOrientation) -> Void
     var onCancel: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -31,11 +31,11 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
     }
 
     final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
-        let onScan: (CGImage, CGImagePropertyOrientation) -> Void
+        let onScan: (UIImage, CGImage, CGImagePropertyOrientation) -> Void
         let onCancel: () -> Void
 
         init(
-            onScan: @escaping (CGImage, CGImagePropertyOrientation) -> Void,
+            onScan: @escaping (UIImage, CGImage, CGImagePropertyOrientation) -> Void,
             onCancel: @escaping () -> Void
         ) {
             self.onScan = onScan
@@ -60,7 +60,7 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
                 return
             }
 
-            onScan(cgImage, image.imageOrientation.cgImagePropertyOrientation)
+            onScan(image, cgImage, image.imageOrientation.cgImagePropertyOrientation)
         }
 
         func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
@@ -100,4 +100,3 @@ private extension UIImage.Orientation {
         }
     }
 }
-

@@ -145,7 +145,6 @@ struct ScanView: View {
                 viewModel.loadTodayMetrics()
                 viewModel.loadInProgressDrafts()
             }
-            syncLiveActivity()
         }
         .onChange(of: viewModel.processingStage) { _, stage in
             guard stage != nil else { return }
@@ -158,9 +157,6 @@ struct ScanView: View {
         .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
             guard route != nil else { return }
             AppHaptics.success()
-        }
-        .onChange(of: viewModel.inProgressDrafts) { _, _ in
-            syncLiveActivity()
         }
         .onChange(of: viewModel.errorMessage) { _, message in
             guard message != nil else { return }

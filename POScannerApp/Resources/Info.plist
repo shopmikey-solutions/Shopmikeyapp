@@ -39,8 +39,6 @@
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict>
-		<key>UIImageName</key>
-		<string>LaunchLogo</string>
 		<key>UIColorName</key>
 		<string>LaunchBackground</string>
 	</dict>

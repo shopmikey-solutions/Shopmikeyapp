@@ -26,6 +26,15 @@ actor PartsIntakeLiveActivityManager {
     static let shared = PartsIntakeLiveActivityManager()
 
     private var activity: Activity<PartsIntakeActivityAttributes>?
+    private var lastSignature: Signature?
+    private var lastUpdateAt: Date?
+
+    private struct Signature: Equatable {
+        let statusText: String
+        let detailText: String
+        let progressBucket: Int
+        let deepLinkURL: String?
+    }
 
     func sync(
         isActive: Bool,
@@ -49,10 +58,26 @@ actor PartsIntakeLiveActivityManager {
             return
         }
 
+        let clampedProgress = min(1, max(0, progress))
+        let signature = Signature(
+            statusText: statusText,
+            detailText: detailText,
+            progressBucket: Int((clampedProgress * 100).rounded()),
+            deepLinkURL: deepLinkURL?.absoluteString
+        )
+
+        // Avoid churn when app re-enters foreground and repeatedly emits equivalent updates.
+        if let lastSignature,
+           lastSignature == signature,
+           let lastUpdateAt,
+           Date().timeIntervalSince(lastUpdateAt) < 1.2 {
+            return
+        }
+
         let state = PartsIntakeActivityAttributes.ContentState(
             statusText: statusText,
             detailText: detailText,
-            progress: min(1, max(0, progress)),
+            progress: clampedProgress,
             updatedAt: Date(),
             deepLinkURL: deepLinkURL?.absoluteString
         )
@@ -63,6 +88,8 @@ actor PartsIntakeLiveActivityManager {
 
         if let activity {
             await activity.update(content)
+            self.lastSignature = signature
+            self.lastUpdateAt = Date()
             return
         }
 
@@ -72,8 +99,12 @@ actor PartsIntakeLiveActivityManager {
                 content: content,
                 pushType: nil
             )
+            self.lastSignature = signature
+            self.lastUpdateAt = Date()
         } catch {
             self.activity = nil
+            self.lastSignature = nil
+            self.lastUpdateAt = nil
         }
     }
 
@@ -99,6 +130,8 @@ actor PartsIntakeLiveActivityManager {
         )
         await activity.end(content, dismissalPolicy: dismissalPolicy)
         self.activity = nil
+        self.lastSignature = nil
+        self.lastUpdateAt = nil
     }
 }
 #endif

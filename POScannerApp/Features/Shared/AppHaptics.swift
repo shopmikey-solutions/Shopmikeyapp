@@ -5,38 +5,16 @@
 
 import SwiftUI
 
-#if canImport(UIKit)
-import UIKit
-#endif
-
 @MainActor
 enum AppHaptics {
-    #if canImport(UIKit)
-    private static let selectionGenerator = UISelectionFeedbackGenerator()
-    private static let notificationGenerator = UINotificationFeedbackGenerator()
-    private static var impactGenerators: [ImpactStyle: UIImpactFeedbackGenerator] = [:]
-    #endif
+    static let eventNotification = Notification.Name("POScannerApp.AppHapticsEvent")
 
     static func selection() {
-        #if canImport(UIKit)
-        selectionGenerator.prepare()
-        selectionGenerator.selectionChanged()
-        #endif
+        post(.selection)
     }
 
     static func impact(_ style: ImpactStyle = .light, intensity: CGFloat = 1.0) {
-        #if canImport(UIKit)
-        let generator: UIImpactFeedbackGenerator
-        if let existing = impactGenerators[style] {
-            generator = existing
-        } else {
-            let created = UIImpactFeedbackGenerator(style: style.uiKitStyle)
-            impactGenerators[style] = created
-            generator = created
-        }
-        generator.prepare()
-        generator.impactOccurred(intensity: max(0, min(1, intensity)))
-        #endif
+        post(.impact(style, max(0, min(1, intensity))))
     }
 
     static func success() {
@@ -52,10 +30,29 @@ enum AppHaptics {
     }
 
     private static func notify(_ type: NotificationType) {
-        #if canImport(UIKit)
-        notificationGenerator.prepare()
-        notificationGenerator.notificationOccurred(type.uiKitType)
-        #endif
+        switch type {
+        case .success:
+            post(.success)
+        case .warning:
+            post(.warning)
+        case .error:
+            post(.error)
+        }
+    }
+
+    private static func post(_ event: Event) {
+        NotificationCenter.default.post(
+            name: eventNotification,
+            object: event
+        )
+    }
+
+    enum Event {
+        case selection
+        case success
+        case warning
+        case error
+        case impact(ImpactStyle, CGFloat)
     }
 
     enum ImpactStyle: Hashable {
@@ -64,41 +61,11 @@ enum AppHaptics {
         case heavy
         case soft
         case rigid
-
-        #if canImport(UIKit)
-        var uiKitStyle: UIImpactFeedbackGenerator.FeedbackStyle {
-            switch self {
-            case .light:
-                return .light
-            case .medium:
-                return .medium
-            case .heavy:
-                return .heavy
-            case .soft:
-                return .soft
-            case .rigid:
-                return .rigid
-            }
-        }
-        #endif
     }
 
     enum NotificationType {
         case success
         case warning
         case error
-
-        #if canImport(UIKit)
-        var uiKitType: UINotificationFeedbackGenerator.FeedbackType {
-            switch self {
-            case .success:
-                return .success
-            case .warning:
-                return .warning
-            case .error:
-                return .error
-            }
-        }
-        #endif
     }
 }

@@ -42,9 +42,8 @@ struct RootTabView: View {
             }
         }
         .tint(.blue)
-        .onChange(of: selectedTab) { _, _ in
-            AppHaptics.selection()
-        }
+        .sensoryFeedback(.selection, trigger: selectedTab)
+        .appSensoryFeedback()
     }
 }
 

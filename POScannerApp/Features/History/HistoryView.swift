@@ -36,20 +36,20 @@ struct HistoryView: View {
                 ContentUnavailableView(
                     "History Disabled",
                     systemImage: "clock.badge.xmark",
-                    description: Text("Enable “Save History” in Settings to keep scanned purchase orders locally.")
+                    description: Text("Enable “Save History” in settings to keep scanned automotive invoices locally.")
                 )
             } else if viewModel.isLoading {
-                ProgressView("Loading history…")
+                ProgressView("Loading RO history…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.orders.isEmpty {
                 ContentUnavailableView(
                     "No History Yet",
                     systemImage: "clock",
-                    description: Text("Scanned purchase orders you save will appear here.")
+                    description: Text("Saved supplier invoice runs will appear here.")
                 )
             } else {
                 List {
-                    Section("Today Snapshot") {
+                    Section("Today Shop Snapshot") {
                         historyOverviewCard
                     }
 
@@ -62,9 +62,9 @@ struct HistoryView: View {
                         )
                     }
 
-                    Section("Orders") {
+                    Section("Repair Orders") {
                         if filteredOrders.isEmpty {
-                            Text("No orders in this scope.")
+                            Text("No repair orders in this scope.")
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(filteredOrders) { row in
@@ -83,15 +83,18 @@ struct HistoryView: View {
                                 }
                                 .contextMenu {
                                     Button("Filter by Vendor") {
+                                        AppHaptics.selection()
                                         searchText = row.vendorName
                                     }
                                     if let poNumber = row.poNumber, !poNumber.isEmpty {
                                         Button("Filter by PO \(poNumber)") {
+                                            AppHaptics.selection()
                                             searchText = poNumber
                                         }
                                     }
                                     if row.status.lowercased() == "failed" {
                                         Button("Retry Submission") {
+                                            AppHaptics.impact(.medium, intensity: 0.8)
                                             Task { await retry(row) }
                                         }
                                     }
@@ -99,6 +102,7 @@ struct HistoryView: View {
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if row.status.lowercased() == "failed" {
                                         Button("Retry") {
+                                            AppHaptics.impact(.medium, intensity: 0.8)
                                             Task { await retry(row) }
                                         }
                                         .tint(.orange)
@@ -113,10 +117,10 @@ struct HistoryView: View {
                 .refreshable {
                     viewModel.loadHistory()
                 }
-                .searchable(text: $searchText, prompt: "Vendor or PO")
+                .searchable(text: $searchText, prompt: "Vendor, invoice, or PO")
             }
         }
-        .navigationTitle("History")
+        .navigationTitle("RO History")
         .navigationBarTitleDisplayMode(.large)
         .alert("Retry Failed", isPresented: $isRetryErrorPresented) {
             Button("OK") {}
@@ -128,6 +132,9 @@ struct HistoryView: View {
                 hasLoaded = true
                 viewModel.loadHistory()
             }
+        }
+        .onChange(of: scope) { _, _ in
+            AppHaptics.selection()
         }
     }
 
@@ -166,9 +173,9 @@ struct HistoryView: View {
 
     private var historyOverviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            LabeledContent("Scans Today", value: "\(todayOrders.count)")
+            LabeledContent("Invoices Today", value: "\(todayOrders.count)")
             LabeledContent("Submitted", value: "\(submittedCount)")
-            LabeledContent("Needs Attention", value: "\(pendingCount + failedCount)")
+            LabeledContent("Needs Shop Attention", value: "\(pendingCount + failedCount)")
             LabeledContent("Captured Value Today", value: totalValueFormatted)
                 .font(.headline)
         }
@@ -235,7 +242,9 @@ struct HistoryView: View {
         if !result.succeeded {
             retryErrorMessage = result.message
             isRetryErrorPresented = true
+            AppHaptics.error()
         } else {
+            AppHaptics.success()
             viewModel.loadHistory()
         }
     }

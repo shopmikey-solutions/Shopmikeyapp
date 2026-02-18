@@ -77,6 +77,7 @@ struct OCRReviewView: View {
 
                     ForEach(draft.extraction.barcodes) { barcode in
                         Button {
+                            AppHaptics.selection()
                             selectedBarcodeID = barcode.id
                             appendBarcode(barcode)
                         } label: {
@@ -111,6 +112,7 @@ struct OCRReviewView: View {
                                 }
 
                                 Button(role: .destructive) {
+                                    AppHaptics.warning()
                                     deleteLine(id: line.id)
                                 } label: {
                                     Image(systemName: "trash")
@@ -120,6 +122,7 @@ struct OCRReviewView: View {
                             }
                         } else {
                             Button {
+                                AppHaptics.selection()
                                 selectedLineID = line.id
                             } label: {
                                 HStack(alignment: .firstTextBaseline) {
@@ -148,6 +151,7 @@ struct OCRReviewView: View {
                     Spacer()
                     if !editableLines.isEmpty {
                         Button(isEditingLines ? "Done" : "Edit") {
+                            AppHaptics.selection()
                             withAnimation(.snappy(duration: 0.2)) {
                                 isEditingLines.toggle()
                             }
@@ -180,24 +184,26 @@ struct OCRReviewView: View {
         .listStyle(.insetGrouped)
         .nativeListSurface()
         .searchable(text: $searchText, prompt: "Filter lines")
-        .onChange(of: reviewedText) { newValue in
+        .onChange(of: reviewedText) { _, newValue in
             if lastProgrammaticReviewedText == newValue {
                 lastProgrammaticReviewedText = nil
             } else {
                 hasManualTextEdits = true
             }
         }
-        .navigationTitle("Review OCR")
+        .navigationTitle("Review Invoice Capture")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
+                    AppHaptics.selection()
                     onCancel()
                     dismiss()
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Parse") {
+                    AppHaptics.impact(.medium, intensity: 0.85)
                     onContinue(reviewedText, includeDetectedBarcodes)
                     dismiss()
                 }

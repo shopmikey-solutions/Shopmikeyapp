@@ -21,19 +21,19 @@ struct ScanView: View {
 
     var body: some View {
         List {
-            Section("Overview") {
+            Section("Service Lane Overview") {
                 dashboardSummary
             }
 
-            Section("Scan Options") {
-                Toggle("Ignore tax and totals", isOn: $ignoreTaxAndTotals)
+            Section("Capture Preferences") {
+                Toggle("Ignore tax and summary rows", isOn: $ignoreTaxAndTotals)
                     .accessibilityIdentifier("scan.ignoreTaxToggle")
-                Text("Use this when vendor totals are noisy and line items are the source of truth.")
+                Text("Use this when invoice totals are noisy and the line-level parts list is the source of truth.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
-            Section("Recent Submissions") {
+            Section("Recent Repair Orders") {
                 if let recent = viewModel.mostRecentSummary {
                     NavigationLink {
                         HistoryView(environment: viewModel.environment)
@@ -46,18 +46,18 @@ struct ScanView: View {
                         }
                     }
                 } else {
-                    Text("No recent submissions yet.")
+                    Text("No recent repair-order submissions yet.")
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Section("Navigation") {
-                NavigationLink("History") {
+            Section("Shop Tools") {
+                NavigationLink("Submission History") {
                     HistoryView(environment: viewModel.environment)
                 }
                 .accessibilityIdentifier("scan.quickHistory")
 
-                NavigationLink("Settings") {
+                NavigationLink("Scanner Settings") {
                     SettingsView(environment: viewModel.environment)
                 }
                 .accessibilityIdentifier("scan.quickSettings")
@@ -69,18 +69,6 @@ struct ScanView: View {
                         viewModel.openUITestReviewFixture()
                     }
                     .accessibilityIdentifier("scan.openReviewFixture")
-                }
-            }
-
-            if viewModel.isProcessing {
-                Section {
-                    ScanProcessingWidget(
-                        startedAt: viewModel.processingStartedAt ?? Date(),
-                        statusText: viewModel.processingStatusText,
-                        detailText: viewModel.processingDetailText,
-                        progress: viewModel.processingProgressEstimate,
-                        showsDetail: $showProcessingDetails
-                    )
                 }
             }
 
@@ -96,14 +84,16 @@ struct ScanView: View {
         .refreshable {
             viewModel.loadTodayMetrics()
         }
-        .navigationTitle("Purchase Orders")
+        .safeAreaPadding(.top, viewModel.isProcessing ? 116 : 0)
+        .navigationTitle("ShopMikey")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    AppHaptics.impact(.medium, intensity: 0.9)
                     showScanner = true
                 } label: {
-                    Label("Scan", systemImage: "doc.viewfinder")
+                    Label("Scan Invoice", systemImage: "doc.viewfinder")
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("scan.scanButton")
@@ -129,7 +119,7 @@ struct ScanView: View {
                 ContentUnavailableView(
                     "Scanner Unavailable",
                     systemImage: "exclamationmark.triangle",
-                    description: Text("Document scanning is not supported on this device.")
+                    description: Text("Invoice capture is not supported on this device.")
                 )
                 .padding()
             }
@@ -152,9 +142,9 @@ struct ScanView: View {
         }
         .fullScreenCover(isPresented: $showArcade) {
             NavigationStack {
-                if let url = arcadeURL {
-                    ArcadeWebContainerView(url: url)
-                } else {
+            if let url = arcadeURL {
+                ArcadeWebContainerView(url: url)
+            } else {
                     ContentUnavailableView(
                         "Scanner Arcade Unavailable",
                         systemImage: "exclamationmark.triangle",
@@ -174,6 +164,21 @@ struct ScanView: View {
         .onAppear {
             viewModel.loadTodayMetrics()
         }
+        .onChange(of: viewModel.processingStage) { _, stage in
+            guard stage != nil else { return }
+            AppHaptics.selection()
+        }
+        .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
+            guard route != nil else { return }
+            AppHaptics.success()
+        }
+        .onChange(of: viewModel.errorMessage) { _, message in
+            guard message != nil else { return }
+            AppHaptics.error()
+        }
+        .overlay(alignment: .top) {
+            processingBanner
+        }
         .overlay(alignment: .topTrailing) {
             Color.clear
                 .contentShape(Rectangle())
@@ -186,32 +191,63 @@ struct ScanView: View {
         }
     }
 
+    @ViewBuilder
+    private var processingBanner: some View {
+        if viewModel.isProcessing {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Live Intake Pipeline")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                ScanProcessingWidget(
+                    startedAt: viewModel.processingStartedAt ?? Date(),
+                    statusText: viewModel.processingStatusText,
+                    detailText: viewModel.processingDetailText,
+                    progress: viewModel.processingProgressEstimate,
+                    showsDetail: $showProcessingDetails
+                )
+            }
+            .padding(12)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(.white.opacity(0.14), lineWidth: 1)
+            )
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .shadow(color: .black.opacity(0.22), radius: 14, x: 0, y: 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .accessibilityIdentifier("scan.processingBanner")
+            .zIndex(20)
+        }
+    }
+
     private var dashboardSummary: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Scanner Dashboard")
+            Text("Service Intake Dashboard")
                 .font(.title3.weight(.semibold))
                 .accessibilityIdentifier("scan.dashboardTitle")
 
-            Text("Scan invoices, catch exceptions early, and keep purchase orders moving.")
+            Text("Capture supplier invoices, classify parts and tires, and keep repair-order intake moving.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 20) {
-                metricCell(title: "Scans Today", value: "\(viewModel.todayCount)")
-                metricCell(title: "Submitted", value: "\(viewModel.submittedCount)")
-                metricCell(title: "Failed", value: "\(viewModel.failedCount)")
+                metricCell(title: "Invoices Today", value: "\(viewModel.todayCount)")
+                metricCell(title: "ROs Submitted", value: "\(viewModel.submittedCount)")
+                metricCell(title: "Needs Retry", value: "\(viewModel.failedCount)")
             }
 
             ProgressView(value: pipelineProgress) {
-                Text("Submission Sync")
+                Text("Shop Sync Status")
                     .font(.subheadline.weight(.medium))
             } currentValueLabel: {
                 Text("\(Int((pipelineProgress * 100).rounded()))%")
                     .font(.footnote)
             }
 
-            LabeledContent("Today Total", value: viewModel.todayTotalFormatted)
-            LabeledContent("Average Ticket", value: viewModel.todayAverageFormatted)
+            LabeledContent("Captured Today", value: viewModel.todayTotalFormatted)
+            LabeledContent("Average RO", value: viewModel.todayAverageFormatted)
         }
         .padding(.vertical, 4)
     }
@@ -283,10 +319,10 @@ private struct ScanProcessingWidget: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "waveform.path.ecg")
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(.blue)
                         .symbolEffect(.pulse.byLayer, options: .repeating, value: progress)
                     Text(statusText)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.headline.weight(.semibold))
                     Spacer()
                     Text(elapsedString(elapsed))
                         .font(.footnote.monospacedDigit())
@@ -294,7 +330,10 @@ private struct ScanProcessingWidget: View {
                 }
 
                 if showsDetail {
-                    ProgressView(value: progress)
+                    ProgressView(value: max(0.02, min(1, progress)))
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
+
                     Text(detailText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -302,12 +341,13 @@ private struct ScanProcessingWidget: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
+                AppHaptics.selection()
                 withAnimation(.snappy(duration: 0.24)) {
                     showsDetail.toggle()
                 }
             }
             .accessibilityElement(children: .combine)
-            .accessibilityHint("Double-tap to expand or collapse live processing details.")
+            .accessibilityHint("Double-tap to expand or collapse live intake details.")
         }
     }
 

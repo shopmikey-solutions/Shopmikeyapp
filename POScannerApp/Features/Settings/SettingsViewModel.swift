@@ -41,7 +41,7 @@ final class SettingsViewModel: ObservableObject {
         do {
             try storeTokenFromInputIfNeeded()
             try await environment.shopmonkeyAPI.testConnection()
-            statusMessage = "Connection Successful"
+            statusMessage = "Shopmonkey connection verified for service-intake workflows."
         } catch {
             statusMessage = userMessage(for: error)
         }
@@ -61,9 +61,9 @@ final class SettingsViewModel: ObservableObject {
             endpointProbeReport = report
 
             if report.createPurchaseOrderLikelySupported {
-                statusMessage = "Probe complete: purchase order create route looks available."
+                statusMessage = "Probe complete: repair-order create route looks available."
             } else {
-                statusMessage = "Probe complete: purchase order create route not confirmed."
+                statusMessage = "Probe complete: repair-order create route not confirmed."
             }
         } catch {
             statusMessage = userMessage(for: error)

@@ -411,7 +411,7 @@ final class ReviewViewModel: ObservableObject {
         )
 
         if result.succeeded {
-            statusMessage = "Submitted to sandbox."
+            statusMessage = "Repair-order payload submitted to sandbox."
             showSuccessAlert = true
         } else {
             errorMessage = result.message ?? "Submission failed."

@@ -21,8 +21,8 @@ struct HistoryDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Purchase Order") {
-                LabeledContent("Vendor", value: purchaseOrder.vendorName)
+            Section("Repair Order Record") {
+                LabeledContent("Supplier", value: purchaseOrder.vendorName)
                 if let poNumber = purchaseOrder.poNumber, !poNumber.isEmpty {
                     LabeledContent("PO Number", value: poNumber)
                 }
@@ -70,7 +70,7 @@ struct HistoryDetailView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
-        .navigationTitle("Details")
+        .navigationTitle("RO Details")
         .navigationBarTitleDisplayMode(.inline)
     }
 

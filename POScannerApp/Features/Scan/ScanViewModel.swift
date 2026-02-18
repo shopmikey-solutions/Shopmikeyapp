@@ -13,10 +13,10 @@ import UIKit
 @MainActor
 final class ScanViewModel: ObservableObject {
     enum ProcessingStage: String {
-        case extractingText = "Extracting text"
-        case preparingReview = "Preparing OCR review"
-        case parsing = "Classifying line items"
-        case finalizing = "Preparing review"
+        case extractingText = "Reading service invoice"
+        case preparingReview = "Preparing technician review"
+        case parsing = "Classifying parts, tires, and fees"
+        case finalizing = "Staging repair order draft"
 
         var progressEstimate: Double {
             switch self {
@@ -34,13 +34,13 @@ final class ScanViewModel: ObservableObject {
         var detail: String {
             switch self {
             case .extractingText:
-                return "Running OCR on your document."
+                return "Running on-device Vision OCR across the scan."
             case .preparingReview:
-                return "Building a highlighted review draft."
+                return "Preparing highlighted text and barcode regions."
             case .parsing:
-                return "Applying AI + rules to structure fields."
+                return "Applying on-device AI + rules for automotive line items."
             case .finalizing:
-                return "Building a review-ready draft."
+                return "Final checks before opening the RO review screen."
             }
         }
     }
@@ -77,6 +77,9 @@ final class ScanViewModel: ObservableObject {
     @Published var submittedCount: Int = 0
     @Published var failedCount: Int = 0
     @Published var mostRecentSummary: RecentSummary?
+
+    private let minimumOCRFlowDuration: TimeInterval = 0.85
+    private let minimumParseFlowDuration: TimeInterval = 1.15
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -134,13 +137,14 @@ final class ScanViewModel: ObservableObject {
     ) async {
         let baseText = reviewedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !baseText.isEmpty else {
-            errorMessage = "No text available to parse."
+            errorMessage = "No readable invoice text was found."
             return
         }
 
         errorMessage = nil
         isProcessing = true
-        processingStartedAt = Date()
+        let flowStart = Date()
+        processingStartedAt = flowStart
         processingStage = .parsing
 
         let handoff = environment.parseHandoffService.build(
@@ -174,6 +178,7 @@ final class ScanViewModel: ObservableObject {
             usedAI: ai != nil,
             ignoreTaxAndTotals: ignoreTaxAndTotals
         )
+        await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumParseFlowDuration)
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice)
 
         isProcessing = false
@@ -198,19 +203,21 @@ final class ScanViewModel: ObservableObject {
     ) async {
         isProcessing = true
         errorMessage = nil
-        processingStartedAt = Date()
+        let flowStart = Date()
+        processingStartedAt = flowStart
         processingStage = .extractingText
 
         do {
             let extraction = try await environment.ocrService.extractDocument(from: cgImage, orientation: orientation)
             processingStage = .preparingReview
+            await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumOCRFlowDuration)
             ocrReviewDraft = OCRReviewDraft(
                 image: image,
                 extraction: extraction,
                 ignoreTaxAndTotals: ignoreTaxAndTotals
             )
         } catch {
-            errorMessage = "Failed to process scan."
+            errorMessage = "Could not process the invoice scan."
         }
 
         isProcessing = false
@@ -218,16 +225,24 @@ final class ScanViewModel: ObservableObject {
         processingStartedAt = nil
     }
 
+    private func ensureMinimumProcessingDuration(since start: Date, minimum: TimeInterval) async {
+        let elapsed = Date().timeIntervalSince(start)
+        guard elapsed < minimum else { return }
+        let remaining = minimum - elapsed
+        let nanos = UInt64((remaining * 1_000_000_000).rounded())
+        try? await Task.sleep(nanoseconds: nanos)
+    }
+
     var processingProgressEstimate: Double {
         processingStage?.progressEstimate ?? 0
     }
 
     var processingStatusText: String {
-        processingStage?.rawValue ?? "Processing scan"
+        processingStage?.rawValue ?? "Processing intake scan"
     }
 
     var processingDetailText: String {
-        processingStage?.detail ?? "Preparing scan result."
+        processingStage?.detail ?? "Preparing repair-order intake result."
     }
 
     private func logScanDiagnostics(

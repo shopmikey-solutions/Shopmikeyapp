@@ -23,25 +23,25 @@ struct ReviewView: View {
                 }
             }
 
-            Section("Overview") {
+            Section("Intake Overview") {
                 reviewHealthCard
                 if viewModel.confidenceScore < 0.75 {
-                    Label("Some fields may need review.", systemImage: "exclamationmark.triangle.fill")
+                    Label("Some invoice fields need technician review.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
                 }
             }
 
-            Section("Vendor") {
+            Section("Supplier") {
                 vendorSection
             }
 
             Section {
                 identifierSection
             } header: {
-                Text("Invoice & PO")
+                Text("Invoice & Purchase Order")
             }
 
-            Section("Line Items") {
+            Section("Parts, Tires & Fees") {
                 if canFilterNeedsReview {
                     Toggle("Focus on items needing review", isOn: $focusNeedsReviewOnly)
                         .accessibilityIdentifier("review.focusNeedsReviewToggle")
@@ -56,32 +56,33 @@ struct ReviewView: View {
                 itemsList
 
                 Button {
+                    AppHaptics.impact(.light, intensity: 0.8)
                     viewModel.addEmptyItem()
                 } label: {
-                    Label("Add Line Item", systemImage: "plus")
+                    Label("Add Service Line", systemImage: "plus")
                 }
             }
 
-            Section("Submission") {
+            Section("Submission Route") {
                 submissionModePicker
                 submissionContextLinks
                 taxBehaviorRow
             }
 
-            Section("Totals") {
+            Section("RO Totals") {
                 LabeledContent("Subtotal", value: viewModel.subtotalFormatted)
                 if !viewModel.shouldIgnoreTax {
                     LabeledContent("Tax", value: viewModel.taxFormatted)
                 }
                 LabeledContent("Total", value: viewModel.grandTotalFormatted)
                     .font(.headline)
-                LabeledContent("Scans Today", value: "\(viewModel.todayCount)")
+                LabeledContent("Invoices Today", value: "\(viewModel.todayCount)")
             }
 
-            Section("Notes") {
+            Section("Technician Notes") {
                 NativeTextView(
                     text: $viewModel.notes,
-                    placeholder: "Add notes for this submission",
+                    placeholder: "Add notes for parts intake or RO handoff",
                     accessibilityIdentifier: "review.notesField"
                 )
                     .frame(minHeight: 120)
@@ -97,7 +98,7 @@ struct ReviewView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
-        .navigationTitle("Review")
+        .navigationTitle("RO Intake Review")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -106,20 +107,30 @@ struct ReviewView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(viewModel.isSubmitting ? "Submitting..." : "Submit") {
+                Button(viewModel.isSubmitting ? "Submitting..." : "Send to Shopmonkey") {
+                    AppHaptics.impact(.medium, intensity: 0.9)
                     Task { await viewModel.submitTapped() }
                 }
                 .disabled(!viewModel.canSubmit || viewModel.isSubmitting)
                 .accessibilityIdentifier("review.submitButton")
             }
         }
-        .alert("Submitted", isPresented: $viewModel.showSuccessAlert) {
+        .alert("Repair Order Submitted", isPresented: $viewModel.showSuccessAlert) {
             Button("OK") { dismiss() }
         } message: {
-            Text("Parts were submitted to the Shopmonkey sandbox.")
+            Text("Parts, tires, and fees were submitted to the Shopmonkey sandbox.")
         }
         .onAppear {
             viewModel.loadTodayMetrics()
+        }
+        .onChange(of: viewModel.modeUI) { _, _ in
+            AppHaptics.selection()
+        }
+        .onChange(of: viewModel.showSuccessAlert) { _, presented in
+            if presented { AppHaptics.success() }
+        }
+        .onChange(of: viewModel.errorMessage) { _, message in
+            if message != nil { AppHaptics.error() }
         }
     }
 
@@ -135,7 +146,7 @@ struct ReviewView: View {
             LabeledContent("Line Items", value: "\(viewModel.items.count)")
             LabeledContent("Needs Review", value: "\(viewModel.unknownKindCount)")
 
-            Text(viewModel.canSubmit ? "Required fields complete." : "Pick a vendor match and required IDs before submitting.")
+            Text(viewModel.canSubmit ? "Ready to submit to Shopmonkey." : "Pick a supplier match and required IDs before sending.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -147,8 +158,8 @@ struct ReviewView: View {
         VStack(alignment: .leading, spacing: 10) {
             TextField(
                 viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? (viewModel.suggestedVendorName ?? "Vendor")
-                    : "Vendor",
+                    ? (viewModel.suggestedVendorName ?? "Supplier")
+                    : "Supplier",
                 text: Binding(
                     get: { viewModel.vendorName },
                     set: { viewModel.setVendorName($0) }
@@ -174,7 +185,7 @@ struct ReviewView: View {
             if viewModel.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let suggestedVendorName = viewModel.suggestedVendorName,
                !suggestedVendorName.isEmpty {
-                Button("Use vendor suggestion: \(suggestedVendorName)") {
+                Button("Use supplier suggestion: \(suggestedVendorName)") {
                     viewModel.applySuggestedVendorName()
                 }
                 .font(.footnote)
@@ -208,8 +219,8 @@ struct ReviewView: View {
         VStack(alignment: .leading, spacing: 10) {
             TextField(
                 viewModel.vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? (viewModel.suggestedInvoiceNumber ?? "Vendor Invoice Number")
-                    : "Vendor Invoice Number",
+                    ? (viewModel.suggestedInvoiceNumber ?? "Supplier Invoice Number")
+                    : "Supplier Invoice Number",
                 text: $viewModel.vendorInvoiceNumber
             )
             .textInputAutocapitalization(.characters)
@@ -314,6 +325,7 @@ struct ReviewView: View {
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 Button(role: .destructive) {
+                    AppHaptics.warning()
                     viewModel.deleteItems(at: IndexSet(integer: index))
                 } label: {
                     Label("Delete", systemImage: "trash")
@@ -321,19 +333,24 @@ struct ReviewView: View {
             }
             .contextMenu {
                 Button("Set as Part") {
+                    AppHaptics.selection()
                     viewModel.setItemKind(at: index, to: .part)
                 }
                 Button("Set as Tire") {
+                    AppHaptics.selection()
                     viewModel.setItemKind(at: index, to: .tire)
                 }
                 Button("Set as Fee") {
+                    AppHaptics.selection()
                     viewModel.setItemKind(at: index, to: .fee)
                 }
                 Button("Use Auto") {
+                    AppHaptics.selection()
                     viewModel.setItemKind(at: index, to: .unknown)
                 }
                 Divider()
                 Button("Delete Item", role: .destructive) {
+                    AppHaptics.warning()
                     viewModel.deleteItems(at: IndexSet(integer: index))
                 }
             }
@@ -375,6 +392,7 @@ struct ReviewView: View {
 
     private func kindSwipeButton(title: String, kind: POItemKind, color: Color, at index: Int) -> some View {
         Button(title) {
+            AppHaptics.selection()
             viewModel.setItemKind(at: index, to: kind)
         }
         .tint(color)

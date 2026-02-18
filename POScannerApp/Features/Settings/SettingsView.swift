@@ -15,7 +15,7 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            Section("Workspace Health") {
+            Section("Shop Connectivity") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: .blue)
@@ -27,14 +27,14 @@ struct SettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Use Test Connection or the endpoint probe to validate API readiness.")
+                        Text("Use Test Connection or Endpoint Probe to confirm Shopmonkey routing before intake.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
 
-            Section("Preferences") {
+            Section("Scanner Preferences") {
                 Toggle("Save History", isOn: $saveHistoryEnabled)
                     .accessibilityIdentifier("settings.saveHistoryToggle")
                 Toggle("Ignore Tax & Totals", isOn: $viewModel.ignoreTaxAndTotals)
@@ -56,6 +56,7 @@ struct SettingsView: View {
                 }
 
                 Button {
+                    AppHaptics.impact(.medium, intensity: 0.85)
                     Task { await viewModel.testConnection() }
                 } label: {
                     if viewModel.isTestingConnection {
@@ -86,10 +87,25 @@ struct SettingsView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
-        .navigationTitle("Settings")
+        .navigationTitle("Shop Settings")
         .navigationBarTitleDisplayMode(.large)
         .task {
             await viewModel.refreshNetworkDiagnostics()
+        }
+        .onChange(of: saveHistoryEnabled) { _, _ in
+            AppHaptics.selection()
+        }
+        .onChange(of: viewModel.ignoreTaxAndTotals) { _, _ in
+            AppHaptics.selection()
+        }
+        .onChange(of: viewModel.statusMessage) { _, message in
+            guard let message, !message.isEmpty else { return }
+            let lower = message.lowercased()
+            if lower.contains("fail") || lower.contains("error") || lower.contains("unable") {
+                AppHaptics.error()
+            } else {
+                AppHaptics.success()
+            }
         }
     }
 
@@ -116,6 +132,7 @@ private struct SettingsDiagnosticsView: View {
         List {
             Section("Endpoint Probe") {
                 Button {
+                    AppHaptics.impact(.medium, intensity: 0.8)
                     Task { await viewModel.runEndpointProbe() }
                 } label: {
                     if viewModel.isRunningProbe {
@@ -161,16 +178,19 @@ private struct SettingsDiagnosticsView: View {
             Section("Network Capture") {
                 HStack {
                     Button("Refresh") {
+                        AppHaptics.selection()
                         Task { await viewModel.refreshNetworkDiagnostics() }
                     }
                     .buttonStyle(.bordered)
 
                     Button("Copy") {
+                        AppHaptics.selection()
                         Task { await viewModel.copyNetworkDiagnostics() }
                     }
                     .buttonStyle(.bordered)
 
                     Button("Clear", role: .destructive) {
+                        AppHaptics.warning()
                         Task { await viewModel.clearNetworkDiagnostics() }
                     }
                     .buttonStyle(.bordered)

@@ -15,9 +15,12 @@ final class DataController {
     private var loadContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(inMemory: Bool = false) {
-        guard let modelURL = Bundle.main.url(forResource: "POScannerApp", withExtension: "momd"),
-              let model = NSManagedObjectModel(contentsOf: modelURL) else {
-            fatalError("Failed to load Core Data model")
+        let model: NSManagedObjectModel
+        do {
+            model = try Self.resolveModel()
+        } catch {
+            loadError = error
+            model = NSManagedObjectModel()
         }
 
         self.container = NSPersistentContainer(name: "POScannerApp", managedObjectModel: model)
@@ -54,6 +57,28 @@ final class DataController {
 
         container.viewContext.automaticallyMergesChangesFromParent = true
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+    }
+
+    private static func resolveModel() throws -> NSManagedObjectModel {
+        if let modelURL = Bundle.main.url(forResource: "POScannerApp", withExtension: "momd"),
+           let model = NSManagedObjectModel(contentsOf: modelURL) {
+            return model
+        }
+
+        if let modelURL = Bundle.main.url(forResource: "POScannerApp", withExtension: "mom"),
+           let model = NSManagedObjectModel(contentsOf: modelURL) {
+            return model
+        }
+
+        if let merged = NSManagedObjectModel.mergedModel(from: [Bundle.main]) {
+            return merged
+        }
+
+        throw NSError(
+            domain: "POScannerApp.DataController",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to locate POScannerApp Core Data model."]
+        )
     }
 
     var viewContext: NSManagedObjectContext {

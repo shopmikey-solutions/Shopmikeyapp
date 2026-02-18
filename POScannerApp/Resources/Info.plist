@@ -39,13 +39,6 @@
 	<true/>
 	<key>ScannerArcadeURL</key>
 	<string>http://127.0.0.1:5173</string>
-	<key>UILaunchScreen</key>
-	<dict>
-		<key>UIColorName</key>
-		<string>LaunchBackground</string>
-		<key>UIImageName</key>
-		<string>LaunchLogo</string>
-	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

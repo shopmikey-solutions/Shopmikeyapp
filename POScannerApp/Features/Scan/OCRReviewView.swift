@@ -7,6 +7,12 @@ import SwiftUI
 import UIKit
 
 struct OCRReviewView: View {
+    private struct EditableRecognizedLine: Identifiable, Hashable {
+        let id: OCRService.RecognizedLine.ID
+        var text: String
+        let confidence: Double
+    }
+
     let draft: ScanViewModel.OCRReviewDraft
     let onCancel: () -> Void
     let onContinue: (_ reviewedText: String, _ includeDetectedBarcodes: Bool) -> Void
@@ -19,6 +25,11 @@ struct OCRReviewView: View {
     @State private var selectedLineID: OCRService.RecognizedLine.ID?
     @State private var selectedBarcodeID: OCRService.DetectedBarcode.ID?
     @State private var searchText: String = ""
+    @State private var editableLines: [EditableRecognizedLine]
+    @State private var isEditingLines: Bool = false
+    @State private var hasManualTextEdits: Bool = false
+    @State private var hasLineEdits: Bool = false
+    @State private var lastProgrammaticReviewedText: String?
 
     init(
         draft: ScanViewModel.OCRReviewDraft,
@@ -28,7 +39,18 @@ struct OCRReviewView: View {
         self.draft = draft
         self.onCancel = onCancel
         self.onContinue = onContinue
-        _reviewedText = State(initialValue: draft.extraction.text)
+        let initialText = draft.extraction.text
+        _reviewedText = State(initialValue: initialText)
+        _lastProgrammaticReviewedText = State(initialValue: initialText)
+        _editableLines = State(
+            initialValue: draft.extraction.lines.map { line in
+                EditableRecognizedLine(
+                    id: line.id,
+                    text: line.text,
+                    confidence: line.confidence
+                )
+            }
+        )
     }
 
     var body: some View {
@@ -36,7 +58,7 @@ struct OCRReviewView: View {
             Section("Document Preview") {
                 OCROverlayPreview(
                     image: draft.image,
-                    lines: filteredLines,
+                    lines: overlayLines,
                     barcodes: draft.extraction.barcodes,
                     selectedLineID: selectedLineID,
                     selectedBarcodeID: selectedBarcodeID,
@@ -72,32 +94,72 @@ struct OCRReviewView: View {
                 }
             }
 
-            Section("Recognized Text Lines") {
-                if draft.extraction.lines.isEmpty {
+            Section {
+                if editableLines.isEmpty {
                     Text("No text lines were recognized.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(filteredLines) { line in
-                        Button {
-                            selectedLineID = line.id
-                        } label: {
-                            HStack(alignment: .firstTextBaseline) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(line.text)
-                                        .font(.body)
-                                        .foregroundStyle(.primary)
+                    ForEach(filteredEditableLines) { line in
+                        if isEditingLines {
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    TextField("Recognized text", text: bindingForLine(id: line.id), axis: .vertical)
+                                        .textFieldStyle(.roundedBorder)
                                     Text("\(Int((line.confidence * 100).rounded()))% confidence")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
-                                Spacer()
-                                if selectedLineID == line.id {
-                                    Image(systemName: "target")
-                                        .foregroundStyle(.blue)
+
+                                Button(role: .destructive) {
+                                    deleteLine(id: line.id)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityIdentifier("ocr.deleteLine.\(line.id.uuidString)")
+                            }
+                        } else {
+                            Button {
+                                selectedLineID = line.id
+                            } label: {
+                                HStack(alignment: .firstTextBaseline) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(line.text)
+                                            .font(.body)
+                                            .foregroundStyle(.primary)
+                                        Text("\(Int((line.confidence * 100).rounded()))% confidence")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if selectedLineID == line.id {
+                                        Image(systemName: "target")
+                                            .foregroundStyle(.blue)
+                                    }
                                 }
                             }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Recognized Text Lines")
+                    Spacer()
+                    if !editableLines.isEmpty {
+                        Button(isEditingLines ? "Done" : "Edit") {
+                            withAnimation(.snappy(duration: 0.2)) {
+                                isEditingLines.toggle()
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            } footer: {
+                if hasManualTextEdits && hasLineEdits {
+                    Button("Apply line edits to OCR text") {
+                        hasManualTextEdits = false
+                        syncReviewedTextFromLinesIfNeeded(force: true)
                     }
                 }
             }
@@ -118,6 +180,13 @@ struct OCRReviewView: View {
         .listStyle(.insetGrouped)
         .nativeListSurface()
         .searchable(text: $searchText, prompt: "Filter lines")
+        .onChange(of: reviewedText) { newValue in
+            if lastProgrammaticReviewedText == newValue {
+                lastProgrammaticReviewedText = nil
+            } else {
+                hasManualTextEdits = true
+            }
+        }
         .navigationTitle("Review OCR")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -138,20 +207,64 @@ struct OCRReviewView: View {
         }
     }
 
-    private var filteredLines: [OCRService.RecognizedLine] {
+    private var filteredEditableLines: [EditableRecognizedLine] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return draft.extraction.lines }
-        return draft.extraction.lines.filter { line in
+        guard !query.isEmpty else { return editableLines }
+        return editableLines.filter { line in
             line.text.localizedCaseInsensitiveContains(query)
         }
+    }
+
+    private var overlayLines: [OCRService.RecognizedLine] {
+        let visibleIDs = Set(filteredEditableLines.map(\.id))
+        return draft.extraction.lines.filter { visibleIDs.contains($0.id) }
+    }
+
+    private var joinedEditableLineText: String {
+        editableLines
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    private func bindingForLine(id: OCRService.RecognizedLine.ID) -> Binding<String> {
+        Binding(
+            get: {
+                editableLines.first(where: { $0.id == id })?.text ?? ""
+            },
+            set: { newValue in
+                guard let index = editableLines.firstIndex(where: { $0.id == id }) else { return }
+                editableLines[index].text = newValue
+                hasLineEdits = true
+                syncReviewedTextFromLinesIfNeeded()
+            }
+        )
+    }
+
+    private func deleteLine(id: OCRService.RecognizedLine.ID) {
+        editableLines.removeAll { $0.id == id }
+        if selectedLineID == id {
+            selectedLineID = nil
+        }
+        hasLineEdits = true
+        syncReviewedTextFromLinesIfNeeded()
+    }
+
+    private func syncReviewedTextFromLinesIfNeeded(force: Bool = false) {
+        guard force || !hasManualTextEdits else { return }
+        let updatedText = joinedEditableLineText
+        lastProgrammaticReviewedText = updatedText
+        reviewedText = updatedText
     }
 
     private func appendBarcode(_ barcode: OCRService.DetectedBarcode) {
         let suffix = "[BARCODE \(barcode.symbology)] \(barcode.payload)"
         let trimmed = reviewedText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
+            hasManualTextEdits = true
             reviewedText = suffix
         } else if !reviewedText.contains(suffix) {
+            hasManualTextEdits = true
             reviewedText += "\n\(suffix)"
         }
     }

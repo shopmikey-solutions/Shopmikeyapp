@@ -134,11 +134,10 @@ struct ScanView: View {
         .sheet(isPresented: $showScanner) {
             if VNDocumentCameraViewController.isSupported {
                 VisionDocumentScanner(
-                    onScan: { image, cgImage, orientation in
+                    onScan: { image, orientation in
                         showScanner = false
                         viewModel.handleScannedImage(
                             image,
-                            cgImage: cgImage,
                             orientation: orientation,
                             ignoreTaxAndTotals: ignoreTaxAndTotals
                         )

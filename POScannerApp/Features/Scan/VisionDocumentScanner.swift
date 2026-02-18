@@ -12,7 +12,7 @@ import VisionKit
 ///
 /// UIKit is used only here to host `VNDocumentCameraViewController`.
 struct VisionDocumentScanner: UIViewControllerRepresentable {
-    var onScan: (UIImage, CGImage, CGImagePropertyOrientation) -> Void
+    var onScan: (UIImage, CGImagePropertyOrientation) -> Void
     var onCancel: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -31,12 +31,12 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
     }
 
     final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
-        let onScan: (UIImage, CGImage, CGImagePropertyOrientation) -> Void
+        let onScan: (UIImage, CGImagePropertyOrientation) -> Void
         let onCancel: () -> Void
         private var didComplete = false
 
         init(
-            onScan: @escaping (UIImage, CGImage, CGImagePropertyOrientation) -> Void,
+            onScan: @escaping (UIImage, CGImagePropertyOrientation) -> Void,
             onCancel: @escaping () -> Void
         ) {
             self.onScan = onScan
@@ -55,14 +55,14 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
                 return
             }
 
-            // Use first page for now.
-            let image = scan.imageOfPage(at: 0)
-            guard let cgImage = image.cgImage else {
-                onCancel()
-                return
+            DispatchQueue.global(qos: .userInitiated).async { [onScan] in
+                // Use first page for now.
+                let image = scan.imageOfPage(at: 0)
+                let orientation = image.imageOrientation.cgImagePropertyOrientation
+                DispatchQueue.main.async {
+                    onScan(image, orientation)
+                }
             }
-
-            onScan(image, cgImage, image.imageOrientation.cgImagePropertyOrientation)
         }
 
         func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {

@@ -176,9 +176,18 @@ final class OCRService {
         let newHeight = Int(newSize.height.rounded(.down))
 
         let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        let supportsAlpha: Bool = {
+            switch cgImage.alphaInfo {
+            case .first, .last, .premultipliedFirst, .premultipliedLast:
+                return true
+            default:
+                return false
+            }
+        }()
 
         // Use a broadly compatible pixel format for OCR. If this fails, fall back to the original image.
-        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        let alphaInfo: CGImageAlphaInfo = supportsAlpha ? .premultipliedLast : .noneSkipLast
+        let bitmapInfo = alphaInfo.rawValue
         guard let context = CGContext(
             data: nil,
             width: newWidth,

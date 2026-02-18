@@ -96,9 +96,6 @@ struct SettingsView: View {
         .nativeListSurface()
         .navigationTitle("Shop Settings")
         .navigationBarTitleDisplayMode(.large)
-        .task {
-            await viewModel.refreshNetworkDiagnostics()
-        }
         .onChange(of: saveHistoryEnabled) { _, _ in
             AppHaptics.selection()
         }

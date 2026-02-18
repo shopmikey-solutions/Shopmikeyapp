@@ -89,7 +89,6 @@ final class ScanViewModel: ObservableObject {
 
     func handleScannedImage(
         _ image: UIImage,
-        cgImage: CGImage,
         orientation: CGImagePropertyOrientation,
         ignoreTaxAndTotals: Bool
     ) {
@@ -98,7 +97,6 @@ final class ScanViewModel: ObservableObject {
         Task {
             await processScannedImage(
                 image,
-                cgImage: cgImage,
                 orientation: orientation,
                 ignoreTaxAndTotals: ignoreTaxAndTotals
             )
@@ -109,7 +107,6 @@ final class ScanViewModel: ObservableObject {
         let previewImage = UIImage(cgImage: cgImage, scale: 1, orientation: orientation.uiImageOrientation)
         handleScannedImage(
             previewImage,
-            cgImage: cgImage,
             orientation: orientation,
             ignoreTaxAndTotals: ignoreTaxAndTotals
         )
@@ -244,7 +241,6 @@ final class ScanViewModel: ObservableObject {
 
     private func processScannedImage(
         _ image: UIImage,
-        cgImage: CGImage,
         orientation: CGImagePropertyOrientation,
         ignoreTaxAndTotals: Bool
     ) async {
@@ -255,11 +251,19 @@ final class ScanViewModel: ObservableObject {
         processingStage = .extractingText
 
         do {
+            let previewImage = await Self.makePreviewImage(from: image)
+            guard let cgImage = await Self.makeCGImage(from: image) else {
+                errorMessage = "Could not process the invoice scan."
+                isProcessing = false
+                processingStage = nil
+                processingStartedAt = nil
+                return
+            }
             let extraction = try await environment.ocrService.extractDocument(from: cgImage, orientation: orientation)
             processingStage = .preparingReview
             await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumOCRFlowDuration)
             ocrReviewDraft = OCRReviewDraft(
-                image: image,
+                image: previewImage,
                 extraction: extraction,
                 ignoreTaxAndTotals: ignoreTaxAndTotals
             )
@@ -270,6 +274,58 @@ final class ScanViewModel: ObservableObject {
         isProcessing = false
         processingStage = nil
         processingStartedAt = nil
+    }
+
+    private nonisolated static func makeCGImage(from image: UIImage) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                if let cgImage = image.cgImage {
+                    continuation.resume(returning: cgImage)
+                    return
+                }
+
+                let format = UIGraphicsImageRendererFormat.default()
+                format.opaque = true
+                format.scale = 1
+                let size = CGSize(width: max(1, image.size.width), height: max(1, image.size.height))
+                let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: size))
+                }
+                continuation.resume(returning: rendered.cgImage)
+            }
+        }
+    }
+
+    private nonisolated static func makePreviewImage(from image: UIImage, maxDimension: CGFloat = 1800) async -> UIImage {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let originalSize = image.size
+                guard originalSize.width > 0, originalSize.height > 0 else {
+                    continuation.resume(returning: image)
+                    return
+                }
+
+                let largestSide = max(originalSize.width, originalSize.height)
+                guard largestSide > maxDimension else {
+                    continuation.resume(returning: image)
+                    return
+                }
+
+                let scale = maxDimension / largestSide
+                let targetSize = CGSize(
+                    width: max(1, (originalSize.width * scale).rounded(.down)),
+                    height: max(1, (originalSize.height * scale).rounded(.down))
+                )
+
+                let format = UIGraphicsImageRendererFormat.default()
+                format.opaque = true
+                format.scale = 1
+                let rendered = UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: targetSize))
+                }
+                continuation.resume(returning: rendered)
+            }
+        }
     }
 
     private func ensureMinimumProcessingDuration(since start: Date, minimum: TimeInterval) async {

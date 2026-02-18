@@ -30,6 +30,7 @@ struct OCRReviewView: View {
     @State private var hasManualTextEdits: Bool = false
     @State private var hasLineEdits: Bool = false
     @State private var lastProgrammaticReviewedText: String?
+    @State private var lockListScroll: Bool = false
 
     init(
         draft: ScanViewModel.OCRReviewDraft,
@@ -63,7 +64,8 @@ struct OCRReviewView: View {
                     selectedLineID: selectedLineID,
                     selectedBarcodeID: selectedBarcodeID,
                     showTextHighlights: showTextHighlights,
-                    showBarcodeHighlights: showBarcodeHighlights
+                    showBarcodeHighlights: showBarcodeHighlights,
+                    lockParentScroll: $lockListScroll
                 )
                 .frame(height: 280)
 
@@ -183,6 +185,7 @@ struct OCRReviewView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .scrollDisabled(lockListScroll)
         .searchable(text: $searchText, prompt: "Filter lines")
         .onChange(of: reviewedText) { _, newValue in
             if lastProgrammaticReviewedText == newValue {
@@ -284,12 +287,25 @@ private struct OCROverlayPreview: View {
     let selectedBarcodeID: OCRService.DetectedBarcode.ID?
     let showTextHighlights: Bool
     let showBarcodeHighlights: Bool
+    @Binding var lockParentScroll: Bool
 
     @State private var zoomScale: CGFloat = 1
     @GestureState private var gestureScale: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
+    @GestureState private var gesturePanOffset: CGSize = .zero
 
     var body: some View {
         GeometryReader { proxy in
+            let combinedScale = max(1, min(4, zoomScale * gestureScale))
+            let combinedOffset = clampedOffset(
+                CGSize(
+                    width: panOffset.width + gesturePanOffset.width,
+                    height: panOffset.height + gesturePanOffset.height
+                ),
+                scale: combinedScale,
+                containerSize: proxy.size
+            )
+
             ZStack(alignment: .topLeading) {
                 Image(uiImage: image)
                     .resizable()
@@ -324,25 +340,68 @@ private struct OCROverlayPreview: View {
                     }
                 }
             }
-            .scaleEffect(zoomScale * gestureScale)
+            .scaleEffect(combinedScale)
+            .offset(x: combinedOffset.width, y: combinedOffset.height)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
-            .gesture(
+            .highPriorityGesture(
                 MagnificationGesture()
                     .updating($gestureScale) { value, state, _ in
                         state = value
                     }
                     .onEnded { value in
                         zoomScale = min(4, max(1, zoomScale * value))
+                        if zoomScale <= 1.01 {
+                            zoomScale = 1
+                            panOffset = .zero
+                        } else {
+                            panOffset = clampedOffset(
+                                panOffset,
+                                scale: zoomScale,
+                                containerSize: proxy.size
+                            )
+                        }
+                    }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($gesturePanOffset) { value, state, _ in
+                        guard combinedScale > 1.01 else { return }
+                        state = value.translation
+                    }
+                    .onEnded { value in
+                        guard zoomScale > 1.01 else {
+                            panOffset = .zero
+                            return
+                        }
+                        panOffset = clampedOffset(
+                            CGSize(
+                                width: panOffset.width + value.translation.width,
+                                height: panOffset.height + value.translation.height
+                            ),
+                            scale: zoomScale,
+                            containerSize: proxy.size
+                        )
                     }
             )
             .onTapGesture(count: 2) {
                 withAnimation(.snappy(duration: 0.2)) {
-                    zoomScale = 1
+                    if zoomScale > 1.01 {
+                        zoomScale = 1
+                        panOffset = .zero
+                    } else {
+                        zoomScale = 2
+                    }
                 }
+            }
+            .onChange(of: combinedScale) { _, newValue in
+                lockParentScroll = newValue > 1.01
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onDisappear {
+            lockParentScroll = false
+        }
     }
 
     private func rectInView(for normalized: CGRect, in containerSize: CGSize) -> CGRect {
@@ -370,6 +429,16 @@ private struct OCROverlayPreview: View {
             y: drawRect.minY + ((1 - normalized.maxY) * drawRect.height),
             width: normalized.width * drawRect.width,
             height: normalized.height * drawRect.height
+        )
+    }
+
+    private func clampedOffset(_ offset: CGSize, scale: CGFloat, containerSize: CGSize) -> CGSize {
+        guard scale > 1 else { return .zero }
+        let maxX = (containerSize.width * (scale - 1)) / 2
+        let maxY = (containerSize.height * (scale - 1)) / 2
+        return CGSize(
+            width: min(max(offset.width, -maxX), maxX),
+            height: min(max(offset.height, -maxY), maxY)
         )
     }
 }

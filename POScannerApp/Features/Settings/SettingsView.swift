@@ -21,7 +21,7 @@ struct SettingsView: View {
             Section("Shopmonkey Connectivity") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
-                        healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: .blue)
+                        healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: AppSurfaceStyle.info)
                         healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : .green)
                     }
 

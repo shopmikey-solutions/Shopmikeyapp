@@ -49,7 +49,7 @@ struct EditableItemRow: View {
 
             Toggle("Taxable", isOn: $item.isTaxable)
                 .font(.caption)
-                .tint(.yellow)
+                .tint(AppSurfaceStyle.accent)
 
             Divider()
                 .background(Color.white.opacity(0.2))

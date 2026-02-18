@@ -41,7 +41,7 @@ struct ReviewView: View {
                 reviewHealthCard
                 if viewModel.confidenceScore < 0.75 {
                     Label("Some intake fields still need review.", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(AppSurfaceStyle.warning)
                 }
             }
 

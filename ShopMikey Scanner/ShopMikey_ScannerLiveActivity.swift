@@ -30,20 +30,20 @@ struct ShopMikey_ScannerLiveActivity: Widget {
                 Text(context.state.statusText)
                     .font(.headline)
                 ProgressView(value: clampedProgress(context.state.progress))
-                    .tint(.blue)
+                    .tint(.accentColor)
                 Text(context.state.detailText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 6)
-            .activityBackgroundTint(.indigo.opacity(0.14))
+            .activityBackgroundTint(Color.accentColor.opacity(0.14))
             .activitySystemActionForegroundColor(.primary)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     Label("Intake", systemImage: "doc.text.viewfinder")
                         .labelStyle(.iconOnly)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Color.accentColor)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     Text("\(Int((clampedProgress(context.state.progress) * 100).rounded()))%")
@@ -68,7 +68,7 @@ struct ShopMikey_ScannerLiveActivity: Widget {
                 Image(systemName: "doc.text.viewfinder")
             }
             .widgetURL(URL(string: "shopmikey://scan"))
-            .keylineTint(.blue)
+            .keylineTint(Color.accentColor)
         }
     }
 

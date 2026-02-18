@@ -101,7 +101,7 @@ struct ShopMikey_ScannerEntryView : View {
             }
 
             ProgressView(value: progress)
-                .tint(.blue)
+                .tint(.accentColor)
 
             Text(totalValueString)
                 .font(.caption.weight(.semibold))

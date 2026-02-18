@@ -139,7 +139,7 @@ struct OCRReviewView: View {
                                     Spacer()
                                     if selectedLineID == line.id {
                                         Image(systemName: "target")
-                                            .foregroundStyle(.blue)
+                                            .foregroundStyle(AppSurfaceStyle.info)
                                     }
                                 }
                             }
@@ -318,10 +318,13 @@ private struct OCROverlayPreview: View {
                     ForEach(lines) { line in
                         let rect = rectInView(for: line.boundingBox, in: proxy.size)
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .stroke(selectedLineID == line.id ? Color.blue : Color.yellow, lineWidth: selectedLineID == line.id ? 2 : 1)
+                            .stroke(
+                                selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning,
+                                lineWidth: selectedLineID == line.id ? 2 : 1
+                            )
                             .background(
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill((selectedLineID == line.id ? Color.blue : Color.yellow).opacity(0.14))
+                                    .fill((selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning).opacity(0.14))
                             )
                             .frame(width: rect.width, height: rect.height)
                             .position(x: rect.midX, y: rect.midY)

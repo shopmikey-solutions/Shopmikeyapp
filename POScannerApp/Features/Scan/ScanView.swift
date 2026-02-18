@@ -18,6 +18,7 @@ struct ScanView: View {
     @State private var showArcade: Bool = false
     @State private var tapTimes: [Date] = []
     @State private var showProcessingDetails: Bool = true
+    @State private var showResumeDraftDialog: Bool = false
     @StateObject private var viewModel: ScanViewModel
     private let arcadeTapTriggerEnabled: Bool = ProcessInfo.processInfo.arguments.contains("-enable-scanner-arcade")
 
@@ -27,6 +28,12 @@ struct ScanView: View {
 
     var body: some View {
         List {
+            if let latestDraft = viewModel.latestResumableDraft {
+                Section("Current Intake Session") {
+                    currentIntakeSessionCard(latestDraft)
+                }
+            }
+
             Section("Parts Intake Overview") {
                 dashboardSummary
             }
@@ -40,11 +47,11 @@ struct ScanView: View {
             }
 
             Section("In-Progress Parts Intake") {
-                if viewModel.inProgressDrafts.isEmpty {
-                    Text("No saved intake drafts.")
+                if additionalDrafts.isEmpty {
+                    Text(viewModel.latestResumableDraft == nil ? "No saved intake drafts." : "No additional saved intake drafts.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(viewModel.inProgressDrafts) { draft in
+                    ForEach(additionalDrafts) { draft in
                         Button {
                             AppHaptics.selection()
                             viewModel.resumeDraft(draft)
@@ -127,9 +134,13 @@ struct ScanView: View {
                 Button {
                     guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
                     AppHaptics.impact(.medium, intensity: 0.9)
-                    showSourceSheet = true
+                    if viewModel.latestResumableDraft != nil {
+                        showResumeDraftDialog = true
+                    } else {
+                        showSourceSheet = true
+                    }
                 } label: {
-                    Label("Scan Parts Invoice", systemImage: "doc.viewfinder")
+                    Label(viewModel.latestResumableDraft == nil ? "Scan Parts Invoice" : "New Capture", systemImage: "doc.viewfinder")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(showScanner || viewModel.isProcessing || isImportingPhoto)
@@ -141,6 +152,29 @@ struct ScanView: View {
                 onScanWithCamera: { showScanner = true },
                 onChooseFromPhotos: { showPhotoPicker = true }
             )
+        }
+        .confirmationDialog(
+            "Resume saved intake?",
+            isPresented: $showResumeDraftDialog,
+            titleVisibility: .visible
+        ) {
+            if let latestDraft = viewModel.latestResumableDraft {
+                Button("Resume \(latestDraft.displayVendorName)") {
+                    AppHaptics.selection()
+                    viewModel.resumeDraft(latestDraft)
+                }
+            }
+
+            Button("Start New Capture") {
+                AppHaptics.selection()
+                showSourceSheet = true
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let latestDraft = viewModel.latestResumableDraft {
+                Text("\(latestDraft.displaySecondaryLine). You can resume or start a new capture.")
+            }
         }
         .photosPicker(
             isPresented: $showPhotoPicker,
@@ -258,19 +292,76 @@ struct ScanView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
             guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
-            showSourceSheet = true
+            if viewModel.latestResumableDraft != nil {
+                showResumeDraftDialog = true
+            } else {
+                showSourceSheet = true
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appResumeScanDraft)) { notification in
             guard let draftID = notification.object as? UUID else { return }
             guard !viewModel.isProcessing else { return }
             Task {
-                await viewModel.resumeDraft(id: draftID)
+                let resumed = await viewModel.resumeDraft(id: draftID)
+                if !resumed {
+                    await MainActor.run {
+                        showSourceSheet = true
+                    }
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
             viewModel.loadInProgressDrafts()
         }
         .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
+    }
+
+    private var additionalDrafts: [ReviewDraftSnapshot] {
+        guard viewModel.inProgressDrafts.count > 1 else { return [] }
+        return Array(viewModel.inProgressDrafts.dropFirst())
+    }
+
+    private func currentIntakeSessionCard(_ draft: ReviewDraftSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label(draft.workflowState.statusLabel, systemImage: "clock.arrow.circlepath")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Text("Saved \(draft.updatedAt.formatted(date: .omitted, time: .shortened))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(draft.displayVendorName)
+                .font(.headline)
+
+            Text(draft.displaySecondaryLine)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button {
+                    AppHaptics.selection()
+                    viewModel.resumeDraft(draft)
+                } label: {
+                    Label("Resume Intake", systemImage: "arrow.clockwise.circle")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    AppHaptics.selection()
+                    showSourceSheet = true
+                } label: {
+                    Text("New Capture")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityIdentifier("scan.currentSessionCard")
     }
 
     @ViewBuilder
@@ -503,7 +594,7 @@ private struct ScanProcessingWidget: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "waveform.path.ecg")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(AppSurfaceStyle.info)
                         .symbolEffect(.pulse.byLayer, options: .repeating, value: progress)
                     Text(statusText)
                         .font(.headline.weight(.semibold))
@@ -516,7 +607,7 @@ private struct ScanProcessingWidget: View {
                 if showsDetail {
                     ProgressView(value: max(0.02, min(1, progress)))
                         .progressViewStyle(.linear)
-                        .tint(.blue)
+                        .tint(AppSurfaceStyle.info)
 
                     Text(detailText)
                         .font(.footnote)

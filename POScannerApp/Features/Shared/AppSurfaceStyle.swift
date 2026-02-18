@@ -6,7 +6,10 @@
 import SwiftUI
 
 enum AppSurfaceStyle {
-    static let accent: Color = Color(red: 0.98, green: 0.84, blue: 0.10)
+    static let accent: Color = Color("AccentColor")
+    static let info: Color = accent
+    static let warning: Color = Color(uiColor: .systemOrange)
+    static let success: Color = Color(uiColor: .systemGreen)
     static let listCardFill: Color = Color(red: 0.22, green: 0.28, blue: 0.40).opacity(0.94)
     static let cardFill: LinearGradient = LinearGradient(
         colors: [

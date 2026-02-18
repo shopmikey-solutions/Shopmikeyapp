@@ -256,8 +256,13 @@ final class ScanViewModel: ObservableObject {
 
     func loadInProgressDrafts() {
         Task {
-            inProgressDrafts = await environment.reviewDraftStore.list()
+            let drafts = await environment.reviewDraftStore.list()
+            inProgressDrafts = drafts.filter(\.canResumeInReview)
         }
+    }
+
+    var latestResumableDraft: ReviewDraftSnapshot? {
+        inProgressDrafts.first
     }
 
     func resumeDraft(_ draft: ReviewDraftSnapshot) {
@@ -265,10 +270,12 @@ final class ScanViewModel: ObservableObject {
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: draft.state.parsedInvoice.parsedInvoice, draftSnapshot: draft)
     }
 
-    func resumeDraft(id: UUID) async {
-        guard let draft = await environment.reviewDraftStore.load(id: id) else { return }
-        guard draft.canResumeInReview else { return }
+    @discardableResult
+    func resumeDraft(id: UUID) async -> Bool {
+        guard let draft = await environment.reviewDraftStore.load(id: id) else { return false }
+        guard draft.canResumeInReview else { return false }
         resumeDraft(draft)
+        return true
     }
 
     func deleteDraft(_ draft: ReviewDraftSnapshot) {
@@ -278,7 +285,8 @@ final class ScanViewModel: ObservableObject {
                 if activeWorkflowDraftID == draft.id {
                     activeWorkflowDraftID = nil
                 }
-                inProgressDrafts = await environment.reviewDraftStore.list()
+                let drafts = await environment.reviewDraftStore.list()
+                inProgressDrafts = drafts.filter(\.canResumeInReview)
             } catch {
                 errorMessage = "Could not remove saved intake draft."
             }
@@ -479,7 +487,8 @@ final class ScanViewModel: ObservableObject {
 
         do {
             try await environment.reviewDraftStore.upsert(snapshot)
-            inProgressDrafts = await environment.reviewDraftStore.list()
+            let drafts = await environment.reviewDraftStore.list()
+            inProgressDrafts = drafts.filter(\.canResumeInReview)
             return snapshot
         } catch {
             return nil

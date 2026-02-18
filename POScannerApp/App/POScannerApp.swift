@@ -57,7 +57,7 @@ struct POScannerApp: App {
             RootTabView()
                 .environment(\.appEnvironment, environment)
                 .environment(\.managedObjectContext, environment.dataController.viewContext)
-                .tint(.blue)
+                .tint(AppSurfaceStyle.accent)
         }
     }
 }

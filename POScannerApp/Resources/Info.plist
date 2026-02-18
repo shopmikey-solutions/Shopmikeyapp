@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>AppGroupIdentifier</key>
+	<string>group.com.mikey.POScannerApp</string>
 	<key>CFBundleDisplayName</key>
 	<string>ShopMikey</string>
 	<key>CFBundleExecutable</key>
@@ -12,8 +14,6 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -27,8 +27,8 @@
 			</array>
 		</dict>
 	</array>
-	<key>AppGroupIdentifier</key>
-	<string>group.com.mikey.POScannerApp</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan purchase orders using the camera.</string>
 	<key>NSFaceIDUsageDescription</key>
@@ -40,7 +40,12 @@
 	<key>ScannerArcadeURL</key>
 	<string>http://127.0.0.1:5173</string>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

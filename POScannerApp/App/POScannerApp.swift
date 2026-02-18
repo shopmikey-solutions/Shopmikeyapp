@@ -54,10 +54,12 @@ struct POScannerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootTabView()
-                .environment(\.appEnvironment, environment)
-                .environment(\.managedObjectContext, environment.dataController.viewContext)
-                .tint(AppSurfaceStyle.accent)
+            AppLaunchExperience {
+                RootTabView()
+                    .environment(\.appEnvironment, environment)
+                    .environment(\.managedObjectContext, environment.dataController.viewContext)
+                    .tint(AppSurfaceStyle.accent)
+            }
         }
     }
 }

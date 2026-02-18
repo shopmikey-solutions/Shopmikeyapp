@@ -9,6 +9,8 @@ actor ReviewDraftStore {
     private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let maxDraftCount: Int = 60
+    private let maxDraftFileBytes: Int64 = 5_000_000
 
     init(fileURL: URL? = nil) {
         self.fileURL = fileURL ?? Self.defaultFileURL()
@@ -38,7 +40,7 @@ actor ReviewDraftStore {
         } else {
             drafts.append(snapshot)
         }
-        try writeAll(drafts)
+        try writeAll(pruned(drafts))
         notifyDidChange()
     }
 
@@ -49,9 +51,20 @@ actor ReviewDraftStore {
     }
 
     private func readAll() -> [ReviewDraftSnapshot] {
+        if shouldResetCorruptedOrOversizedStore() {
+            resetStoreFile()
+            return []
+        }
+
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         guard !data.isEmpty else { return [] }
-        return (try? decoder.decode([ReviewDraftSnapshot].self, from: data)) ?? []
+
+        guard let decoded = try? decoder.decode([ReviewDraftSnapshot].self, from: data) else {
+            resetStoreFile()
+            return []
+        }
+
+        return pruned(decoded)
     }
 
     private func writeAll(_ drafts: [ReviewDraftSnapshot]) throws {
@@ -59,6 +72,29 @@ actor ReviewDraftStore {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try encoder.encode(drafts)
         try data.write(to: fileURL, options: [.atomic])
+    }
+
+    private func pruned(_ drafts: [ReviewDraftSnapshot]) -> [ReviewDraftSnapshot] {
+        let ordered = drafts.sorted { $0.updatedAt > $1.updatedAt }
+        if ordered.count <= maxDraftCount {
+            return ordered
+        }
+        return Array(ordered.prefix(maxDraftCount))
+    }
+
+    private func shouldResetCorruptedOrOversizedStore() -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path) else {
+            return false
+        }
+
+        let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        return byteCount > maxDraftFileBytes
+    }
+
+    private func resetStoreFile() {
+        let directory = fileURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? Data().write(to: fileURL, options: [.atomic])
     }
 
     private static func defaultFileURL() -> URL {

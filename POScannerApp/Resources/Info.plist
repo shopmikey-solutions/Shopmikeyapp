@@ -37,8 +37,13 @@
 	<string>Select an existing invoice photo for parts intake.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
-	<key>ScannerArcadeURL</key>
-	<string>http://127.0.0.1:5173</string>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

@@ -5,7 +5,6 @@
 
 import SwiftUI
 import VisionKit
-import WebKit
 import PhotosUI
 
 struct ScanView: View {
@@ -15,12 +14,10 @@ struct ScanView: View {
     @State private var showPhotoPicker: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isImportingPhoto: Bool = false
-    @State private var showArcade: Bool = false
-    @State private var tapTimes: [Date] = []
     @State private var showProcessingDetails: Bool = true
     @State private var showResumeDraftDialog: Bool = false
+    @State private var hasPerformedInitialLoad: Bool = false
     @StateObject private var viewModel: ScanViewModel
-    private let arcadeTapTriggerEnabled: Bool = ProcessInfo.processInfo.arguments.contains("-enable-scanner-arcade")
 
     init(environment: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: ScanViewModel(environment: environment))
@@ -135,24 +132,6 @@ struct ScanView: View {
                 )
             }
         }
-        .fullScreenCover(isPresented: $showArcade) {
-            NavigationStack {
-            if let url = arcadeURL {
-                ArcadeWebContainerView(url: url)
-            } else {
-                    ContentUnavailableView(
-                        "Scanner Arcade Unavailable",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text("Set a valid URL in Info.plist key ScannerArcadeURL.")
-                    )
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { showArcade = false }
-                }
-            }
-        }
         .navigationDestination(item: $viewModel.parsedInvoiceRoute) { route in
             ReviewView(
                 environment: viewModel.environment,
@@ -161,8 +140,11 @@ struct ScanView: View {
             )
         }
         .onAppear {
-            viewModel.loadTodayMetrics()
-            viewModel.loadInProgressDrafts()
+            if !hasPerformedInitialLoad {
+                hasPerformedInitialLoad = true
+                viewModel.loadTodayMetrics()
+                viewModel.loadInProgressDrafts()
+            }
             syncLiveActivity()
         }
         .onChange(of: viewModel.processingStage) { _, stage in
@@ -193,18 +175,6 @@ struct ScanView: View {
         }
         .overlay(alignment: .top) {
             processingBanner
-        }
-        .overlay(alignment: .topTrailing) {
-            if arcadeTapTriggerEnabled {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .frame(width: 56, height: 56)
-                    .padding(.top, 8)
-                    .padding(.trailing, 8)
-                    .onTapGesture {
-                        registerArcadeTap()
-                    }
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
             presentCaptureFlow()
@@ -618,42 +588,6 @@ struct ScanView: View {
         return min(1, Double(viewModel.submittedCount) / Double(viewModel.todayCount))
     }
 
-    private func registerArcadeTap() {
-        let now = Date()
-        tapTimes = tapTimes.filter { now.timeIntervalSince($0) < 1.2 }
-        tapTimes.append(now)
-
-        if tapTimes.count >= 3 {
-            tapTimes.removeAll()
-            showArcade = true
-        }
-    }
-
-    private var arcadeURL: URL? {
-        let configured = (Bundle.main.object(forInfoDictionaryKey: "ScannerArcadeURL") as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let raw = ((configured?.isEmpty == false)
-            ? configured
-            : "https://YOUR_DOMAIN/shopmikey-game/") ?? "https://YOUR_DOMAIN/shopmikey-game/"
-        guard !raw.contains("YOUR_DOMAIN"),
-              let url = URL(string: raw),
-              let scheme = url.scheme?.lowercased() else {
-            return nil
-        }
-
-        if scheme == "https" {
-            return url
-        }
-
-        let host = (url.host ?? "").lowercased()
-        if scheme == "http", host == "127.0.0.1" || host == "localhost" {
-            return url
-        }
-
-        return nil
-    }
-
     private func syncLiveActivity() {
         let payload = liveActivityPayload()
         PartsIntakeLiveActivityBridge.sync(
@@ -687,25 +621,13 @@ struct ScanView: View {
             return (false, "", "", 0, nil)
         }
 
-        guard latestDraft.isLiveIntakeSession else {
+        guard latestDraft.workflowState == .submitting else {
             return (false, "", "", 0, nil)
-        }
-
-        let statusText: String
-        switch latestDraft.workflowState {
-        case .ocrReview:
-            statusText = "OCR review ready"
-        case .reviewReady:
-            statusText = "Ready for intake review"
-        case .reviewEdited:
-            statusText = "Review edits saved"
-        default:
-            statusText = latestDraft.workflowState.statusLabel
         }
 
         return (
             true,
-            statusText,
+            "Submitting to Shopmonkey",
             latestDraft.displaySecondaryLine,
             latestDraft.workflowProgressEstimate,
             AppDeepLink.scanURL(draftID: latestDraft.id)
@@ -851,122 +773,6 @@ private struct ScanProcessingWidget: View {
         let minutes = seconds / 60
         let remainder = seconds % 60
         return String(format: "%d:%02d", minutes, remainder)
-    }
-}
-
-private struct ArcadeWebContainerView: View {
-    let url: URL
-    @State private var isLoading: Bool = true
-    @State private var loadError: String?
-    @State private var reloadToken: UUID = UUID()
-
-    var body: some View {
-        ZStack {
-            WebGameView(
-                url: url,
-                reloadToken: reloadToken,
-                isLoading: $isLoading,
-                loadError: $loadError
-            )
-
-            if isLoading {
-                ProgressView("Loading Scanner Arcade…")
-                    .padding(12)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if let errorText = loadError {
-                VStack(spacing: 8) {
-                    Text(errorText)
-                        .font(.footnote)
-                        .multilineTextAlignment(.center)
-                    Button("Retry") {
-                        loadError = nil
-                        isLoading = true
-                        reloadToken = UUID()
-                    }
-                    .appPrimaryActionButton()
-                }
-                .padding()
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .padding()
-            }
-        }
-    }
-}
-
-private struct WebGameView: UIViewRepresentable {
-    let url: URL
-    let reloadToken: UUID
-    @Binding var isLoading: Bool
-    @Binding var loadError: String?
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(isLoading: $isLoading, loadError: $loadError)
-    }
-
-    func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
-        webView.navigationDelegate = context.coordinator
-        return webView
-    }
-
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        if context.coordinator.lastReloadToken != reloadToken || webView.url == nil {
-            context.coordinator.lastReloadToken = reloadToken
-            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30)
-            webView.load(request)
-        }
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        private let isLoading: Binding<Bool>
-        private let loadError: Binding<String?>
-        var lastReloadToken: UUID?
-
-        init(isLoading: Binding<Bool>, loadError: Binding<String?>) {
-            self.isLoading = isLoading
-            self.loadError = loadError
-        }
-
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            isLoading.wrappedValue = true
-            loadError.wrappedValue = nil
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            isLoading.wrappedValue = false
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            handleLoadFailure(error)
-        }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            handleLoadFailure(error)
-        }
-
-        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
-            if let response = navigationResponse.response as? HTTPURLResponse,
-               !(200...299).contains(response.statusCode) {
-                isLoading.wrappedValue = false
-                loadError.wrappedValue = "Could not load game (HTTP \(response.statusCode))."
-            }
-            return .allow
-        }
-
-        private func handleLoadFailure(_ error: Error) {
-            isLoading.wrappedValue = false
-            let nsError = error as NSError
-            if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorNotConnectedToInternet {
-                loadError.wrappedValue = "No internet connection."
-            } else {
-                loadError.wrappedValue = "Could not load Scanner Arcade."
-            }
-        }
     }
 }
 

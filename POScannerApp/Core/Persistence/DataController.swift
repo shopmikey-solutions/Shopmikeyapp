@@ -34,6 +34,8 @@ final class DataController {
             container.persistentStoreDescriptions = [description]
         } else {
             for description in container.persistentStoreDescriptions {
+                // Keep launch responsive on device; views already await readiness where needed.
+                description.shouldAddStoreAsynchronously = true
                 description.shouldMigrateStoreAutomatically = true
                 description.shouldInferMappingModelAutomatically = true
             }

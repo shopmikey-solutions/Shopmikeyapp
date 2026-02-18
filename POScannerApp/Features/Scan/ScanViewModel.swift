@@ -103,6 +103,14 @@ final class ScanViewModel: ObservableObject {
         }
     }
 
+    func handleScannedImage(_ image: UIImage, ignoreTaxAndTotals: Bool) {
+        handleScannedImage(
+            image,
+            orientation: image.imageOrientation.cgImagePropertyOrientation,
+            ignoreTaxAndTotals: ignoreTaxAndTotals
+        )
+    }
+
     func handleScannedImage(_ cgImage: CGImage, orientation: CGImagePropertyOrientation, ignoreTaxAndTotals: Bool) {
         let previewImage = UIImage(cgImage: cgImage, scale: 1, orientation: orientation.uiImageOrientation)
         handleScannedImage(

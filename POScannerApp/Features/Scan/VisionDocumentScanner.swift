@@ -80,7 +80,7 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
     }
 }
 
-private extension UIImage.Orientation {
+extension UIImage.Orientation {
     var cgImagePropertyOrientation: CGImagePropertyOrientation {
         switch self {
         case .up:

@@ -6,10 +6,15 @@
 import SwiftUI
 import VisionKit
 import WebKit
+import PhotosUI
 
 struct ScanView: View {
     @AppStorage("ignoreTaxAndTotals") private var ignoreTaxAndTotals: Bool = false
     @State private var showScanner: Bool = false
+    @State private var showSourceOptions: Bool = false
+    @State private var showPhotoPicker: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var isImportingPhoto: Bool = false
     @State private var showArcade: Bool = false
     @State private var tapTimes: [Date] = []
     @State private var showProcessingDetails: Bool = true
@@ -120,17 +125,40 @@ struct ScanView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    guard !showScanner, !viewModel.isProcessing else { return }
+                    guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
                     AppHaptics.impact(.medium, intensity: 0.9)
-                    showScanner = true
+                    showSourceOptions = true
                 } label: {
                     Label("Scan Parts Invoice", systemImage: "doc.viewfinder")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(showScanner || viewModel.isProcessing)
+                .disabled(showScanner || viewModel.isProcessing || isImportingPhoto)
                 .accessibilityIdentifier("scan.scanButton")
             }
         }
+        .confirmationDialog(
+            "Add Parts Invoice",
+            isPresented: $showSourceOptions,
+            titleVisibility: .visible
+        ) {
+            Button("Scan with Camera") {
+                AppHaptics.selection()
+                showScanner = true
+            }
+            Button("Choose from Photos") {
+                AppHaptics.selection()
+                showPhotoPicker = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Use camera for a new capture, or choose an existing invoice photo.")
+        }
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $selectedPhotoItem,
+            matching: .images,
+            preferredItemEncoding: .current
+        )
         .sheet(isPresented: $showScanner) {
             if VNDocumentCameraViewController.isSupported {
                 VisionDocumentScanner(
@@ -211,6 +239,10 @@ struct ScanView: View {
         .onChange(of: viewModel.errorMessage) { _, message in
             guard message != nil else { return }
             AppHaptics.error()
+        }
+        .onChange(of: selectedPhotoItem) { _, item in
+            guard let item else { return }
+            Task { await importPhoto(item) }
         }
         .overlay(alignment: .top) {
             processingBanner
@@ -340,6 +372,35 @@ struct ScanView: View {
         }
 
         return nil
+    }
+
+    @MainActor
+    private func importPhoto(_ item: PhotosPickerItem) async {
+        guard !isImportingPhoto else { return }
+        isImportingPhoto = true
+        defer {
+            isImportingPhoto = false
+            selectedPhotoItem = nil
+        }
+
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                viewModel.errorMessage = "Could not load the selected photo."
+                AppHaptics.error()
+                return
+            }
+
+            viewModel.handleScannedImage(
+                image,
+                ignoreTaxAndTotals: ignoreTaxAndTotals
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            viewModel.errorMessage = "Could not load the selected photo."
+            AppHaptics.error()
+        }
     }
 }
 

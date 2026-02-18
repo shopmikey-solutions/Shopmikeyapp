@@ -87,6 +87,7 @@ struct LineItemEditView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Line Item")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: item.kind) { oldValue, newValue in

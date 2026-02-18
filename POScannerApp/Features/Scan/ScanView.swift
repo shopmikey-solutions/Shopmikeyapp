@@ -110,7 +110,7 @@ struct ScanView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .nativeListSurface(style: .dashboard)
+        .nativeListSurface()
         .refreshable {
             viewModel.loadTodayMetrics()
         }

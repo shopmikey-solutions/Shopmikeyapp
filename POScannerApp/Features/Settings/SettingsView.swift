@@ -94,6 +94,7 @@ struct SettingsView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Shopmonkey Settings")
         .navigationBarTitleDisplayMode(.large)
         .onChange(of: saveHistoryEnabled) { _, _ in

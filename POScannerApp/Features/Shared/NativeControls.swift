@@ -45,11 +45,11 @@ struct NativeTextView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.thickMaterial)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 1)
+                .strokeBorder(Color(uiColor: .separator), lineWidth: 1)
         )
         .modifier(OptionalAccessibilityIdentifier(id: accessibilityIdentifier))
     }
@@ -69,22 +69,17 @@ private struct OptionalAccessibilityIdentifier: ViewModifier {
 }
 
 struct NativeListSurfaceModifier: ViewModifier {
-    let style: AppScreenBackground.Style
-
     func body(content: Content) -> some View {
         content
-            .fontDesign(.rounded)
-            .listRowSeparator(.hidden)
-            .listSectionSeparator(.hidden)
-            .listRowBackground(AppListRowBackground())
-            .scrollContentBackground(.hidden)
+            .listRowSeparator(.automatic)
+            .listSectionSeparator(.automatic)
+            .scrollContentBackground(.visible)
             .scrollIndicators(.hidden, axes: .vertical)
-            .background(AppScreenBackground(style: style))
     }
 }
 
 extension View {
-    func nativeListSurface(style: AppScreenBackground.Style = .standard) -> some View {
-        modifier(NativeListSurfaceModifier(style: style))
+    func nativeListSurface() -> some View {
+        modifier(NativeListSurfaceModifier())
     }
 }

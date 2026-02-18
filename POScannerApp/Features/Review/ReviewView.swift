@@ -140,6 +140,7 @@ struct ReviewView: View {
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Parts Intake Review")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

@@ -186,6 +186,7 @@ struct OCRReviewView: View {
         .listStyle(.insetGrouped)
         .nativeListSurface()
         .scrollDisabled(lockListScroll)
+        .scrollDismissesKeyboard(.interactively)
         .searchable(text: $searchText, prompt: "Filter lines")
         .onChange(of: reviewedText) { _, newValue in
             if lastProgrammaticReviewedText == newValue {

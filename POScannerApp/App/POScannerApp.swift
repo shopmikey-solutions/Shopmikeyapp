@@ -42,7 +42,8 @@ struct POScannerApp: App {
             shopmonkeyAPI: shopmonkeyAPI,
             ocrService: OCRService(),
             poParser: POParser(),
-            foundationModelService: FoundationModelService()
+            foundationModelService: FoundationModelService(),
+            parseHandoffService: LocalParseHandoffService()
         )
     }
 

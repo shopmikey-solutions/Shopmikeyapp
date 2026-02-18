@@ -289,16 +289,37 @@ OCR TEXT:
 /// Optional parsing augmentation using Apple Foundation Models when available.
 /// This is strictly optional and always falls back to `POParser`.
 final class FoundationModelService {
+    private let cache = OnDeviceParseCache(limit: 24)
+
+    var isOnDeviceModelAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
+            return LanguageModel.isAvailable
+        }
+        return false
+        #else
+        return false
+        #endif
+    }
+
     func parseInvoiceIfAvailable(from text: String, ignoreTaxAndTotals: Bool = false) async -> ParsedInvoice? {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
-            guard LanguageModel.isAvailable else {
+            guard isOnDeviceModelAvailable else {
                 return nil
             }
+
+            let key = cacheKey(for: text, ignoreTaxAndTotals: ignoreTaxAndTotals)
+            if let cached = await cache.value(for: key) {
+                return cached
+            }
+
             do {
                 let service = AIParsingService()
                 let ai = try await service.parseInvoice(from: text, ignoreTaxAndTotals: ignoreTaxAndTotals)
-                return service.asParsedInvoice(ai)
+                let parsed = service.asParsedInvoice(ai)
+                await cache.insert(parsed, for: key)
+                return parsed
             } catch {
                 return nil
             }
@@ -307,5 +328,39 @@ final class FoundationModelService {
 
         _ = text
         return nil
+    }
+
+    private func cacheKey(for text: String, ignoreTaxAndTotals: Bool) -> Int {
+        var hasher = Hasher()
+        hasher.combine(ignoreTaxAndTotals)
+        hasher.combine(text)
+        return hasher.finalize()
+    }
+}
+
+private actor OnDeviceParseCache {
+    private let limit: Int
+    private var order: [Int] = []
+    private var values: [Int: ParsedInvoice] = [:]
+
+    init(limit: Int) {
+        self.limit = max(1, limit)
+    }
+
+    func value(for key: Int) -> ParsedInvoice? {
+        values[key]
+    }
+
+    func insert(_ invoice: ParsedInvoice, for key: Int) {
+        values[key] = invoice
+        if let existingIndex = order.firstIndex(of: key) {
+            order.remove(at: existingIndex)
+        }
+        order.append(key)
+
+        if order.count > limit, let evicted = order.first {
+            order.removeFirst()
+            values.removeValue(forKey: evicted)
+        }
     }
 }

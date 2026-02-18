@@ -143,25 +143,34 @@ final class ScanViewModel: ObservableObject {
         processingStartedAt = Date()
         processingStage = .parsing
 
-        let parseInput: String
-        if barcodeHints.isEmpty {
-            parseInput = baseText
-        } else {
-            let barcodeBlock = barcodeHints
-                .map { "[BARCODE \($0.symbology)] \($0.payload)" }
-                .joined(separator: "\n")
-            parseInput = "\(baseText)\n\nDetected barcodes:\n\(barcodeBlock)"
-        }
+        let handoff = environment.parseHandoffService.build(
+            reviewedText: baseText,
+            barcodeHints: barcodeHints
+        )
 
-        let ai = await environment.foundationModelService.parseInvoiceIfAvailable(
-            from: parseInput,
+        let rulesInvoice = environment.poParser.parse(
+            from: handoff.rulesInputText,
             ignoreTaxAndTotals: ignoreTaxAndTotals
         )
-        let invoice = ai ?? environment.poParser.parse(from: parseInput, ignoreTaxAndTotals: ignoreTaxAndTotals)
+        let aiEligible = shouldRunOnDeviceAI(rulesInvoice: rulesInvoice, handoff: handoff)
+
+        let ai: ParsedInvoice?
+        if aiEligible {
+            ai = await environment.foundationModelService.parseInvoiceIfAvailable(
+                from: handoff.modelInputText,
+                ignoreTaxAndTotals: ignoreTaxAndTotals
+            )
+        } else {
+            ai = nil
+        }
+
+        let invoice = mergedParsedInvoice(aiInvoice: ai, rulesInvoice: rulesInvoice)
         processingStage = .finalizing
         logScanDiagnostics(
-            extractedText: parseInput,
+            handoff: handoff,
             invoice: invoice,
+            rulesInvoice: rulesInvoice,
+            aiEligible: aiEligible,
             usedAI: ai != nil,
             ignoreTaxAndTotals: ignoreTaxAndTotals
         )
@@ -222,17 +231,27 @@ final class ScanViewModel: ObservableObject {
     }
 
     private func logScanDiagnostics(
-        extractedText: String,
+        handoff: ParseHandoffPayload,
         invoice: ParsedInvoice,
+        rulesInvoice: ParsedInvoice,
+        aiEligible: Bool,
         usedAI: Bool,
         ignoreTaxAndTotals: Bool
     ) {
         #if DEBUG
-        let lineCount = extractedText.split(whereSeparator: \.isNewline).count
-        let source = usedAI ? "ai+rules" : "rules-only"
+        let source: String = {
+            if usedAI { return "ai+rules" }
+            if aiEligible { return "rules-only(ai-failed)" }
+            return "rules-only(prequalified)"
+        }()
         let confidence = String(format: "%.2f", invoice.confidenceScore)
+        let rulesConfidence = String(format: "%.2f", rulesInvoice.confidenceScore)
+        let unknownRate = String(format: "%.2f", unknownKindRate(in: invoice) * 100)
         print(
-            "[ScanDiag] source=\(source) ignoreTax=\(ignoreTaxAndTotals) chars=\(extractedText.count) lines=\(lineCount) confidence=\(confidence) items=\(invoice.items.count)"
+            "[ScanDiag] source=\(source) localOnly=true ignoreTax=\(ignoreTaxAndTotals) confidence=\(confidence) rulesConfidence=\(rulesConfidence) items=\(invoice.items.count) unknownRate=\(unknownRate)%"
+        )
+        print(
+            "[ScanDiag][Handoff] rawLines=\(handoff.metrics.rawLineCount) dedupedLines=\(handoff.metrics.deduplicatedLineCount) rulesLines=\(handoff.metrics.ruleLineCount) modelLines=\(handoff.metrics.modelLineCount) rawChars=\(handoff.metrics.rawCharacterCount) rulesChars=\(handoff.metrics.rulesCharacterCount) modelChars=\(handoff.metrics.modelCharacterCount) rulesTrimmed=\(handoff.metrics.rulesTrimmed) modelTrimmed=\(handoff.metrics.modelTrimmed) barcodes=\(handoff.metrics.barcodeCount)"
         )
         print(
             "[ScanDiag] header vendor='\(invoice.vendorName ?? "")' invoice='\(invoice.invoiceNumber ?? "")' po='\(invoice.poNumber ?? "")' totalCents=\(invoice.totalCents ?? 0)"
@@ -246,6 +265,85 @@ final class ScanViewModel: ObservableObject {
             )
         }
         #endif
+    }
+
+    private func shouldRunOnDeviceAI(rulesInvoice: ParsedInvoice, handoff: ParseHandoffPayload) -> Bool {
+        guard environment.foundationModelService.isOnDeviceModelAvailable else {
+            return false
+        }
+        guard handoff.hasModelInput else {
+            return false
+        }
+        guard !rulesInvoice.items.isEmpty else {
+            return true
+        }
+
+        let rulesUnknownRate = unknownKindRate(in: rulesInvoice)
+        let rulesIsStrong = rulesInvoice.confidenceScore >= 0.80 && rulesUnknownRate <= 0.12
+        if rulesIsStrong && rulesInvoice.items.count >= 3 {
+            return false
+        }
+
+        return true
+    }
+
+    private func mergedParsedInvoice(aiInvoice: ParsedInvoice?, rulesInvoice: ParsedInvoice) -> ParsedInvoice {
+        guard var ai = aiInvoice else {
+            return rulesInvoice
+        }
+
+        if ai.items.isEmpty {
+            ai.items = rulesInvoice.items
+        } else if !rulesInvoice.items.isEmpty {
+            let aiUnknownRate = unknownKindRate(in: ai)
+            let rulesUnknownRate = unknownKindRate(in: rulesInvoice)
+            let aiItemFloor = max(1, Int((Double(rulesInvoice.items.count) * 0.55).rounded(.up)))
+
+            if ai.items.count < aiItemFloor || aiUnknownRate > rulesUnknownRate + 0.25 {
+                ai.items = rulesInvoice.items
+            }
+        }
+
+        ai.vendorName = preferred(ai.vendorName, fallback: rulesInvoice.vendorName)
+        ai.invoiceNumber = preferred(ai.invoiceNumber, fallback: rulesInvoice.invoiceNumber)
+        ai.poNumber = preferred(ai.poNumber, fallback: rulesInvoice.poNumber)
+
+        if ai.totalCents == nil || ai.totalCents == 0 {
+            ai.totalCents = rulesInvoice.totalCents ?? computedTotalCents(from: ai.items)
+        }
+
+        ai.header.vendorName = preferred(nonEmpty(ai.header.vendorName), fallback: nonEmpty(rulesInvoice.header.vendorName)) ?? ""
+        ai.header.vendorInvoiceNumber = preferred(nonEmpty(ai.header.vendorInvoiceNumber), fallback: nonEmpty(rulesInvoice.header.vendorInvoiceNumber)) ?? ""
+        ai.header.poReference = preferred(nonEmpty(ai.header.poReference), fallback: nonEmpty(rulesInvoice.header.poReference)) ?? ""
+        ai.header.workOrderId = preferred(nonEmpty(ai.header.workOrderId), fallback: nonEmpty(rulesInvoice.header.workOrderId)) ?? ""
+        ai.header.serviceId = preferred(nonEmpty(ai.header.serviceId), fallback: nonEmpty(rulesInvoice.header.serviceId)) ?? ""
+        ai.header.terms = preferred(nonEmpty(ai.header.terms), fallback: nonEmpty(rulesInvoice.header.terms)) ?? ""
+        ai.header.notes = preferred(nonEmpty(ai.header.notes), fallback: nonEmpty(rulesInvoice.header.notes)) ?? ""
+
+        return ai
+    }
+
+    private func unknownKindRate(in invoice: ParsedInvoice) -> Double {
+        guard !invoice.items.isEmpty else { return 1.0 }
+        let unknownCount = invoice.items.filter { $0.kind == .unknown }.count
+        return Double(unknownCount) / Double(invoice.items.count)
+    }
+
+    private func computedTotalCents(from items: [ParsedLineItem]) -> Int? {
+        let total = items.reduce(0) { partial, item in
+            partial + ((item.costCents ?? 0) * max(1, item.quantity ?? 1))
+        }
+        return total > 0 ? total : nil
+    }
+
+    private func preferred(_ primary: String?, fallback: String?) -> String? {
+        nonEmpty(primary) ?? nonEmpty(fallback)
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     func loadTodayMetrics() {

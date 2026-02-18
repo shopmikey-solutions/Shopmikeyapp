@@ -16,6 +16,7 @@ struct AppEnvironment {
     let ocrService: OCRService
     let poParser: POParser
     let foundationModelService: FoundationModelService
+    let parseHandoffService: LocalParseHandoffService
 }
 
 private struct AppEnvironmentKey: EnvironmentKey {
@@ -51,7 +52,8 @@ extension AppEnvironment {
             shopmonkeyAPI: ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics),
             ocrService: OCRService(),
             poParser: POParser(),
-            foundationModelService: FoundationModelService()
+            foundationModelService: FoundationModelService(),
+            parseHandoffService: LocalParseHandoffService()
         )
     }
 }

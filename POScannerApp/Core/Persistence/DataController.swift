@@ -161,6 +161,11 @@ final class DataController {
         guard timeout > 0 else { return }
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in
             guard let self else { return }
+            self.loadLock.lock()
+            let shouldTriggerFallback = !self.isLoaded
+            self.loadLock.unlock()
+            guard shouldTriggerFallback else { return }
+
             Self.logger.error("Persistent store load timeout fallback triggered at \(Int(timeout), privacy: .public)s")
             self.markLoaded(error: NSError(
                 domain: "POScannerApp.DataController",

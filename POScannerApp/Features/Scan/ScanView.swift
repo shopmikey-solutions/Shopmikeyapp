@@ -8,10 +8,16 @@ import VisionKit
 import PhotosUI
 
 struct ScanView: View {
+    private enum PendingCaptureSource {
+        case camera
+        case photos
+    }
+
     @AppStorage("ignoreTaxAndTotals") private var ignoreTaxAndTotals: Bool = false
     @State private var showScanner: Bool = false
     @State private var showSourceSheet: Bool = false
     @State private var showPhotoPicker: Bool = false
+    @State private var pendingCaptureSource: PendingCaptureSource?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isImportingPhoto: Bool = false
     @State private var showProcessingDetails: Bool = true
@@ -39,10 +45,10 @@ struct ScanView: View {
                 toolbarCaptureButton
             }
         }
-        .sheet(isPresented: $showSourceSheet) {
+        .sheet(isPresented: $showSourceSheet, onDismiss: handleCaptureSourceSheetDismissed) {
             ScanSourceSheet(
-                onScanWithCamera: { showScanner = true },
-                onChooseFromPhotos: { showPhotoPicker = true }
+                onScanWithCamera: { pendingCaptureSource = .camera },
+                onChooseFromPhotos: { pendingCaptureSource = .photos }
             )
         }
         .photosPicker(
@@ -52,28 +58,33 @@ struct ScanView: View {
             preferredItemEncoding: .current
         )
         .fullScreenCover(isPresented: $showScanner) {
-            if VNDocumentCameraViewController.isSupported {
-                VisionDocumentScanner(
-                    onScan: { image, orientation in
-                        showScanner = false
-                        viewModel.handleScannedImage(
-                            image,
-                            orientation: orientation,
-                            ignoreTaxAndTotals: ignoreTaxAndTotals
-                        )
-                    },
-                    onCancel: {
-                        showScanner = false
-                    }
-                )
-            } else {
-                ContentUnavailableView(
-                    "Scanner Unavailable",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text("Invoice capture is not supported on this device.")
-                )
-                .padding()
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                if VNDocumentCameraViewController.isSupported {
+                    VisionDocumentScanner(
+                        onScan: { image, orientation in
+                            showScanner = false
+                            viewModel.handleScannedImage(
+                                image,
+                                orientation: orientation,
+                                ignoreTaxAndTotals: ignoreTaxAndTotals
+                            )
+                        },
+                        onCancel: {
+                            showScanner = false
+                        }
+                    )
+                } else {
+                    ContentUnavailableView(
+                        "Scanner Unavailable",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text("Invoice capture is not supported on this device.")
+                    )
+                    .padding()
+                }
             }
+            .ignoresSafeArea()
         }
         .sheet(item: $viewModel.ocrReviewDraft) { draft in
             NavigationStack {
@@ -179,7 +190,8 @@ struct ScanView: View {
     private var currentSessionSection: some View {
         if let latestDraft = viewModel.latestDraft {
             Section("Current Intake Session") {
-                currentIntakeSessionCard(latestDraft)
+                currentSessionSummary(latestDraft)
+                currentSessionActions(for: latestDraft)
             }
         }
     }
@@ -286,8 +298,16 @@ struct ScanView: View {
             )
         }
         .appPrimaryActionButton()
-        .disabled(showScanner || viewModel.isProcessing || isImportingPhoto)
+        .disabled(
+            showScanner ||
+            showSourceSheet ||
+            showPhotoPicker ||
+            viewModel.isProcessing ||
+            isImportingPhoto
+        )
         .accessibilityIdentifier("scan.scanButton")
+        .accessibilityLabel(viewModel.latestDraft == nil ? "Scan parts invoice" : "Start new parts invoice capture")
+        .accessibilityHint("Opens capture source options for camera or photos.")
     }
 
     @ViewBuilder
@@ -318,14 +338,28 @@ struct ScanView: View {
     }
 
     private func presentCaptureFlow() {
-        guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
+        guard !showScanner, !showSourceSheet, !showPhotoPicker, !viewModel.isProcessing, !isImportingPhoto else { return }
         AppHaptics.impact(.medium, intensity: 0.9)
         presentCaptureSourcePicker()
     }
 
     private func presentCaptureSourcePicker() {
-        guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
+        guard !showScanner, !showSourceSheet, !showPhotoPicker, !viewModel.isProcessing, !isImportingPhoto else { return }
+        pendingCaptureSource = nil
         showSourceSheet = true
+    }
+
+    private func handleCaptureSourceSheetDismissed() {
+        guard let pendingCaptureSource else { return }
+        guard !showScanner, !showPhotoPicker, !viewModel.isProcessing, !isImportingPhoto else { return }
+        self.pendingCaptureSource = nil
+
+        switch pendingCaptureSource {
+        case .camera:
+            showScanner = true
+        case .photos:
+            showPhotoPicker = true
+        }
     }
 
     private var additionalDrafts: [ReviewDraftSnapshot] {
@@ -333,9 +367,9 @@ struct ScanView: View {
         return Array(viewModel.inProgressDrafts.dropFirst())
     }
 
-    private func currentIntakeSessionCard(_ draft: ReviewDraftSnapshot) -> some View {
+    private func currentSessionSummary(_ draft: ReviewDraftSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Label(draft.workflowState.statusLabel, systemImage: "clock.arrow.circlepath")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(workflowTint(for: draft.workflowState))
@@ -358,10 +392,8 @@ struct ScanView: View {
                 .progressViewStyle(.linear)
                 .tint(workflowTint(for: draft.workflowState))
                 .animation(.smooth(duration: 0.22), value: draft.workflowProgressEstimate)
-
-            currentSessionActions(for: draft)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
         .accessibilityIdentifier("scan.currentSessionCard")
     }
 
@@ -369,80 +401,50 @@ struct ScanView: View {
     private func currentSessionActions(for draft: ReviewDraftSnapshot) -> some View {
         let canResume = viewModel.canResumeOCRReview(draft) || draft.canResumeInReview
 
-        VStack(spacing: 8) {
-            if viewModel.canResumeOCRReview(draft) {
-                Button {
-                    AppHaptics.selection()
-                    viewModel.resumeOCRReview(draft)
-                } label: {
-                    actionButtonLabel(title: "Review OCR Draft", systemImage: "text.viewfinder")
-                }
-                .appPrimaryActionButton()
-                .frame(maxWidth: .infinity)
-            } else if draft.canResumeInReview {
-                Button {
-                    AppHaptics.selection()
-                    viewModel.resumeDraft(draft)
-                } label: {
-                    actionButtonLabel(title: "Resume Intake Review", systemImage: "arrow.clockwise.circle")
-                }
-                .appPrimaryActionButton()
-                .frame(maxWidth: .infinity)
-            } else {
-                Button {
-                    AppHaptics.selection()
-                    presentCaptureSourcePicker()
-                } label: {
-                    actionButtonLabel(title: "Start New Capture", systemImage: "camera.viewfinder")
-                }
-                .appPrimaryActionButton()
-                .frame(maxWidth: .infinity)
-            }
-
-            if canResume {
-                Button {
-                    AppHaptics.selection()
-                    presentCaptureSourcePicker()
-                } label: {
-                    actionButtonLabel(title: "Start New Capture")
-                }
-                .appSecondaryActionButton()
-                .frame(maxWidth: .infinity)
-            }
-
-            Button(role: .destructive) {
-                AppHaptics.warning()
-                viewModel.deleteDraft(draft)
+        if viewModel.canResumeOCRReview(draft) {
+            Button {
+                AppHaptics.selection()
+                viewModel.resumeOCRReview(draft)
             } label: {
-                Text(canResume ? "Remove Draft" : "Remove Previous Session")
-                    .font(.footnote.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 2)
+                Label("Review OCR Draft", systemImage: "text.viewfinder")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.red)
-            if !draft.canResumeInReview {
-                Text("This session cannot be resumed.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 2)
+        } else if draft.canResumeInReview {
+            Button {
+                AppHaptics.selection()
+                viewModel.resumeDraft(draft)
+            } label: {
+                Label("Resume Intake Review", systemImage: "arrow.clockwise.circle")
+            }
+        } else {
+            Button {
+                AppHaptics.selection()
+                presentCaptureSourcePicker()
+            } label: {
+                Label("Start New Capture", systemImage: "camera.viewfinder")
             }
         }
-    }
 
-    private func actionButtonLabel(title: String, systemImage: String? = nil) -> some View {
-        HStack(spacing: 8) {
-            Spacer(minLength: 0)
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.body.weight(.semibold))
+        if canResume {
+            Button {
+                AppHaptics.selection()
+                presentCaptureSourcePicker()
+            } label: {
+                Label("Start New Capture", systemImage: "camera.viewfinder")
             }
-            Text(title)
-                .lineLimit(1)
-            Spacer(minLength: 0)
         }
-        .frame(minHeight: 22)
+
+        Button(role: .destructive) {
+            AppHaptics.warning()
+            viewModel.deleteDraft(draft)
+        } label: {
+            Label("Remove Saved Session", systemImage: "trash")
+        }
+
+        if !draft.canResumeInReview {
+            Text("This session cannot be resumed.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func workflowTint(for state: ReviewDraftSnapshot.WorkflowState) -> Color {
@@ -642,22 +644,16 @@ private struct ScanSourceSheet: View {
                 Section("Capture Source") {
                     Button {
                         AppHaptics.selection()
+                        onScanWithCamera()
                         dismiss()
-                        Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 120_000_000)
-                            onScanWithCamera()
-                        }
                     } label: {
                         Label("Scan with Camera", systemImage: "camera.viewfinder")
                     }
 
                     Button {
                         AppHaptics.selection()
+                        onChooseFromPhotos()
                         dismiss()
-                        Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 120_000_000)
-                            onChooseFromPhotos()
-                        }
                     } label: {
                         Label("Choose from Photos", systemImage: "photo.on.rectangle")
                     }

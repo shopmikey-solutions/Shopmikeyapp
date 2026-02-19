@@ -100,6 +100,8 @@ extension View {
 }
 
 private struct KeyboardDoneToolbarModifier: ViewModifier {
+    @State private var isKeyboardVisible: Bool = false
+
     private func dismissKeyboard() {
         UIApplication.shared.sendAction(
             #selector(UIResponder.resignFirstResponder),
@@ -110,19 +112,23 @@ private struct KeyboardDoneToolbarModifier: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content.toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") {
-                    dismissKeyboard()
+        content
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if isKeyboardVisible {
+                        Button("Done") {
+                            dismissKeyboard()
+                        }
+                        .accessibilityIdentifier("keyboard.doneButton")
+                    }
                 }
-                .font(.callout.weight(.semibold))
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .fixedSize()
-                .accessibilityIdentifier("keyboard.doneButton")
             }
-        }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                isKeyboardVisible = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                isKeyboardVisible = false
+            }
     }
 }
 
@@ -134,7 +140,7 @@ private struct AppPrimaryActionButtonModifier: ViewModifier {
             .fontWeight(.semibold)
             .controlSize(.large)
             .buttonBorderShape(.capsule)
-            .modifier(ModernPrimaryButtonStyleModifier())
+            .buttonStyle(.borderedProminent)
     }
 }
 
@@ -145,28 +151,6 @@ private struct AppSecondaryActionButtonModifier: ViewModifier {
             .minimumScaleFactor(0.9)
             .controlSize(.large)
             .buttonBorderShape(.capsule)
-            .modifier(ModernSecondaryButtonStyleModifier())
-    }
-}
-
-private struct ModernPrimaryButtonStyleModifier: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.buttonStyle(.glassProminent)
-        } else {
-            content.buttonStyle(.borderedProminent)
-        }
-    }
-}
-
-private struct ModernSecondaryButtonStyleModifier: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.buttonStyle(.glass)
-        } else {
-            content.buttonStyle(.bordered)
-        }
+            .buttonStyle(.bordered)
     }
 }

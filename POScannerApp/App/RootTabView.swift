@@ -15,6 +15,7 @@ struct RootTabView: View {
     @Environment(\.appEnvironment) private var environment
     @State private var selectedTab: Tab = .scan
     @State private var loadedTabs: Set<Tab> = [.scan]
+    @State private var pendingDeepLinkTask: Task<Void, Never>?
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -29,6 +30,9 @@ struct RootTabView: View {
             .tabItem {
                 Label("Scan", systemImage: "doc.text.viewfinder")
             }
+            .accessibilityLabel("Scan")
+            .accessibilityHint("Capture invoices and review current intake sessions.")
+            .accessibilityIdentifier("tab.scan")
 
             NavigationStack {
                 if loadedTabs.contains(.history) {
@@ -41,6 +45,9 @@ struct RootTabView: View {
             .tabItem {
                 Label("History", systemImage: "clock")
             }
+            .accessibilityLabel("History")
+            .accessibilityHint("Browse submitted purchase orders and in-progress drafts.")
+            .accessibilityIdentifier("tab.history")
 
             NavigationStack {
                 if loadedTabs.contains(.settings) {
@@ -53,6 +60,9 @@ struct RootTabView: View {
             .tabItem {
                 Label("Settings", systemImage: "gearshape")
             }
+            .accessibilityLabel("Settings")
+            .accessibilityHint("Configure Shopmonkey connection and app behavior.")
+            .accessibilityIdentifier("tab.settings")
         }
         .tint(AppSurfaceStyle.accent)
         .sensoryFeedback(.selection, trigger: selectedTab)
@@ -67,6 +77,10 @@ struct RootTabView: View {
             guard let url = notification.object as? URL else { return }
             handleDeepLink(url)
         }
+        .onDisappear {
+            pendingDeepLinkTask?.cancel()
+            pendingDeepLinkTask = nil
+        }
     }
 
     private func handleDeepLink(_ url: URL) {
@@ -75,18 +89,25 @@ struct RootTabView: View {
         switch route {
         case let .scan(openComposer, draftID):
             selectedTab = .scan
-            Task { @MainActor in
+            pendingDeepLinkTask?.cancel()
+            pendingDeepLinkTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 220_000_000)
+                guard !Task.isCancelled else { return }
                 if let draftID {
                     NotificationCenter.default.post(name: .appResumeScanDraft, object: draftID)
                 } else if openComposer {
                     NotificationCenter.default.post(name: .appOpenScanComposer, object: nil)
                 }
+                pendingDeepLinkTask = nil
             }
         case .history:
             selectedTab = .history
+            pendingDeepLinkTask?.cancel()
+            pendingDeepLinkTask = nil
         case .settings:
             selectedTab = .settings
+            pendingDeepLinkTask?.cancel()
+            pendingDeepLinkTask = nil
         }
     }
 }

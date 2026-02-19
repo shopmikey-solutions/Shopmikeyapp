@@ -36,6 +36,8 @@ struct NativeTextView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 12)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
 
             TextEditor(text: $text)

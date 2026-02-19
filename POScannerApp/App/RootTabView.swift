@@ -14,11 +14,16 @@ struct RootTabView: View {
 
     @Environment(\.appEnvironment) private var environment
     @State private var selectedTab: Tab = .scan
+    @State private var loadedTabs: Set<Tab> = [.scan]
 
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                ScanView(environment: environment)
+                if loadedTabs.contains(.scan) {
+                    ScanView(environment: environment)
+                } else {
+                    Color.clear
+                }
             }
             .tag(Tab.scan)
             .tabItem {
@@ -26,7 +31,11 @@ struct RootTabView: View {
             }
 
             NavigationStack {
-                HistoryView(environment: environment)
+                if loadedTabs.contains(.history) {
+                    HistoryView(environment: environment)
+                } else {
+                    Color.clear
+                }
             }
             .tag(Tab.history)
             .tabItem {
@@ -34,7 +43,11 @@ struct RootTabView: View {
             }
 
             NavigationStack {
-                SettingsView(environment: environment)
+                if loadedTabs.contains(.settings) {
+                    SettingsView(environment: environment)
+                } else {
+                    Color.clear
+                }
             }
             .tag(Tab.settings)
             .tabItem {
@@ -44,6 +57,9 @@ struct RootTabView: View {
         .tint(AppSurfaceStyle.accent)
         .sensoryFeedback(.selection, trigger: selectedTab)
         .appSensoryFeedback()
+        .onChange(of: selectedTab) { _, tab in
+            loadedTabs.insert(tab)
+        }
         .onOpenURL { url in
             handleDeepLink(url)
         }

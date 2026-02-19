@@ -912,10 +912,10 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
             ordered.append(trimmed)
         }
 
-        // Let server default if status is optional.
-        append(nil)
-        append(preferredPurchaseOrderStatus())
         append(initial)
+        append(preferredPurchaseOrderStatus())
+        // Let server default if explicit status fails.
+        append(nil)
 
         for status in additional {
             append(status)

@@ -326,7 +326,8 @@ private struct OCROverlayPreview: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let combinedScale = max(1, min(4, zoomScale * gestureScale))
+            let proposedScale = zoomScale * gestureScale
+            let combinedScale = proposedScale.isFinite ? max(1, min(4, proposedScale)) : 1
             let combinedOffset = clampedOffset(
                 CGSize(
                     width: panOffset.width + gesturePanOffset.width,
@@ -345,31 +346,35 @@ private struct OCROverlayPreview: View {
                 if showTextHighlights {
                     ForEach(lines) { line in
                         let rect = rectInView(for: line.boundingBox, in: proxy.size)
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .stroke(
-                                selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning,
-                                lineWidth: selectedLineID == line.id ? 2 : 1
-                            )
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill((selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning).opacity(0.14))
-                            )
-                            .frame(width: rect.width, height: rect.height)
-                            .position(x: rect.midX, y: rect.midY)
+                        if rect.width > 0, rect.height > 0 {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .stroke(
+                                    selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning,
+                                    lineWidth: selectedLineID == line.id ? 2 : 1
+                                )
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .fill((selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning).opacity(0.14))
+                                )
+                                .frame(width: rect.width, height: rect.height)
+                                .position(x: rect.midX, y: rect.midY)
+                        }
                     }
                 }
 
                 if showBarcodeHighlights {
                     ForEach(barcodes) { barcode in
                         let rect = rectInView(for: barcode.boundingBox, in: proxy.size)
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .stroke(selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal, lineWidth: selectedBarcodeID == barcode.id ? 2 : 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill((selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal).opacity(0.16))
-                            )
-                            .frame(width: rect.width, height: rect.height)
-                            .position(x: rect.midX, y: rect.midY)
+                        if rect.width > 0, rect.height > 0 {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .stroke(selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal, lineWidth: selectedBarcodeID == barcode.id ? 2 : 1)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .fill((selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal).opacity(0.16))
+                                )
+                                .frame(width: rect.width, height: rect.height)
+                                .position(x: rect.midX, y: rect.midY)
+                        }
                     }
                 }
             }
@@ -439,12 +444,22 @@ private struct OCROverlayPreview: View {
 
     private func rectInView(for normalized: CGRect, in containerSize: CGSize) -> CGRect {
         let imageSize = image.size
-        guard imageSize.width > 0, imageSize.height > 0, containerSize.width > 0, containerSize.height > 0 else {
+        guard imageSize.width.isFinite,
+              imageSize.height.isFinite,
+              containerSize.width.isFinite,
+              containerSize.height.isFinite,
+              imageSize.width > 0,
+              imageSize.height > 0,
+              containerSize.width > 0,
+              containerSize.height > 0 else {
             return .zero
         }
+        guard let normalized = sanitizedNormalizedRect(normalized) else { return .zero }
 
         let imageAspect = imageSize.width / imageSize.height
         let containerAspect = containerSize.width / containerSize.height
+
+        guard imageAspect.isFinite, containerAspect.isFinite else { return .zero }
 
         let drawRect: CGRect
         if imageAspect > containerAspect {
@@ -457,22 +472,62 @@ private struct OCROverlayPreview: View {
             drawRect = CGRect(x: (containerSize.width - width) / 2, y: 0, width: width, height: height)
         }
 
-        return CGRect(
+        let rect = CGRect(
             x: drawRect.minX + (normalized.minX * drawRect.width),
             y: drawRect.minY + ((1 - normalized.maxY) * drawRect.height),
             width: normalized.width * drawRect.width,
             height: normalized.height * drawRect.height
         )
+        guard rect.minX.isFinite,
+              rect.minY.isFinite,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width >= 0,
+              rect.height >= 0 else {
+            return .zero
+        }
+        return rect
     }
 
     private func clampedOffset(_ offset: CGSize, scale: CGFloat, containerSize: CGSize) -> CGSize {
-        guard scale > 1 else { return .zero }
+        guard scale.isFinite,
+              containerSize.width.isFinite,
+              containerSize.height.isFinite,
+              offset.width.isFinite,
+              offset.height.isFinite,
+              scale > 1,
+              containerSize.width > 0,
+              containerSize.height > 0 else {
+            return .zero
+        }
         let maxX = (containerSize.width * (scale - 1)) / 2
         let maxY = (containerSize.height * (scale - 1)) / 2
+        guard maxX.isFinite, maxY.isFinite, maxX >= 0, maxY >= 0 else { return .zero }
         return CGSize(
             width: min(max(offset.width, -maxX), maxX),
             height: min(max(offset.height, -maxY), maxY)
         )
+    }
+
+    private func sanitizedNormalizedRect(_ rect: CGRect) -> CGRect? {
+        guard rect.minX.isFinite,
+              rect.minY.isFinite,
+              rect.width.isFinite,
+              rect.height.isFinite else {
+            return nil
+        }
+
+        let standardized = rect.standardized
+        let minX = min(max(standardized.minX, 0), 1)
+        let minY = min(max(standardized.minY, 0), 1)
+        let maxX = min(max(standardized.maxX, 0), 1)
+        let maxY = min(max(standardized.maxY, 0), 1)
+
+        let width = max(0, maxX - minX)
+        let height = max(0, maxY - minY)
+        guard width.isFinite, height.isFinite else { return nil }
+
+        return CGRect(x: minX, y: minY, width: width, height: height)
     }
 }
 

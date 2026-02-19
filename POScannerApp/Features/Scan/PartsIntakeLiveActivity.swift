@@ -154,6 +154,8 @@ actor PartsIntakeLiveActivityManager {
 enum PartsIntakeLiveActivityBridge {
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.LiveActivity")
     private static var firstForegroundSyncAt: Date?
+    private static var hasLoggedGatePassForForegroundSession: Bool = false
+    private static var hasLoggedInactiveBlockForForegroundSession: Bool = false
     private static let startupGateInterval: TimeInterval = 1.0
 
     @MainActor
@@ -187,20 +189,28 @@ enum PartsIntakeLiveActivityBridge {
     private static func readyForForegroundSync() -> Bool {
         #if canImport(UIKit)
         guard UIApplication.shared.applicationState == .active else {
-            logger.debug("Live Activity gate blocked because app is not active.")
+            if !hasLoggedInactiveBlockForForegroundSession {
+                logger.debug("Live Activity gate blocked because app is not active.")
+                hasLoggedInactiveBlockForForegroundSession = true
+            }
+            firstForegroundSyncAt = nil
+            hasLoggedGatePassForForegroundSession = false
             return false
         }
+        hasLoggedInactiveBlockForForegroundSession = false
 
         let now = Date()
         if let firstForegroundSyncAt {
             let isReady = now.timeIntervalSince(firstForegroundSyncAt) >= startupGateInterval
-            if isReady {
+            if isReady, !hasLoggedGatePassForForegroundSession {
                 logger.debug("Live Activity gate passed after startup delay.")
+                hasLoggedGatePassForForegroundSession = true
             }
             return isReady
         }
 
         firstForegroundSyncAt = now
+        hasLoggedGatePassForForegroundSession = false
         logger.debug("Live Activity foreground gate started.")
         return false
         #else

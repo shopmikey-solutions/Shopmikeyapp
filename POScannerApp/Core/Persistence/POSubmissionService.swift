@@ -138,8 +138,12 @@ final class POSubmissionService {
                 ignoreTaxAndTotals: ignoreTaxAndTotals
             )
 
-            // Best-effort verify. A failure here should not block a successful submission.
-            let knownPurchaseOrders = await bestEffortFetchPurchaseOrders()
+            let needsPurchaseOrderLookup = submissionArtifacts.createdPurchaseOrderNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty == nil
+                && submissionArtifacts.createdPurchaseOrderID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty != nil
+            // Best-effort verify only when we still need to recover a submitted PO number.
+            let knownPurchaseOrders = needsPurchaseOrderLookup
+                ? await bestEffortFetchPurchaseOrders()
+                : nil
             let submittedPONumber = resolveSubmittedPONumber(
                 from: submissionArtifacts,
                 knownPurchaseOrders: knownPurchaseOrders

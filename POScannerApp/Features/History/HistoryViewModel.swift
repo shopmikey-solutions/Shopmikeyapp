@@ -44,20 +44,28 @@ final class HistoryViewModel: ObservableObject {
 
     private let dataController: DataController
     private let reviewDraftStore: ReviewDraftStore
+    private var loadHistoryTask: Task<Void, Never>?
 
     init(dataController: DataController, reviewDraftStore: ReviewDraftStore) {
         self.dataController = dataController
         self.reviewDraftStore = reviewDraftStore
     }
 
+    deinit {
+        loadHistoryTask?.cancel()
+    }
+
     func loadHistory() {
+        loadHistoryTask?.cancel()
         isLoading = true
 
         let container = dataController.container
 
-        Task(priority: .userInitiated) {
+        loadHistoryTask = Task(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
             async let drafts = reviewDraftStore.list()
             await self.dataController.waitUntilLoaded()
+            guard !Task.isCancelled else { return }
             let backgroundContext = container.newBackgroundContext()
             backgroundContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
@@ -91,8 +99,10 @@ final class HistoryViewModel: ObservableObject {
                 }
             }
 
+            let draftSnapshots = await drafts
+            guard !Task.isCancelled else { return }
             orders = mapped
-            inProgressDrafts = await drafts
+            inProgressDrafts = draftSnapshots
             isLoading = false
         }
     }

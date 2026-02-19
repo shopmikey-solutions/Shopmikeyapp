@@ -164,7 +164,7 @@ struct HistoryView: View {
                 .refreshable {
                     viewModel.loadHistory()
                 }
-                .searchable(text: $searchText, prompt: "Vendor, invoice, PO, or status")
+                .searchable(text: $searchText, prompt: "Vendor, PO, status, or error")
             }
         }
         .navigationTitle("Purchase Order History")
@@ -244,6 +244,12 @@ struct HistoryView: View {
                 return true
             }
             if let poNumber = row.poNumber, poNumber.localizedCaseInsensitiveContains(query) {
+                return true
+            }
+            if row.status.localizedCaseInsensitiveContains(query) {
+                return true
+            }
+            if let lastError = row.lastError, lastError.localizedCaseInsensitiveContains(query) {
                 return true
             }
             return false

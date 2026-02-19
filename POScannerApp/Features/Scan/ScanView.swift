@@ -17,6 +17,7 @@ struct ScanView: View {
     @State private var showProcessingDetails: Bool = true
     @State private var showResumeDraftDialog: Bool = false
     @State private var hasPerformedInitialLoad: Bool = false
+    @State private var initialLoadTask: Task<Void, Never>?
     @StateObject private var viewModel: ScanViewModel
 
     init(environment: AppEnvironment) {
@@ -142,9 +143,19 @@ struct ScanView: View {
         .onAppear {
             if !hasPerformedInitialLoad {
                 hasPerformedInitialLoad = true
-                viewModel.loadTodayMetrics()
-                viewModel.loadInProgressDrafts()
+                initialLoadTask?.cancel()
+                initialLoadTask = Task { @MainActor in
+                    await Task.yield()
+                    try? await Task.sleep(nanoseconds: 180_000_000)
+                    guard hasPerformedInitialLoad else { return }
+                    viewModel.loadInProgressDrafts()
+                    viewModel.loadTodayMetrics()
+                }
             }
+        }
+        .onDisappear {
+            initialLoadTask?.cancel()
+            initialLoadTask = nil
         }
         .onChange(of: viewModel.processingStage) { _, stage in
             guard stage != nil else { return }

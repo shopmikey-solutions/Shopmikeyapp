@@ -85,9 +85,16 @@ final class ScanViewModel: ObservableObject {
     private let minimumParseFlowDuration: TimeInterval = 1.15
     private var activeWorkflowDraftID: UUID?
     private var cachedOCRReviewDrafts: [UUID: OCRReviewDraft] = [:]
+    private var todayMetricsTask: Task<Void, Never>?
+    private var inProgressDraftsTask: Task<Void, Never>?
 
     init(environment: AppEnvironment) {
         self.environment = environment
+    }
+
+    deinit {
+        todayMetricsTask?.cancel()
+        inProgressDraftsTask?.cancel()
     }
 
     func handleScannedImage(
@@ -264,8 +271,12 @@ final class ScanViewModel: ObservableObject {
     }
 
     func loadInProgressDrafts() {
-        Task {
-            inProgressDrafts = await environment.reviewDraftStore.list()
+        inProgressDraftsTask?.cancel()
+        inProgressDraftsTask = Task { [weak self] in
+            guard let self else { return }
+            let drafts = await environment.reviewDraftStore.list()
+            guard !Task.isCancelled else { return }
+            inProgressDrafts = drafts
         }
     }
 
@@ -654,10 +665,13 @@ final class ScanViewModel: ObservableObject {
     }
 
     func loadTodayMetrics() {
+        todayMetricsTask?.cancel()
         let dataController = environment.dataController
 
-        Task(priority: .userInitiated) {
+        todayMetricsTask = Task(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
             await dataController.waitUntilLoaded()
+            guard !Task.isCancelled else { return }
             let container = dataController.container
             let context = container.newBackgroundContext()
             let hasPurchaseOrderEntity = NSEntityDescription.entity(forEntityName: "PurchaseOrder", in: context) != nil
@@ -715,6 +729,7 @@ final class ScanViewModel: ObservableObject {
                 return (count, pending, submitted, failed, total, recent)
             }
 
+            guard !Task.isCancelled else { return }
             todayCount = metrics.count
             todayTotal = metrics.total
             pendingCount = metrics.pending

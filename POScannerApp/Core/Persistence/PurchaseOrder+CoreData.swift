@@ -6,6 +6,50 @@
 import CoreData
 import Foundation
 
+enum PurchaseOrderStatusBucket: Equatable {
+    case submitted
+    case pending
+    case failed
+    case ignored
+
+    init(rawStatus: String) {
+        let normalized = Self.normalized(rawStatus)
+        guard !normalized.isEmpty else {
+            self = .ignored
+            return
+        }
+
+        switch normalized {
+        case "submitted", "success", "succeeded", "complete", "completed", "closed", "fulfilled", "received":
+            self = .submitted
+        case "draft", "submitting", "pending", "queued", "queue", "in_progress", "in-progress", "processing", "retrying", "retry", "open", "created", "ordered":
+            self = .pending
+        case "failed", "error", "errored", "rejected", "cancelled", "canceled":
+            self = .failed
+        default:
+            self = .ignored
+        }
+    }
+
+    var countsAsTrackedScan: Bool {
+        self != .ignored
+    }
+
+    var countsAsAttention: Bool {
+        self == .pending || self == .failed
+    }
+
+    var allowsRetry: Bool {
+        self == .failed
+    }
+
+    static func normalized(_ rawStatus: String) -> String {
+        rawStatus
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+}
+
 @objc(PurchaseOrder)
 public final class PurchaseOrder: NSManagedObject {
     public override func awakeFromInsert() {

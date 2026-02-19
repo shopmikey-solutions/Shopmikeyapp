@@ -77,17 +77,19 @@ struct HistoryDetailView: View {
 
     private func statusChip(title: String) -> some View {
         let color: Color
-        switch title.lowercased() {
-        case "submitted":
+        switch PurchaseOrderStatusBucket(rawStatus: title) {
+        case .submitted:
             color = AppSurfaceStyle.success
-        case "failed":
+        case .failed:
             color = .red
-        case "submitting":
-            color = AppSurfaceStyle.warning
-        default:
+        case .pending:
+            color = AppSurfaceStyle.info
+        case .ignored:
             color = .gray
         }
-        return Text(title.capitalized)
+        let normalized = PurchaseOrderStatusBucket.normalized(title)
+        let statusLabel = normalized.isEmpty ? "Unknown" : normalized.capitalized
+        return Text(statusLabel)
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

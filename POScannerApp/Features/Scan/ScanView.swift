@@ -502,18 +502,18 @@ struct ScanView: View {
             HStack(spacing: 20) {
                 metricCell(title: "Scans Today", value: "\(viewModel.todayCount)")
                 metricCell(title: "POs Submitted", value: "\(viewModel.submittedCount)")
-                metricCell(title: "Needs Retry", value: "\(viewModel.failedCount)")
+                metricCell(title: "Needs Attention", value: "\(viewModel.needsAttentionCount)")
             }
 
-            ProgressView(value: pipelineProgress) {
+            ProgressView(value: viewModel.syncSuccessRate) {
                 Text("Shopmonkey Sync Status")
                     .font(.subheadline.weight(.medium))
             } currentValueLabel: {
-                Text("\(Int((pipelineProgress * 100).rounded()))%")
+                Text("\(Int((viewModel.syncSuccessRate * 100).rounded()))%")
                     .font(.footnote.monospacedDigit())
                     .contentTransition(.numericText())
             }
-            .animation(.smooth(duration: 0.28), value: pipelineProgress)
+            .animation(.smooth(duration: 0.28), value: viewModel.syncSuccessRate)
 
             LabeledContent("PO Value Today") {
                 Text(viewModel.todayTotalFormatted)
@@ -529,6 +529,7 @@ struct ScanView: View {
         .padding(.vertical, 4)
         .animation(.snappy(duration: 0.26), value: viewModel.todayCount)
         .animation(.snappy(duration: 0.26), value: viewModel.submittedCount)
+        .animation(.snappy(duration: 0.26), value: viewModel.pendingCount)
         .animation(.snappy(duration: 0.26), value: viewModel.failedCount)
     }
 
@@ -543,11 +544,6 @@ struct ScanView: View {
                 .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var pipelineProgress: Double {
-        guard viewModel.todayCount > 0 else { return 0 }
-        return min(1, Double(viewModel.submittedCount) / Double(viewModel.todayCount))
     }
 
     private func syncLiveActivity() {

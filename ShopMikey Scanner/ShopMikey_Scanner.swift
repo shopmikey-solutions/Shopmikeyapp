@@ -55,6 +55,18 @@ struct Provider: TimelineProvider {
             )
         }
 
+        // Avoid stale "today" metrics after date rollover when app hasn't published a fresh snapshot yet.
+        guard Calendar.current.isDate(snapshot.generatedAt, inSameDayAs: fallbackDate) else {
+            return SimpleEntry(
+                date: fallbackDate,
+                scansToday: 0,
+                submittedCount: 0,
+                failedCount: 0,
+                pendingCount: 0,
+                totalValueCents: 0
+            )
+        }
+
         return SimpleEntry(
             date: snapshot.generatedAt,
             scansToday: snapshot.scansToday,
@@ -99,7 +111,7 @@ struct ShopMikey_ScannerEntryView : View {
             HStack(spacing: 12) {
                 metric(title: "Scans", value: entry.scansToday)
                 metric(title: "Submitted", value: entry.submittedCount)
-                metric(title: "Retry", value: entry.failedCount)
+                metric(title: "Attention", value: entry.pendingCount + entry.failedCount)
             }
 
             ProgressView(value: progress)

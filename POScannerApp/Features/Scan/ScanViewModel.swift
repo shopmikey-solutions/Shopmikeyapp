@@ -560,6 +560,15 @@ final class ScanViewModel: ObservableObject {
         processingStage?.detail ?? "Preparing purchase-order intake result."
     }
 
+    var needsAttentionCount: Int {
+        pendingCount + failedCount
+    }
+
+    var syncSuccessRate: Double {
+        guard todayCount > 0 else { return 0 }
+        return min(1, Double(submittedCount) / Double(todayCount))
+    }
+
     private func logScanDiagnostics(
         handoff: ParseHandoffPayload,
         invoice: ParsedInvoice,
@@ -720,12 +729,44 @@ final class ScanViewModel: ObservableObject {
                 request.sortDescriptors = [NSSortDescriptor(key: "date", ascending: false)]
 
                 let results = (try? context.fetch(request)) ?? []
-                let count = results.count
-                let pending = results.filter { $0.status.lowercased() == "submitting" }.count
-                let submitted = results.filter { $0.status.lowercased() == "submitted" }.count
-                let failed = results.filter { $0.status.lowercased() == "failed" }.count
-                let total = results.reduce(Decimal.zero) { partial, order in
-                    partial + Decimal(order.totalAmount)
+                var count = 0
+                var pending = 0
+                var submitted = 0
+                var failed = 0
+                var total = Decimal.zero
+                var mostRecentTrackedOrder: PurchaseOrder?
+
+                for order in results {
+                    let statusBucket = PurchaseOrderStatusBucket(rawStatus: order.status)
+                    guard statusBucket.countsAsTrackedScan else {
+                        continue
+                    }
+
+                    switch statusBucket {
+                    case .submitted:
+                        count += 1
+                        submitted += 1
+                        total += Decimal(order.totalAmount)
+                        if mostRecentTrackedOrder == nil {
+                            mostRecentTrackedOrder = order
+                        }
+                    case .pending:
+                        count += 1
+                        pending += 1
+                        total += Decimal(order.totalAmount)
+                        if mostRecentTrackedOrder == nil {
+                            mostRecentTrackedOrder = order
+                        }
+                    case .failed:
+                        count += 1
+                        failed += 1
+                        total += Decimal(order.totalAmount)
+                        if mostRecentTrackedOrder == nil {
+                            mostRecentTrackedOrder = order
+                        }
+                    case .ignored:
+                        break
+                    }
                 }
 
                 let dateFormatter = DateFormatter()
@@ -737,7 +778,7 @@ final class ScanViewModel: ObservableObject {
                 currencyFormatter.minimumFractionDigits = 2
                 currencyFormatter.maximumFractionDigits = 2
 
-                let recent = results.first.map { order in
+                let recent = mostRecentTrackedOrder.map { order in
                     let vendor = order.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? "Unknown Vendor"
                         : order.vendorName
@@ -760,7 +801,7 @@ final class ScanViewModel: ObservableObject {
             failedCount = metrics.failed
             mostRecentSummary = metrics.recent
             Self.logger.debug(
-                "Loaded today metrics scans=\(metrics.count, privacy: .public) submitted=\(metrics.submitted, privacy: .public) failed=\(metrics.failed, privacy: .public)."
+                "Loaded today metrics scans=\(metrics.count, privacy: .public) submitted=\(metrics.submitted, privacy: .public) pending=\(metrics.pending, privacy: .public) failed=\(metrics.failed, privacy: .public)."
             )
             PartsIntakeWidgetBridge.publish(
                 scansToday: metrics.count,

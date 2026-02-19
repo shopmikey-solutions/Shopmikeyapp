@@ -139,7 +139,7 @@ struct HistoryView: View {
                                             searchText = poNumber
                                         }
                                     }
-                                    if row.status.lowercased() == "failed" {
+                                    if statusBucket(for: row.status).allowsRetry {
                                         Button("Retry Submission") {
                                             AppHaptics.impact(.medium, intensity: 0.8)
                                             Task { await retry(row) }
@@ -147,7 +147,7 @@ struct HistoryView: View {
                                     }
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    if row.status.lowercased() == "failed" {
+                                    if statusBucket(for: row.status).allowsRetry {
                                         Button("Retry") {
                                             AppHaptics.impact(.medium, intensity: 0.8)
                                             Task { await retry(row) }
@@ -229,11 +229,10 @@ struct HistoryView: View {
             scoped = viewModel.orders
         case .attention:
             scoped = viewModel.orders.filter { row in
-                let normalized = row.status.lowercased()
-                return normalized == "failed" || normalized == "submitting"
+                statusBucket(for: row.status).countsAsAttention
             }
         case .submitted:
-            scoped = viewModel.orders.filter { $0.status.lowercased() == "submitted" }
+            scoped = viewModel.orders.filter { statusBucket(for: $0.status) == .submitted }
         }
 
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -261,10 +260,14 @@ struct HistoryView: View {
         return viewModel.orders.filter { $0.date >= startOfDay }
     }
 
+    private var todayTrackedOrders: [HistoryViewModel.HistoryRow] {
+        todayOrders.filter { statusBucket(for: $0.status).countsAsTrackedScan }
+    }
+
     private var historyOverviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             LabeledContent("Scans Today") {
-                Text("\(todayOrders.count)")
+                Text("\(todayTrackedOrders.count)")
                     .monospacedDigit()
                     .contentTransition(.numericText())
             }
@@ -285,26 +288,26 @@ struct HistoryView: View {
             }
             .font(.headline)
         }
-        .animation(.snappy(duration: 0.24), value: todayOrders.count)
+        .animation(.snappy(duration: 0.24), value: todayTrackedOrders.count)
         .animation(.snappy(duration: 0.24), value: submittedCount)
         .animation(.snappy(duration: 0.24), value: pendingCount)
         .animation(.snappy(duration: 0.24), value: failedCount)
     }
 
     private var submittedCount: Int {
-        todayOrders.filter { $0.status.lowercased() == "submitted" }.count
+        todayTrackedOrders.filter { statusBucket(for: $0.status) == .submitted }.count
     }
 
     private var pendingCount: Int {
-        todayOrders.filter { $0.status.lowercased() == "submitting" }.count
+        todayTrackedOrders.filter { statusBucket(for: $0.status) == .pending }.count
     }
 
     private var failedCount: Int {
-        todayOrders.filter { $0.status.lowercased() == "failed" }.count
+        todayTrackedOrders.filter { statusBucket(for: $0.status) == .failed }.count
     }
 
     private var totalValueFormatted: String {
-        let value = todayOrders.reduce(0.0) { $0 + $1.totalAmount }
+        let value = todayTrackedOrders.reduce(0.0) { $0 + $1.totalAmount }
         return value.formatted(.currency(code: "USD"))
     }
 
@@ -328,7 +331,7 @@ struct HistoryView: View {
             .font(.footnote)
             .foregroundStyle(.secondary)
 
-            if row.status.lowercased() == "failed",
+            if statusBucket(for: row.status).allowsRetry,
                let lastError = row.lastError,
                !lastError.isEmpty {
                 Text(lastError)
@@ -358,37 +361,52 @@ struct HistoryView: View {
             viewModel.loadHistory()
         }
     }
+
+    private func statusBucket(for rawStatus: String) -> PurchaseOrderStatusBucket {
+        PurchaseOrderStatusBucket(rawStatus: rawStatus)
+    }
 }
 
 private struct StatusBadge: View {
     let status: String
 
     private var label: String {
-        switch status.lowercased() {
-        case "draft":
-            return "Draft"
-        case "submitting":
-            return "Submitting"
-        case "submitted":
+        let normalized = PurchaseOrderStatusBucket.normalized(status)
+        switch PurchaseOrderStatusBucket(rawStatus: status) {
+        case .submitted:
             return "Submitted"
-        case "failed":
+        case .pending:
+            switch normalized {
+            case "draft":
+                return "Draft"
+            case "submitting":
+                return "Submitting"
+            case "retry", "retrying":
+                return "Retrying"
+            case "ordered":
+                return "Ordered"
+            default:
+                return normalized.isEmpty ? "Pending" : normalized.capitalized
+            }
+        case .failed:
+            if normalized == "cancelled" || normalized == "canceled" {
+                return "Cancelled"
+            }
             return "Failed"
-        default:
-            return status.isEmpty ? "Unknown" : status.capitalized
+        case .ignored:
+            return normalized.isEmpty ? "Unknown" : normalized.capitalized
         }
     }
 
     private var color: Color {
-        switch status.lowercased() {
-        case "draft":
-            return .gray
-        case "submitting":
-            return AppSurfaceStyle.info
-        case "submitted":
+        switch PurchaseOrderStatusBucket(rawStatus: status) {
+        case .submitted:
             return AppSurfaceStyle.success
-        case "failed":
+        case .pending:
+            return AppSurfaceStyle.info
+        case .failed:
             return .red
-        default:
+        case .ignored:
             return .secondary
         }
     }

@@ -1,5 +1,5 @@
 //
-//  ShopMikey_Scanner.swift
+//  ShopMikeyScannerWidget.swift
 //  ShopMikey Scanner
 //
 //  Created by Michael Bordeaux on 2/18/26.
@@ -17,11 +17,11 @@ struct PartsIntakeWidgetSnapshot: Codable {
     let totalValueCents: Int
 }
 
-struct Provider: TimelineProvider {
-    typealias Entry = SimpleEntry
+struct PartsIntakeWidgetProvider: TimelineProvider {
+    typealias Entry = PartsIntakeWidgetEntry
 
-    func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(
+    func placeholder(in context: Context) -> PartsIntakeWidgetEntry {
+        PartsIntakeWidgetEntry(
             date: Date(),
             scansToday: 0,
             submittedCount: 0,
@@ -31,21 +31,21 @@ struct Provider: TimelineProvider {
         )
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> Void) {
+    func getSnapshot(in context: Context, completion: @escaping (PartsIntakeWidgetEntry) -> Void) {
         completion(loadEntry(fallbackDate: Date()))
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<SimpleEntry>) -> Void) {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<PartsIntakeWidgetEntry>) -> Void) {
         let entry = loadEntry(fallbackDate: Date())
         let refresh = Calendar.current.date(byAdding: .minute, value: 15, to: entry.date) ?? entry.date.addingTimeInterval(900)
         completion(Timeline(entries: [entry], policy: .after(refresh)))
     }
 
-    private func loadEntry(fallbackDate: Date) -> SimpleEntry {
+    private func loadEntry(fallbackDate: Date) -> PartsIntakeWidgetEntry {
         let defaults = sharedDefaults ?? .standard
         guard let data = defaults.data(forKey: "partsIntake.widgetSnapshot.v1"),
               let snapshot = try? JSONDecoder().decode(PartsIntakeWidgetSnapshot.self, from: data) else {
-            return SimpleEntry(
+            return PartsIntakeWidgetEntry(
                 date: fallbackDate,
                 scansToday: 0,
                 submittedCount: 0,
@@ -57,7 +57,7 @@ struct Provider: TimelineProvider {
 
         // Avoid stale "today" metrics after date rollover when app hasn't published a fresh snapshot yet.
         guard Calendar.current.isDate(snapshot.generatedAt, inSameDayAs: fallbackDate) else {
-            return SimpleEntry(
+            return PartsIntakeWidgetEntry(
                 date: fallbackDate,
                 scansToday: 0,
                 submittedCount: 0,
@@ -67,7 +67,7 @@ struct Provider: TimelineProvider {
             )
         }
 
-        return SimpleEntry(
+        return PartsIntakeWidgetEntry(
             date: snapshot.generatedAt,
             scansToday: snapshot.scansToday,
             submittedCount: snapshot.submittedCount,
@@ -85,7 +85,7 @@ struct Provider: TimelineProvider {
     }
 }
 
-struct SimpleEntry: TimelineEntry {
+struct PartsIntakeWidgetEntry: TimelineEntry {
     let date: Date
     let scansToday: Int
     let submittedCount: Int
@@ -94,8 +94,8 @@ struct SimpleEntry: TimelineEntry {
     let totalValueCents: Int
 }
 
-struct ShopMikey_ScannerEntryView : View {
-    var entry: Provider.Entry
+struct ShopMikeyScannerEntryView: View {
+    var entry: PartsIntakeWidgetProvider.Entry
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -126,7 +126,9 @@ struct ShopMikey_ScannerEntryView : View {
 
     private var progress: Double {
         guard entry.scansToday > 0 else { return 0 }
-        return min(1, Double(entry.submittedCount) / Double(entry.scansToday))
+        let rate = Double(entry.submittedCount) / Double(entry.scansToday)
+        guard rate.isFinite else { return 0 }
+        return min(1, max(0, rate))
     }
 
     private var totalValueString: String {
@@ -146,12 +148,12 @@ struct ShopMikey_ScannerEntryView : View {
     }
 }
 
-struct ShopMikey_Scanner: Widget {
-    let kind: String = "ShopMikey_Scanner"
+struct ShopMikeyScannerWidget: Widget {
+    let kind: String = "ShopMikeyScannerWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: Provider()) { entry in
-            ShopMikey_ScannerEntryView(entry: entry)
+        StaticConfiguration(kind: kind, provider: PartsIntakeWidgetProvider()) { entry in
+            ShopMikeyScannerEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Parts Intake")
@@ -161,9 +163,9 @@ struct ShopMikey_Scanner: Widget {
 }
 
 #Preview(as: .systemMedium) {
-    ShopMikey_Scanner()
+    ShopMikeyScannerWidget()
 } timeline: {
-    SimpleEntry(
+    PartsIntakeWidgetEntry(
         date: .now,
         scansToday: 18,
         submittedCount: 14,

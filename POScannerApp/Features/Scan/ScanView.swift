@@ -684,12 +684,13 @@ private struct ScanProcessingWidget: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let elapsed = max(0, context.date.timeIntervalSince(startedAt))
+            let normalizedProgress = clampedProgress(progress)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "waveform.path.ecg")
                         .foregroundStyle(AppSurfaceStyle.info)
-                        .symbolEffect(.pulse.byLayer, options: .repeating, value: progress)
+                        .symbolEffect(.pulse.byLayer, options: .repeating, value: normalizedProgress)
                     Text(statusText)
                         .font(.headline.weight(.semibold))
                     Spacer()
@@ -699,7 +700,7 @@ private struct ScanProcessingWidget: View {
                 }
 
                 if showsDetail {
-                    ProgressView(value: max(0.02, min(1, progress)))
+                    ProgressView(value: normalizedProgress)
                         .progressViewStyle(.linear)
                         .tint(AppSurfaceStyle.info)
 
@@ -725,6 +726,11 @@ private struct ScanProcessingWidget: View {
         let minutes = seconds / 60
         let remainder = seconds % 60
         return String(format: "%d:%02d", minutes, remainder)
+    }
+
+    private func clampedProgress(_ value: Double) -> Double {
+        guard value.isFinite else { return 0.02 }
+        return min(1, max(0.02, value))
     }
 }
 

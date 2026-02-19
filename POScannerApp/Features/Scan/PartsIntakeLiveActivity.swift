@@ -68,7 +68,7 @@ actor PartsIntakeLiveActivityManager {
             return
         }
 
-        let clampedProgress = min(1, max(0, progress))
+        let clampedProgress = normalizedProgress(progress)
         let signature = Signature(
             statusText: statusText,
             detailText: detailText,
@@ -147,6 +147,11 @@ actor PartsIntakeLiveActivityManager {
         self.activity = nil
         self.lastSignature = nil
         self.lastUpdateAt = nil
+    }
+
+    private func normalizedProgress(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(1, max(0, value))
     }
 }
 #endif

@@ -5,6 +5,7 @@
 
 import CoreData
 import Foundation
+import os
 
 enum ValidationError: Error {
     case invalidPayload(String)
@@ -15,6 +16,8 @@ enum ValidationError: Error {
 /// Shared submission pipeline used by Review and History retry.
 @MainActor
 final class POSubmissionService {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Submission.Pipeline")
+
     enum LineItemType: String, Hashable {
         case part
         case tire
@@ -101,18 +104,29 @@ final class POSubmissionService {
         ignoreTaxAndTotals: Bool
     ) async -> Result {
         let submissionStart = Date()
+        let modeLabel = mode?.rawValue ?? "Default"
+        Self.logger.debug(
+            "Submission started. mode=\(modeLabel, privacy: .public) persist=\(shouldPersist, privacy: .public) items=\(payload.items.count, privacy: .public)"
+        )
 
+        let stage1Start = Date()
         do {
             // Stage 1: Validation
             try stage1Validate(payload)
+            Self.logger.debug("Submission stage1 validation succeeded in \(self.elapsedMillis(since: stage1Start), privacy: .public)ms.")
         } catch {
             let message = userMessage(for: error)
+            Self.logger.error(
+                "Submission stage1 validation failed in \(self.elapsedMillis(since: stage1Start), privacy: .public)ms. message=\(message, privacy: .public)"
+            )
             stage4PersistFinalStatus(purchaseOrder: purchaseOrder, status: "failed", message: message, context: context)
+            Self.logger.error("Submission failed after \(self.elapsedMillis(since: submissionStart), privacy: .public)ms.")
             return Result(succeeded: false, message: message, purchaseOrderObjectID: purchaseOrder?.objectID)
         }
 
         // Persist locally first (optional).
         let poRecord: PurchaseOrder?
+        let localPersistStart = Date()
         do {
             poRecord = try persistSubmittingRecord(
                 payload: payload,
@@ -120,36 +134,52 @@ final class POSubmissionService {
                 shouldPersist: shouldPersist,
                 context: context
             )
+            Self.logger.debug("Submission local persist completed in \(self.elapsedMillis(since: localPersistStart), privacy: .public)ms.")
         } catch {
             let message = userMessage(for: error)
+            Self.logger.error(
+                "Submission local persist failed in \(self.elapsedMillis(since: localPersistStart), privacy: .public)ms. message=\(message, privacy: .public)"
+            )
             stage4PersistFinalStatus(purchaseOrder: purchaseOrder, status: "failed", message: message, context: context)
+            Self.logger.error("Submission failed after \(self.elapsedMillis(since: submissionStart), privacy: .public)ms.")
             return Result(succeeded: false, message: message, purchaseOrderObjectID: purchaseOrder?.objectID)
         }
 
         do {
             // Stage 2: Vendor resolution
+            let stage2Start = Date()
             let vendorId = try await stage2ResolveVendorId(payload: payload, context: context)
+            Self.logger.debug("Submission stage2 vendor resolution succeeded in \(self.elapsedMillis(since: stage2Start), privacy: .public)ms.")
 
             // Stage 3: Mode-aware line item submission
+            let stage3Start = Date()
             let submissionArtifacts = try await stage3SubmitLineItems(
                 payload: payload,
                 vendorId: vendorId,
                 mode: mode,
                 ignoreTaxAndTotals: ignoreTaxAndTotals
             )
+            Self.logger.debug("Submission stage3 remote submit succeeded in \(self.elapsedMillis(since: stage3Start), privacy: .public)ms.")
 
             let needsPurchaseOrderLookup = submissionArtifacts.createdPurchaseOrderNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty == nil
                 && submissionArtifacts.createdPurchaseOrderID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty != nil
             // Best-effort verify only when we still need to recover a submitted PO number.
+            let lookupStart = Date()
             let knownPurchaseOrders = needsPurchaseOrderLookup
                 ? await bestEffortFetchPurchaseOrders()
                 : nil
+            if needsPurchaseOrderLookup {
+                Self.logger.debug(
+                    "Submission stage3 PO lookup completed in \(self.elapsedMillis(since: lookupStart), privacy: .public)ms. known=\(knownPurchaseOrders?.count ?? 0, privacy: .public)"
+                )
+            }
             let submittedPONumber = resolveSubmittedPONumber(
                 from: submissionArtifacts,
                 knownPurchaseOrders: knownPurchaseOrders
             )
 
             // Stage 4: Persist final status
+            let stage4Start = Date()
             stage4PersistFinalStatus(
                 purchaseOrder: poRecord,
                 status: "submitted",
@@ -157,9 +187,15 @@ final class POSubmissionService {
                 submittedPONumber: submittedPONumber,
                 context: context
             )
+            Self.logger.info(
+                "Submission succeeded in \(self.elapsedMillis(since: submissionStart), privacy: .public)ms (persist-final \(self.elapsedMillis(since: stage4Start), privacy: .public)ms)."
+            )
             return Result(succeeded: true, message: nil, purchaseOrderObjectID: poRecord?.objectID)
         } catch {
             let message = await detailedUserMessage(for: error, since: submissionStart)
+            Self.logger.error(
+                "Submission failed after \(self.elapsedMillis(since: submissionStart), privacy: .public)ms. message=\(message, privacy: .public)"
+            )
             stage4PersistFinalStatus(purchaseOrder: poRecord, status: "failed", message: message, context: context)
             return Result(succeeded: false, message: message, purchaseOrderObjectID: poRecord?.objectID)
         }
@@ -814,6 +850,10 @@ final class POSubmissionService {
             return base
         }
         return "\(base)\n\(diagnostics)"
+    }
+
+    private func elapsedMillis(since start: Date) -> Int {
+        max(0, Int((Date().timeIntervalSince(start) * 1_000).rounded()))
     }
 
     private func fetchCachedVendor(normalizedName: String, context: NSManagedObjectContext) -> Vendor? {

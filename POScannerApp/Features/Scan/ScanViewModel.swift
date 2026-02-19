@@ -566,7 +566,9 @@ final class ScanViewModel: ObservableObject {
 
     var syncSuccessRate: Double {
         guard todayCount > 0 else { return 0 }
-        return min(1, Double(submittedCount) / Double(todayCount))
+        let rate = Double(submittedCount) / Double(todayCount)
+        guard rate.isFinite else { return 0 }
+        return min(1, max(0, rate))
     }
 
     private func logScanDiagnostics(

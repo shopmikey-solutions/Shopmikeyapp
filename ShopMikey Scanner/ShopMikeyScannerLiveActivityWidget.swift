@@ -1,5 +1,5 @@
 //
-//  ShopMikey_ScannerLiveActivity.swift
+//  ShopMikeyScannerLiveActivityWidget.swift
 //  ShopMikey Scanner
 //
 //  Created by Michael Bordeaux on 2/18/26.
@@ -21,7 +21,7 @@ struct PartsIntakeActivityAttributes: ActivityAttributes {
     var title: String
 }
 
-struct ShopMikey_ScannerLiveActivity: Widget {
+struct ShopMikeyScannerLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: PartsIntakeActivityAttributes.self) { context in
             VStack(alignment: .leading, spacing: 10) {
@@ -92,7 +92,8 @@ struct ShopMikey_ScannerLiveActivity: Widget {
     }
 
     private func clampedProgress(_ progress: Double) -> Double {
-        min(1, max(0.02, progress))
+        guard progress.isFinite else { return 0.02 }
+        return min(1, max(0.02, progress))
     }
 
     private func deepLinkURL(for context: ActivityViewContext<PartsIntakeActivityAttributes>) -> URL? {
@@ -134,7 +135,7 @@ extension PartsIntakeActivityAttributes.ContentState {
 }
 
 #Preview("Notification", as: .content, using: PartsIntakeActivityAttributes.preview) {
-   ShopMikey_ScannerLiveActivity()
+   ShopMikeyScannerLiveActivityWidget()
 } contentStates: {
     PartsIntakeActivityAttributes.ContentState.parsing
     PartsIntakeActivityAttributes.ContentState.finalizing

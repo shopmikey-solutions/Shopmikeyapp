@@ -53,6 +53,12 @@ final class POScannerAppUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["225/60/16 Primacy Michelin"].exists)
         XCTAssertTrue(app.staticTexts["Shipping"].exists)
 
+        let saveDraftButton = app.buttons["review.saveDraftButton"]
+        XCTAssertTrue(saveDraftButton.waitForExistence(timeout: 5))
+        saveDraftButton.tap()
+        let savedTimestamp = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] 'Saved '")).firstMatch
+        XCTAssertTrue(savedTimestamp.waitForExistence(timeout: 5))
+
         let backButton = app.navigationBars["Parts Intake Review"].buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: 5))
         backButton.tap()
@@ -60,6 +66,8 @@ final class POScannerAppUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
         app.tabBars.buttons["History"].tap()
         XCTAssertTrue(app.navigationBars["Purchase Order History"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["history.scopePicker"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["METRO AUTO PARTS SUPPLY"].waitForExistence(timeout: 5))
     }
 
     @MainActor

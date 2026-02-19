@@ -107,6 +107,7 @@ struct ReviewView: View {
                     Task { await viewModel.saveDraft() }
                 }
                 .appSecondaryActionButton()
+                .accessibilityIdentifier("review.saveDraftButton")
 
                 if let lastSaved = viewModel.lastDraftSavedAt {
                     Text("Saved \(lastSaved.formatted(date: .omitted, time: .shortened))")
@@ -504,29 +505,6 @@ struct ReviewView: View {
                     viewModel.deleteItems(at: IndexSet(integer: index))
                 } label: {
                     Label("Delete", systemImage: "trash")
-                }
-            }
-            .contextMenu {
-                Button("Set as Part") {
-                    AppHaptics.selection()
-                    viewModel.setItemKind(at: index, to: .part)
-                }
-                Button("Set as Tire") {
-                    AppHaptics.selection()
-                    viewModel.setItemKind(at: index, to: .tire)
-                }
-                Button("Set as Fee") {
-                    AppHaptics.selection()
-                    viewModel.setItemKind(at: index, to: .fee)
-                }
-                Button("Use Auto") {
-                    AppHaptics.selection()
-                    viewModel.setItemKind(at: index, to: .unknown)
-                }
-                Divider()
-                Button("Delete Item", role: .destructive) {
-                    AppHaptics.warning()
-                    viewModel.deleteItems(at: IndexSet(integer: index))
                 }
             }
             .moveDisabled(focusNeedsReviewOnly)

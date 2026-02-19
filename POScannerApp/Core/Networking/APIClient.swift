@@ -46,6 +46,7 @@ final class APIClient {
         url: URL,
         body: Data? = nil
     ) async throws -> Response {
+        let requestStart = Date()
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -61,7 +62,12 @@ final class APIClient {
         print("➡️ Request: \(request.url?.absoluteString ?? "")")
         #endif
 
-        let (data, httpResponse) = try await send(request, didRetryOn429: false)
+        let (data, httpResponse) = try await send(
+            request,
+            didRetryOn429: false,
+            startedAt: requestStart
+        )
+        let requestDurationMillis = elapsedMillis(since: requestStart)
         do {
             let decoded = try decoder.decode(Response.self, from: data)
             await diagnosticsRecorder.record(
@@ -69,6 +75,7 @@ final class APIClient {
                     method: method.rawValue,
                     url: url.absoluteString,
                     statusCode: httpResponse.statusCode,
+                    durationMillis: requestDurationMillis,
                     requestBodyPreview: sanitizedPreview(from: body),
                     responseBodyPreview: sanitizedPreview(from: data),
                     errorSummary: nil
@@ -81,6 +88,7 @@ final class APIClient {
                     method: method.rawValue,
                     url: url.absoluteString,
                     statusCode: httpResponse.statusCode,
+                    durationMillis: requestDurationMillis,
                     requestBodyPreview: sanitizedPreview(from: body),
                     responseBodyPreview: sanitizedPreview(from: data),
                     errorSummary: "Decoding failed"
@@ -105,7 +113,11 @@ final class APIClient {
         return authorized
     }
 
-    private func send(_ request: URLRequest, didRetryOn429: Bool) async throws -> (Data, HTTPURLResponse) {
+    private func send(
+        _ request: URLRequest,
+        didRetryOn429: Bool,
+        startedAt: Date
+    ) async throws -> (Data, HTTPURLResponse) {
         let dataAndResponse: (Data, URLResponse)
         do {
             dataAndResponse = try await urlSession.data(for: request)
@@ -115,6 +127,7 @@ final class APIClient {
                     for: request,
                     statusCode: nil,
                     responseData: nil,
+                    durationMillis: elapsedMillis(since: startedAt),
                     errorSummary: error.localizedDescription
                 )
             )
@@ -131,9 +144,21 @@ final class APIClient {
                let retryAfter = http.value(forHTTPHeaderField: "Retry-After"),
                let delay = Double(retryAfter) {
                 try await sleeper(delay)
-                return try await send(request, didRetryOn429: true)
+                return try await send(
+                    request,
+                    didRetryOn429: true,
+                    startedAt: startedAt
+                )
             }
-            await diagnosticsRecorder.record(entry(for: request, statusCode: http.statusCode, responseData: data, errorSummary: "Rate limited"))
+            await diagnosticsRecorder.record(
+                entry(
+                    for: request,
+                    statusCode: http.statusCode,
+                    responseData: data,
+                    durationMillis: elapsedMillis(since: startedAt),
+                    errorSummary: "Rate limited"
+                )
+            )
             throw APIError.rateLimited
         }
 
@@ -141,20 +166,44 @@ final class APIClient {
         case 200...299:
             return (data, http)
         case 401:
-            await diagnosticsRecorder.record(entry(for: request, statusCode: http.statusCode, responseData: data, errorSummary: "Unauthorized"))
+            await diagnosticsRecorder.record(
+                entry(
+                    for: request,
+                    statusCode: http.statusCode,
+                    responseData: data,
+                    durationMillis: elapsedMillis(since: startedAt),
+                    errorSummary: "Unauthorized"
+                )
+            )
             throw APIError.unauthorized
         case 500...599:
             #if DEBUG
             logFailedResponse(statusCode: http.statusCode, request: request, data: data)
             #endif
-            await diagnosticsRecorder.record(entry(for: request, statusCode: http.statusCode, responseData: data, errorSummary: "Server error"))
+            await diagnosticsRecorder.record(
+                entry(
+                    for: request,
+                    statusCode: http.statusCode,
+                    responseData: data,
+                    durationMillis: elapsedMillis(since: startedAt),
+                    errorSummary: "Server error"
+                )
+            )
             throw APIError.serverError(http.statusCode)
         default:
             // Deterministic: treat any other non-2xx as a server error code.
             #if DEBUG
             logFailedResponse(statusCode: http.statusCode, request: request, data: data)
             #endif
-            await diagnosticsRecorder.record(entry(for: request, statusCode: http.statusCode, responseData: data, errorSummary: "HTTP \(http.statusCode)"))
+            await diagnosticsRecorder.record(
+                entry(
+                    for: request,
+                    statusCode: http.statusCode,
+                    responseData: data,
+                    durationMillis: elapsedMillis(since: startedAt),
+                    errorSummary: "HTTP \(http.statusCode)"
+                )
+            )
             throw APIError.serverError(http.statusCode)
         }
     }
@@ -180,16 +229,22 @@ final class APIClient {
         for request: URLRequest,
         statusCode: Int?,
         responseData: Data?,
+        durationMillis: Int?,
         errorSummary: String?
     ) -> NetworkDiagnosticsEntry {
         NetworkDiagnosticsEntry(
             method: request.httpMethod ?? "GET",
             url: request.url?.absoluteString ?? "(unknown url)",
             statusCode: statusCode,
+            durationMillis: durationMillis,
             requestBodyPreview: sanitizedPreview(from: request.httpBody),
             responseBodyPreview: sanitizedPreview(from: responseData),
             errorSummary: errorSummary
         )
+    }
+
+    private func elapsedMillis(since start: Date) -> Int {
+        max(0, Int((Date().timeIntervalSince(start) * 1_000).rounded()))
     }
 
     private func sanitizedPreview(from data: Data?) -> String? {
@@ -222,6 +277,7 @@ struct NetworkDiagnosticsEntry: Identifiable, Hashable {
     let method: String
     let url: String
     let statusCode: Int?
+    let durationMillis: Int?
     let requestBodyPreview: String?
     let responseBodyPreview: String?
     let errorSummary: String?
@@ -232,6 +288,7 @@ struct NetworkDiagnosticsEntry: Identifiable, Hashable {
         method: String,
         url: String,
         statusCode: Int?,
+        durationMillis: Int? = nil,
         requestBodyPreview: String?,
         responseBodyPreview: String?,
         errorSummary: String?
@@ -241,6 +298,7 @@ struct NetworkDiagnosticsEntry: Identifiable, Hashable {
         self.method = method
         self.url = url
         self.statusCode = statusCode
+        self.durationMillis = durationMillis
         self.requestBodyPreview = requestBodyPreview
         self.responseBodyPreview = responseBodyPreview
         self.errorSummary = errorSummary
@@ -248,10 +306,11 @@ struct NetworkDiagnosticsEntry: Identifiable, Hashable {
 
     var oneLineSummary: String {
         let status = statusCode.map(String.init) ?? "n/a"
+        let duration = durationMillis.map { "\($0)ms" } ?? "n/a"
         if let errorSummary, !errorSummary.isEmpty {
-            return "[\(status)] \(method) \(url) - \(errorSummary)"
+            return "[\(status)] \(method) \(url) (\(duration)) - \(errorSummary)"
         }
-        return "[\(status)] \(method) \(url)"
+        return "[\(status)] \(method) \(url) (\(duration))"
     }
 
     var isFailure: Bool {

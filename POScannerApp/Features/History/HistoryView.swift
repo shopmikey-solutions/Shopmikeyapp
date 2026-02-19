@@ -128,24 +128,6 @@ struct HistoryView: View {
                                 } label: {
                                     historyRow(row)
                                 }
-                                .contextMenu {
-                                    Button("Filter by Vendor") {
-                                        AppHaptics.selection()
-                                        searchText = row.vendorName
-                                    }
-                                    if let poNumber = row.poNumber, !poNumber.isEmpty {
-                                        Button("Filter by PO \(poNumber)") {
-                                            AppHaptics.selection()
-                                            searchText = poNumber
-                                        }
-                                    }
-                                    if statusBucket(for: row.status).allowsRetry {
-                                        Button("Retry Submission") {
-                                            AppHaptics.impact(.medium, intensity: 0.8)
-                                            Task { await retry(row) }
-                                        }
-                                    }
-                                }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if statusBucket(for: row.status).allowsRetry {
                                         Button("Retry") {

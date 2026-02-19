@@ -318,6 +318,7 @@ final class ReviewViewModel: ObservableObject {
             vendorId: selectedVendorId,
             vendorName: vendorName,
             vendorPhone: trimmedOrNil(vendorPhone),
+            notes: trimmedOrNil(notes),
             invoiceNumber: trimmedOrNil(vendorInvoiceNumber),
             poReference: trimmedOrNil(poReference),
             poNumber: effectivePONumber,

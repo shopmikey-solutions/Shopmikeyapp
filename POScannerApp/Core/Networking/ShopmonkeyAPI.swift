@@ -672,6 +672,11 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
             json["invoiceNumber"] = invoiceNumber
         }
 
+        if let notes = request.notes, !notes.isEmpty {
+            json["notes"] = notes
+            json["note"] = notes
+        }
+
         if let purchaseOrderId = request.purchaseOrderId, !purchaseOrderId.isEmpty {
             // Some tenants accept explicit PO identifiers when appending to a draft PO.
             json["purchase_order_id"] = purchaseOrderId
@@ -1448,6 +1453,7 @@ struct CreatePurchaseOrderTireRequest: Encodable, Hashable {
 
 struct CreatePurchaseOrderRequest: Encodable {
     let vendorId: String
+    let notes: String?
     let invoiceNumber: String?
     let status: String?
     let purchaseOrderId: String?
@@ -1459,6 +1465,7 @@ struct CreatePurchaseOrderRequest: Encodable {
 
     init(
         vendorId: String,
+        notes: String? = nil,
         invoiceNumber: String?,
         status: String?,
         purchaseOrderId: String? = nil,
@@ -1469,6 +1476,7 @@ struct CreatePurchaseOrderRequest: Encodable {
         tires: [CreatePurchaseOrderTireRequest] = []
     ) {
         self.vendorId = vendorId
+        self.notes = notes
         self.invoiceNumber = invoiceNumber
         self.status = status
         self.purchaseOrderId = purchaseOrderId
@@ -1481,6 +1489,7 @@ struct CreatePurchaseOrderRequest: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case vendorId = "vendor_id"
+        case notes
         case invoiceNumber = "invoice_number"
         case status
         case purchaseOrderId = "purchase_order_id"
@@ -1534,6 +1543,7 @@ private extension CreatePurchaseOrderRequest {
     func withStatus(_ status: String?) -> CreatePurchaseOrderRequest {
         CreatePurchaseOrderRequest(
             vendorId: vendorId,
+            notes: notes,
             invoiceNumber: invoiceNumber,
             status: status,
             purchaseOrderId: purchaseOrderId,
@@ -1552,11 +1562,13 @@ struct CreatedResourceResponse: Decodable {
 
 struct CreatePurchaseOrderResponse: Decodable {
     let id: String
+    let number: String?
     let vendorId: String?
     let status: String?
 
-    init(id: String, vendorId: String?, status: String?) {
+    init(id: String, number: String? = nil, vendorId: String?, status: String?) {
         self.id = id
+        self.number = number
         self.vendorId = vendorId
         self.status = status
     }
@@ -1577,10 +1589,17 @@ struct CreatePurchaseOrderResponse: Decodable {
                 "purchase_order_id",
                 "purchaseOrderId",
                 "po_id",
-                "poId",
+                "poId"
+            ],
+            in: root
+        )
+        let resolvedNumber = Self.firstString(
+            keys: [
                 "number",
                 "po_number",
-                "poNumber"
+                "poNumber",
+                "external_number",
+                "externalNumber"
             ],
             in: root
         )
@@ -1588,7 +1607,8 @@ struct CreatePurchaseOrderResponse: Decodable {
         let resolvedStatus = Self.firstString(keys: ["status"], in: root)
 
         // Some tenants return only success/message for writes; avoid false decode failures on HTTP 2xx.
-        self.id = resolvedId ?? "accepted"
+        self.id = resolvedId ?? resolvedNumber ?? "accepted"
+        self.number = resolvedNumber
         self.vendorId = resolvedVendorId
         self.status = resolvedStatus
     }

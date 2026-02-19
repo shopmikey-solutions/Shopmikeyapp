@@ -394,6 +394,85 @@ struct POSubmissionServiceTests {
         #expect(request.tires.count == 1)
     }
 
+    @Test @MainActor func attachModeIncludesNotesInDraftPurchaseOrderRequest() async throws {
+        let controller = DataController(inMemory: true)
+        await controller.waitUntilLoaded()
+        #expect(controller.loadError == nil)
+        guard controller.loadError == nil else { return }
+
+        let mock = MockShopmonkeyService()
+        mock.createPurchaseOrderResult = .success(.init(id: "po_3", vendorId: "v_1", status: "draft"))
+        mock.getPurchaseOrdersResult = .success([])
+
+        let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
+
+        let payload = POSubmissionPayload(
+            vendorId: "v_1",
+            vendorName: "ACME",
+            vendorPhone: nil,
+            notes: "  Customer requested next-day delivery.  ",
+            poNumber: "PO-201",
+            orderId: "o_1",
+            serviceId: "s_1",
+            items: [POItem(name: "Brake Pads", quantity: 1, cost: 42.00)]
+        )
+
+        let result = await submitter.submitNew(
+            payload: payload,
+            mode: .attachToExistingPO,
+            shouldPersist: true,
+            context: controller.viewContext
+        )
+
+        #expect(result.succeeded == true)
+        #expect(result.message == nil)
+        #expect(mock.capturedPurchaseOrderRequests.count == 1)
+        guard let request = mock.capturedPurchaseOrderRequests.first else { return }
+        #expect(request.notes == "Customer requested next-day delivery.")
+    }
+
+    @Test @MainActor func successfulSubmissionBackfillsGeneratedPurchaseOrderNumber() async throws {
+        let controller = DataController(inMemory: true)
+        await controller.waitUntilLoaded()
+        #expect(controller.loadError == nil)
+        guard controller.loadError == nil else { return }
+
+        let mock = MockShopmonkeyService()
+        mock.createPurchaseOrderResult = .success(
+            .init(id: "po_internal_42", number: "PO-90877", vendorId: "v_1", status: "draft")
+        )
+        mock.getPurchaseOrdersResult = .success([])
+
+        let submitter = await MainActor.run { POSubmissionService(shopmonkey: mock) }
+
+        let payload = POSubmissionPayload(
+            vendorId: "v_1",
+            vendorName: "ACME",
+            vendorPhone: nil,
+            poReference: "LOCAL-INTAKE-1",
+            poNumber: "LOCAL-INTAKE-1",
+            orderId: "o_1",
+            serviceId: "s_1",
+            items: [POItem(name: "Brake Pads", quantity: 1, cost: 42.00)]
+        )
+
+        let result = await submitter.submitNew(
+            payload: payload,
+            mode: .attachToExistingPO,
+            shouldPersist: true,
+            context: controller.viewContext
+        )
+
+        #expect(result.succeeded == true)
+        #expect(result.message == nil)
+
+        let saved = try fetchPurchaseOrders(in: controller.viewContext)
+        #expect(saved.count == 1)
+        guard let po = saved.first else { return }
+        #expect(po.status == "submitted")
+        #expect(po.poNumber == "PO-90877")
+    }
+
     @Test @MainActor func quickAddUsesExplicitItemKindWhenProvided() async throws {
         let controller = DataController(inMemory: true)
         await controller.waitUntilLoaded()

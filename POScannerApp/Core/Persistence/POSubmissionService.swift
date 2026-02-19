@@ -27,6 +27,13 @@ final class POSubmissionService {
         var purchaseOrderObjectID: NSManagedObjectID?
     }
 
+    private struct SubmissionArtifacts {
+        var createdPurchaseOrderID: String?
+        var createdPurchaseOrderNumber: String?
+
+        static let empty = SubmissionArtifacts(createdPurchaseOrderID: nil, createdPurchaseOrderNumber: nil)
+    }
+
     private let shopmonkey: ShopmonkeyServicing
 
     init(shopmonkey: ShopmonkeyServicing) {
@@ -58,6 +65,7 @@ final class POSubmissionService {
         let payload = POSubmissionPayload(
             vendorName: purchaseOrder.vendorName,
             vendorPhone: nil,
+            notes: nil,
             poNumber: purchaseOrder.poNumber,
             orderId: purchaseOrder.orderId,
             serviceId: purchaseOrder.serviceId,
@@ -123,7 +131,7 @@ final class POSubmissionService {
             let vendorId = try await stage2ResolveVendorId(payload: payload, context: context)
 
             // Stage 3: Mode-aware line item submission
-            try await stage3SubmitLineItems(
+            let submissionArtifacts = try await stage3SubmitLineItems(
                 payload: payload,
                 vendorId: vendorId,
                 mode: mode,
@@ -131,10 +139,20 @@ final class POSubmissionService {
             )
 
             // Best-effort verify. A failure here should not block a successful submission.
-            await bestEffortVerify()
+            let knownPurchaseOrders = await bestEffortFetchPurchaseOrders()
+            let submittedPONumber = resolveSubmittedPONumber(
+                from: submissionArtifacts,
+                knownPurchaseOrders: knownPurchaseOrders
+            )
 
             // Stage 4: Persist final status
-            stage4PersistFinalStatus(purchaseOrder: poRecord, status: "submitted", message: nil, context: context)
+            stage4PersistFinalStatus(
+                purchaseOrder: poRecord,
+                status: "submitted",
+                message: nil,
+                submittedPONumber: submittedPONumber,
+                context: context
+            )
             return Result(succeeded: true, message: nil, purchaseOrderObjectID: poRecord?.objectID)
         } catch {
             let message = await detailedUserMessage(for: error, since: submissionStart)
@@ -265,7 +283,7 @@ final class POSubmissionService {
         vendorId: String,
         mode: SubmissionMode?,
         ignoreTaxAndTotals: Bool
-    ) async throws {
+    ) async throws -> SubmissionArtifacts {
         _ = ignoreTaxAndTotals
         let candidates = submittableItems(from: payload)
         guard !candidates.isEmpty else {
@@ -279,7 +297,7 @@ final class POSubmissionService {
                 // Backward-compatible behavior for legacy callsites/tests.
                 guard let orderId = payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                       let serviceId = payload.serviceId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
-                    return
+                    return .empty
                 }
 
                 try await submitAttachModeItems(
@@ -289,10 +307,10 @@ final class POSubmissionService {
                     purchaseOrderId: nil,
                     items: candidates
                 )
-                return
+                return .empty
             }
 
-            try await submitDraftPurchaseOrder(
+            return try await submitDraftPurchaseOrder(
                 payload: payload,
                 vendorId: vendorId,
                 scannedItems: candidates
@@ -316,9 +334,10 @@ final class POSubmissionService {
                 purchaseOrderId: selectedDraftPOID,
                 items: candidates
             )
+            return .empty
 
         case .inventoryRestock:
-            try await submitDraftPurchaseOrder(
+            return try await submitDraftPurchaseOrder(
                 payload: payload,
                 vendorId: vendorId,
                 scannedItems: candidates
@@ -330,7 +349,7 @@ final class POSubmissionService {
         payload: POSubmissionPayload,
         vendorId: String,
         scannedItems: [POItem]
-    ) async throws {
+    ) async throws -> SubmissionArtifacts {
         let selectedDraftPO = try await resolveDraftPurchaseOrder(
             explicitID: payload.purchaseOrderId,
             scannedPONumber: payload.allowExistingPOLinking ? (payload.poReference ?? payload.poNumber) : nil
@@ -358,7 +377,11 @@ final class POSubmissionService {
             items: mergedItems
         )
 
-        _ = try await shopmonkey.createPurchaseOrder(request)
+        let response = try await shopmonkey.createPurchaseOrder(request)
+        return SubmissionArtifacts(
+            createdPurchaseOrderID: response.id.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            createdPurchaseOrderNumber: response.number?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        )
     }
 
     private func validatedDraftPurchaseOrderID(from rawID: String?) async throws -> String? {
@@ -559,6 +582,7 @@ final class POSubmissionService {
 
         return CreatePurchaseOrderRequest(
             vendorId: vendorId,
+            notes: payload.notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             invoiceNumber:
                 payload.invoiceNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 ?? payload.poNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
@@ -702,12 +726,43 @@ final class POSubmissionService {
         return "ITEM\(suffix)"
     }
 
-    private func bestEffortVerify() async {
+    private func bestEffortFetchPurchaseOrders() async -> [PurchaseOrderResponse]? {
         do {
-            _ = try await shopmonkey.getPurchaseOrders()
+            return try await shopmonkey.getPurchaseOrders()
         } catch {
-            // Intentionally ignored.
+            return nil
         }
+    }
+
+    private func resolveSubmittedPONumber(
+        from artifacts: SubmissionArtifacts,
+        knownPurchaseOrders: [PurchaseOrderResponse]?
+    ) -> String? {
+        if let createdPurchaseOrderNumber = artifacts.createdPurchaseOrderNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+            return createdPurchaseOrderNumber
+        }
+
+        guard let createdPurchaseOrderID = artifacts.createdPurchaseOrderID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
+            return nil
+        }
+        guard let knownPurchaseOrders else {
+            return nil
+        }
+
+        if let matchedByID = knownPurchaseOrders.first(where: { candidate in
+            candidate.id.trimmingCharacters(in: .whitespacesAndNewlines) == createdPurchaseOrderID
+        }) {
+            return matchedByID.number?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        }
+
+        if let normalizedCreatedID = normalizePurchaseOrderReference(createdPurchaseOrderID),
+           let matchedByNumber = knownPurchaseOrders.first(where: { candidate in
+               normalizePurchaseOrderReference(candidate.number) == normalizedCreatedID
+           }) {
+            return matchedByNumber.number?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        }
+
+        return nil
     }
 
     // MARK: - Stage 4: Persist final status
@@ -716,6 +771,7 @@ final class POSubmissionService {
         purchaseOrder: PurchaseOrder?,
         status: String,
         message: String?,
+        submittedPONumber: String? = nil,
         context: NSManagedObjectContext
     ) {
         guard let purchaseOrder else {
@@ -725,6 +781,9 @@ final class POSubmissionService {
         purchaseOrder.status = status
 
         if status == "submitted" {
+            if let submittedPONumber = submittedPONumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+                purchaseOrder.poNumber = submittedPONumber
+            }
             purchaseOrder.submittedAt = Date()
             purchaseOrder.lastError = nil
         } else if status == "failed" {

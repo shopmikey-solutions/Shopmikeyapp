@@ -100,8 +100,6 @@ extension View {
 }
 
 private struct KeyboardDoneToolbarModifier: ViewModifier {
-    @State private var isKeyboardVisible: Bool = false
-
     private func dismissKeyboard() {
         UIApplication.shared.sendAction(
             #selector(UIResponder.resignFirstResponder),
@@ -114,20 +112,13 @@ private struct KeyboardDoneToolbarModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    if isKeyboardVisible {
-                        Button("Done") {
-                            dismissKeyboard()
-                        }
-                        .accessibilityIdentifier("keyboard.doneButton")
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        dismissKeyboard()
                     }
+                    .accessibilityIdentifier("keyboard.doneButton")
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-                isKeyboardVisible = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                isKeyboardVisible = false
             }
     }
 }

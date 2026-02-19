@@ -10,6 +10,7 @@ struct POSubmissionPayload: Hashable {
     var vendorId: String? = nil
     var vendorName: String
     var vendorPhone: String?
+    var notes: String? = nil
     var invoiceNumber: String? = nil
     var poReference: String? = nil
     var poNumber: String?

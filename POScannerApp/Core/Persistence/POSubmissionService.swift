@@ -643,6 +643,7 @@ final class POSubmissionService {
             if name.isEmpty { return false }
             if item.costCents == 0 { return false }
             if InvoiceLineClassifier.isNonProductSummaryLine(name) { return false }
+            if InvoiceLineClassifier.isLaborServiceLine(name) { return false }
             return true
         }
     }

@@ -7,6 +7,8 @@ import Foundation
 
 struct POHeaderFields: Hashable, Equatable {
     var vendorName: String = ""
+    var vendorPhone: String? = nil
+    var vendorEmail: String? = nil
     var vendorInvoiceNumber: String = ""
     var poReference: String = ""
     var workOrderId: String = ""

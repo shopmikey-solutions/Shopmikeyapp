@@ -6,7 +6,7 @@
 import CoreData
 import Foundation
 
-enum PurchaseOrderStatusBucket: Equatable {
+enum PurchaseOrderStatusBucket: Hashable {
     case submitted
     case pending
     case failed

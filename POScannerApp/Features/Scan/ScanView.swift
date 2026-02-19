@@ -37,7 +37,6 @@ struct ScanView: View {
             viewModel.loadTodayMetrics()
         }
         .sensoryFeedback(.selection, trigger: ignoreTaxAndTotals)
-        .safeAreaPadding(.top, viewModel.isProcessing ? 116 : 0)
         .navigationTitle("ShopMikey")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -149,9 +148,6 @@ struct ScanView: View {
             guard let item else { return }
             Task { await importPhoto(item) }
         }
-        .overlay(alignment: .top) {
-            processingBanner
-        }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
             presentCaptureFlow()
         }
@@ -169,12 +165,14 @@ struct ScanView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
             viewModel.loadInProgressDrafts()
+            viewModel.loadTodayMetrics()
         }
         .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
     }
 
     private var scanList: some View {
         List {
+            processingSection
             currentSessionSection
             dashboardSection
             preferencesSection
@@ -183,6 +181,22 @@ struct ScanView: View {
             toolsSection
             uiTestSection
             errorSection
+        }
+    }
+
+    @ViewBuilder
+    private var processingSection: some View {
+        if viewModel.isProcessing {
+            Section("Intake Progress") {
+                ScanProcessingWidget(
+                    startedAt: viewModel.processingStartedAt ?? Date(),
+                    statusText: viewModel.processingStatusText,
+                    detailText: viewModel.processingDetailText,
+                    progress: viewModel.processingProgressEstimate,
+                    showsDetail: $showProcessingDetails
+                )
+                .accessibilityIdentifier("scan.processingInlineCard")
+            }
         }
     }
 
@@ -458,37 +472,6 @@ struct ScanView: View {
         }
     }
 
-    @ViewBuilder
-    private var processingBanner: some View {
-        if viewModel.isProcessing {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Parts Intake Processing")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                ScanProcessingWidget(
-                    startedAt: viewModel.processingStartedAt ?? Date(),
-                    statusText: viewModel.processingStatusText,
-                    detailText: viewModel.processingDetailText,
-                    progress: viewModel.processingProgressEstimate,
-                    showsDetail: $showProcessingDetails
-                )
-            }
-            .padding(12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(.white.opacity(0.14), lineWidth: 1)
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .shadow(color: .black.opacity(0.22), radius: 14, x: 0, y: 8)
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .accessibilityIdentifier("scan.processingBanner")
-            .zIndex(20)
-        }
-    }
-
     private var dashboardSummary: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Parts Intake Dashboard")
@@ -564,7 +547,8 @@ struct ScanView: View {
         progress: Double,
         deepLinkURL: URL?
     ) {
-        if viewModel.isProcessing {
+        let activeStages: Set<ScanViewModel.ProcessingStage> = [.parsing, .finalizing]
+        if viewModel.isProcessing, let stage = viewModel.processingStage, activeStages.contains(stage) {
             let activeDraftID = viewModel.latestDraft?.id
             return (
                 true,

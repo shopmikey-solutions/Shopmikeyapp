@@ -36,6 +36,8 @@ struct InvoiceItemAI: Decodable, Hashable {
 
 struct InvoiceAI: Decodable, Hashable {
     let vendorName: String?
+    let vendorPhone: String?
+    let vendorEmail: String?
     let poNumber: String?
     let invoiceNumber: String?
     let items: [InvoiceItemAI]
@@ -86,6 +88,8 @@ Return ONLY valid JSON that matches the Swift structs:
 
 InvoiceAI {
     vendorName: String?
+    vendorPhone: String?
+    vendorEmail: String?
     poNumber: String?
     invoiceNumber: String?
     items: [
@@ -106,18 +110,21 @@ Rules:
 1. Output JSON only. No commentary. No markdown.
 2. vendorName must be a company/business name, not a product.
 3. Do NOT use line items as vendor name.
-4. invoiceNumber must resemble an invoice identifier (INV-xxxx, numeric ID, etc).
-5. poNumber must resemble a purchase order number (PO-xxxx, etc).
-6. Items must represent purchasable products only.
-7. Do NOT include subtotal, tax, or total as line items.
-8. quantity must be an integer if present, otherwise null.
-9. unitCostCents must be the price per unit in cents (not line total).
-10. If only line total is available and quantity is known, divide to get unit cost.
-11. If unsure about a field, return null.
-12. Never invent data not present in the text.
-13. kind must be one of: part, tire, fee, unknown.
-14. kindConfidence must be between 0 and 1.
-15. kindReasons should be a short list of extraction hints.
+4. vendorPhone should be a vendor contact phone if present; otherwise null.
+5. vendorEmail should be a vendor contact email if present; otherwise null.
+6. invoiceNumber must resemble an invoice identifier (INV-xxxx, numeric ID, etc).
+7. poNumber must resemble a purchase order number (PO-xxxx, etc).
+8. Items must represent purchasable products, tires, or fees only.
+9. Exclude labor/service lines (alignment, labor hours/rate, diagnostics, install labor).
+10. Do NOT include subtotal, tax, or total as line items.
+11. quantity must be an integer if present, otherwise null.
+12. unitCostCents must be the price per unit in cents (not line total).
+13. If only line total is available and quantity is known, divide to get unit cost.
+14. If unsure about a field, return null.
+15. Never invent data not present in the text.
+16. kind must be one of: part, tire, fee, unknown.
+17. kindConfidence must be between 0 and 1.
+18. kindReasons should be a short list of extraction hints.
 
 ignoreTaxAndTotals: \(ignoreTaxAndTotals ? "true" : "false")
 \(ignoreTaxRule)
@@ -159,6 +166,9 @@ OCR TEXT:
             if InvoiceLineClassifier.isNonProductSummaryLine(description) {
                 return nil
             }
+            if InvoiceLineClassifier.isLaborServiceLine(description) {
+                return nil
+            }
 
             let safeQuantity = (item.quantity ?? 1) > 0 ? item.quantity ?? 1 : 1
 
@@ -191,6 +201,8 @@ OCR TEXT:
 
         return InvoiceAI(
             vendorName: invoice.vendorName,
+            vendorPhone: normalizedVendorPhone(invoice.vendorPhone),
+            vendorEmail: normalizedVendorEmail(invoice.vendorEmail),
             poNumber: invoice.poNumber,
             invoiceNumber: invoice.invoiceNumber,
             items: validatedItems
@@ -279,10 +291,55 @@ OCR TEXT:
             items: items,
             header: POHeaderFields(
                 vendorName: vendor ?? "",
+                vendorPhone: normalizedVendorPhone(invoice.vendorPhone),
+                vendorEmail: normalizedVendorEmail(invoice.vendorEmail),
                 vendorInvoiceNumber: invoiceNumber ?? "",
                 poReference: poNumber ?? ""
             )
         )
+    }
+
+    private func normalizedVendorPhone(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+
+        let pattern = #"(?:\+?1[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?)\d{3}[\s\-.]?\d{4}(?:\s*(?:ext|x)\s*\d{1,5})?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = regex.firstMatch(in: value, options: [], range: range),
+              let matchRange = Range(match.range, in: value) else {
+            return nil
+        }
+
+        let cleaned = String(value[matchRange])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+        return cleaned.count >= 10 ? cleaned : nil
+    }
+
+    private func normalizedVendorEmail(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+
+        let pattern = #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = regex.firstMatch(in: value, options: [], range: range),
+              let matchRange = Range(match.range, in: value) else {
+            return nil
+        }
+
+        return String(value[matchRange]).lowercased()
     }
 }
 

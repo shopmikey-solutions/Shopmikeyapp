@@ -68,6 +68,16 @@ actor PartsIntakeLiveActivityManager {
             return
         }
 
+        guard isMeaningfulActiveState(
+            statusText: statusText,
+            detailText: detailText,
+            progress: progress
+        ) else {
+            Self.logger.debug("Live Activity sync skipped: state below visibility threshold.")
+            await endCurrent(dismissalPolicy: .immediate)
+            return
+        }
+
         let clampedProgress = normalizedProgress(progress)
         let signature = Signature(
             statusText: statusText,
@@ -131,12 +141,18 @@ actor PartsIntakeLiveActivityManager {
 
     private func endCurrent(dismissalPolicy: ActivityUIDismissalPolicy) async {
         guard let activity else { return }
+        let finalStatus = lastSignature?.statusText ?? "Parts intake complete"
+        let finalDetail = lastSignature?.detailText ?? "Tap to open ShopMikey."
+        let finalProgress: Double = {
+            guard let bucket = lastSignature?.progressBucket else { return 1 }
+            return min(1, max(0, Double(bucket) / 100))
+        }()
         let state = PartsIntakeActivityAttributes.ContentState(
-            statusText: "Finishing",
-            detailText: "Closing intake activity.",
-            progress: 1,
+            statusText: finalStatus,
+            detailText: finalDetail,
+            progress: finalProgress,
             updatedAt: Date(),
-            deepLinkURL: nil
+            deepLinkURL: lastSignature?.deepLinkURL
         )
         let content = ActivityContent(
             state: state,
@@ -152,6 +168,17 @@ actor PartsIntakeLiveActivityManager {
     private func normalizedProgress(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(1, max(0, value))
+    }
+
+    private func isMeaningfulActiveState(
+        statusText: String,
+        detailText: String,
+        progress: Double
+    ) -> Bool {
+        let hasReadableStatus = !statusText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasReadableDetail = !detailText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let normalized = normalizedProgress(progress)
+        return hasReadableStatus && hasReadableDetail && normalized >= 0.55
     }
 }
 #endif

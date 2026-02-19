@@ -12,6 +12,7 @@ final class POParser: @unchecked Sendable {
     func parse(from text: String, ignoreTaxAndTotals: Bool = false) -> ParsedInvoice {
         let lines = nonEmptyLines(from: text)
         let firstLine = lines.first
+        let headerLines = vendorHeaderCandidateLines(from: lines)
 
         let vendorName: String?
         if let firstLine, firstLine.containsVendorKeywords {
@@ -19,6 +20,8 @@ final class POParser: @unchecked Sendable {
         } else {
             vendorName = nil
         }
+        let vendorPhone = extractVendorPhone(from: headerLines)
+        let vendorEmail = extractVendorEmail(from: headerLines)
 
         var poNumber = extractPONumber(from: text)
         var invoiceNumber = extractInvoiceNumber(from: text)
@@ -49,6 +52,8 @@ final class POParser: @unchecked Sendable {
             items: normalizedItems,
             header: POHeaderFields(
                 vendorName: vendorName ?? "",
+                vendorPhone: vendorPhone,
+                vendorEmail: vendorEmail,
                 vendorInvoiceNumber: invoiceNumber ?? "",
                 poReference: poNumber ?? ""
             )
@@ -113,6 +118,10 @@ final class POParser: @unchecked Sendable {
                 continue
             }
 
+            if InvoiceLineClassifier.isLaborServiceLine(line) {
+                continue
+            }
+
             let attributeOnly = isAttributeOnlyLine(line)
             let nameLike = isNameLikeLine(line)
 
@@ -151,6 +160,10 @@ private extension POParser {
     func isValidParsedItem(_ item: ParsedLineItem) -> Bool {
         let description = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if description.isEmpty {
+            return false
+        }
+
+        if InvoiceLineClassifier.isLaborServiceLine(description) {
             return false
         }
 
@@ -224,6 +237,87 @@ private extension POParser {
         if lower.localizedCaseInsensitiveHasPrefix("po #") { return true }
         if lower.localizedCaseInsensitiveHasPrefix("po no") { return true }
         return false
+    }
+
+    func vendorHeaderCandidateLines(from lines: [String]) -> [String] {
+        guard !lines.isEmpty else { return [] }
+
+        var merged = Array(lines.prefix(16))
+        let labeled = lines.filter { line in
+            let lower = line.lowercased()
+            return lower.contains("phone")
+                || lower.contains("email")
+                || lower.contains("contact")
+                || lower.contains("@")
+        }
+
+        for line in labeled where !merged.contains(line) {
+            merged.append(line)
+        }
+        return merged
+    }
+
+    func extractVendorEmail(from lines: [String]) -> String? {
+        let pattern = #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#
+        for line in lines {
+            guard let match = firstRegexMatch(
+                in: line,
+                pattern: pattern,
+                options: [.caseInsensitive]
+            ) else {
+                continue
+            }
+
+            let cleaned = match
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+            if !cleaned.isEmpty {
+                return cleaned
+            }
+        }
+        return nil
+    }
+
+    func extractVendorPhone(from lines: [String]) -> String? {
+        let pattern = #"(?:\+?1[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?)\d{3}[\s\-.]?\d{4}(?:\s*(?:ext|x)\s*\d{1,5})?"#
+        for line in lines {
+            let lower = line.lowercased()
+            if lower.contains("fax"), !lower.contains("phone") {
+                continue
+            }
+
+            guard let match = firstRegexMatch(
+                in: line,
+                pattern: pattern,
+                options: [.caseInsensitive]
+            ) else {
+                continue
+            }
+
+            let cleaned = match
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+            if cleaned.count >= 10 {
+                return cleaned
+            }
+        }
+        return nil
+    }
+
+    func firstRegexMatch(
+        in text: String,
+        pattern: String,
+        options: NSRegularExpression.Options = []
+    ) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range),
+              let matchRange = Range(match.range, in: text) else {
+            return nil
+        }
+        return String(text[matchRange])
     }
 
     func isAttributeOnlyLine(_ line: String) -> Bool {

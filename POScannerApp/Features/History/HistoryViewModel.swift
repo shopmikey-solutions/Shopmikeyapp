@@ -21,6 +21,7 @@ final class HistoryViewModel: ObservableObject {
         let totalAmount: Double
         let formattedTotal: String
         let status: String
+        let statusBucket: PurchaseOrderStatusBucket
         let lastError: String?
 
         var id: NSManagedObjectID { objectID }
@@ -105,6 +106,7 @@ final class HistoryViewModel: ObservableObject {
                         totalAmount: order.totalAmount,
                         formattedTotal: formattedTotal,
                         status: order.status,
+                        statusBucket: PurchaseOrderStatusBucket.from(order),
                         lastError: order.lastError
                     )
                 }

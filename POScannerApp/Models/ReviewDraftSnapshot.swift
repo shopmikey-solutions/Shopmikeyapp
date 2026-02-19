@@ -77,6 +77,8 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         var totalCents: Int?
         var items: [ParsedLineItemSnapshot]
         var headerVendorName: String
+        var headerVendorPhone: String? = nil
+        var headerVendorEmail: String? = nil
         var headerVendorInvoiceNumber: String
         var headerPOReference: String
         var headerWorkOrderId: String
@@ -91,6 +93,8 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
             self.totalCents = invoice.totalCents
             self.items = invoice.items.map(ParsedLineItemSnapshot.init(item:))
             self.headerVendorName = invoice.header.vendorName
+            self.headerVendorPhone = invoice.header.vendorPhone
+            self.headerVendorEmail = invoice.header.vendorEmail
             self.headerVendorInvoiceNumber = invoice.header.vendorInvoiceNumber
             self.headerPOReference = invoice.header.poReference
             self.headerWorkOrderId = invoice.header.workOrderId
@@ -108,6 +112,8 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
                 items: items.map(\.parsedLineItem),
                 header: POHeaderFields(
                     vendorName: headerVendorName,
+                    vendorPhone: headerVendorPhone,
+                    vendorEmail: headerVendorEmail,
                     vendorInvoiceNumber: headerVendorInvoiceNumber,
                     poReference: headerPOReference,
                     workOrderId: headerWorkOrderId,

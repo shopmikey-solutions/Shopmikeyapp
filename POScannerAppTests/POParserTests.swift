@@ -54,4 +54,18 @@ struct POParserTests {
 
         #expect(parsed.invoiceNumber == "INV-2026-001")
     }
+
+    @Test func extractsVendorContactDetailsFromHeader() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        ACME Auto Parts
+        Contact: 800-555-1212
+        Email: parts@acme.example
+        Invoice INV-301
+        1 Brake Pad Set $79.99
+        """)
+
+        #expect(parsed.header.vendorPhone == "800-555-1212")
+        #expect(parsed.header.vendorEmail == "parts@acme.example")
+    }
 }

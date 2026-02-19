@@ -46,6 +46,32 @@ private final class VendorContactShopmonkeyService: ShopmonkeyServicing {
     func testConnection() async throws {}
 }
 
+private final class VendorLookupCountingService: ShopmonkeyServicing {
+    private(set) var searchCalls: [String] = []
+    var cannedVendors: [VendorSummary] = [
+        VendorSummary(id: "v_advance", name: "Advance Auto Parts", phone: "555-7000", email: "parts@advance.example")
+    ]
+
+    func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse {
+        .init(id: "v_1", name: request.name)
+    }
+
+    func createPart(orderId: String, serviceId: String, request: CreatePartRequest) async throws -> CreatePartResponse {
+        _ = orderId
+        _ = serviceId
+        return .init(id: "p_1", name: request.name)
+    }
+
+    func getPurchaseOrders() async throws -> [PurchaseOrderResponse] { [] }
+    func fetchOrders() async throws -> [OrderSummary] { [] }
+    func fetchServices(orderId: String) async throws -> [ServiceSummary] { [] }
+    func searchVendors(name: String) async throws -> [VendorSummary] {
+        searchCalls.append(name)
+        return cannedVendors
+    }
+    func testConnection() async throws {}
+}
+
 struct ReviewViewModelTests {
     @Test func manualTypeOverridePersistsInSubmissionPayload() async throws {
         let parsed = ParsedInvoice(
@@ -226,5 +252,75 @@ struct ReviewViewModelTests {
         #expect(selectedVendor == "v_new")
         #expect(vendorName == "Brand New Vendor")
         #expect(statusMessage == "Vendor created and selected.")
+    }
+
+    @Test func initializesVendorContactFieldsFromParsedHeader() async throws {
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: "PO-555",
+            invoiceNumber: "INV-555",
+            totalCents: 4_500,
+            items: [
+                ParsedLineItem(
+                    name: "Test item",
+                    quantity: 1,
+                    costCents: 4500,
+                    partNumber: "T-1",
+                    confidence: 0.8,
+                    kind: .part,
+                    kindConfidence: 0.75,
+                    kindReasons: []
+                )
+            ],
+            header: POHeaderFields(
+                vendorName: "ACME Parts",
+                vendorPhone: "877-222-9999",
+                vendorEmail: "parts@acme.example",
+                vendorInvoiceNumber: "INV-555",
+                poReference: "PO-555",
+                workOrderId: "",
+                serviceId: "",
+                terms: "",
+                notes: ""
+            )
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(environment: .preview, parsedInvoice: parsed, shopmonkeyService: MinimalShopmonkeyService())
+        }
+
+        let phone = await MainActor.run { vm.vendorPhone }
+        let email = await MainActor.run { vm.vendorEmail }
+        #expect(phone == "877-222-9999")
+        #expect(email == "parts@acme.example")
+    }
+
+    @Test func vendorLookupDebouncesAndReducesPrefixChurn() async throws {
+        let service = VendorLookupCountingService()
+        let vm = await MainActor.run {
+            ReviewViewModel(
+                environment: .preview,
+                parsedInvoice: ParsedInvoice(items: []),
+                shopmonkeyService: service
+            )
+        }
+
+        await MainActor.run {
+            vm.setVendorName("Ac")
+        }
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        #expect(service.searchCalls.isEmpty)
+
+        await MainActor.run {
+            vm.setVendorName("Advance")
+        }
+        try? await Task.sleep(nanoseconds: 650_000_000)
+        #expect(service.searchCalls.count == 1)
+
+        await MainActor.run {
+            vm.setVendorName("Advance Auto")
+        }
+        try? await Task.sleep(nanoseconds: 650_000_000)
+        #expect(service.searchCalls.count == 1)
     }
 }

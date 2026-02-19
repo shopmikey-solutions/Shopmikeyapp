@@ -256,6 +256,40 @@ struct ReviewView: View {
             .submitLabel(.next)
             .accessibilityIdentifier("review.vendorField")
 
+            if !viewModel.vendorSuggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Potential vendor matches")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    ForEach(viewModel.vendorSuggestions.prefix(5)) { vendor in
+                        Button {
+                            viewModel.selectVendorSuggestion(vendor)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(vendor.name)
+                                        .foregroundStyle(.primary)
+                                    if let detail = vendorContactSummary(for: vendor) {
+                                        Text(detail)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                if viewModel.selectedVendorId == vendor.id ||
+                                    vendor.name.normalizedVendorName == viewModel.vendorName.normalizedVendorName {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(AppSurfaceStyle.success)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
             TextField("Vendor Phone (optional)", text: $viewModel.vendorPhone)
                 .keyboardType(.phonePad)
                 .textContentType(.telephoneNumber)
@@ -319,36 +353,6 @@ struct ReviewView: View {
                 Text("No match found? Create a new Shopmonkey vendor with these contact details.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            }
-
-            if !viewModel.vendorSuggestions.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(viewModel.vendorSuggestions.prefix(5)) { vendor in
-                        Button {
-                            viewModel.selectVendorSuggestion(vendor)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(vendor.name)
-                                        .foregroundStyle(.primary)
-                                    if let detail = vendorContactSummary(for: vendor) {
-                                        Text(detail)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                Spacer()
-                                if viewModel.selectedVendorId == vendor.id ||
-                                    vendor.name.normalizedVendorName == viewModel.vendorName.normalizedVendorName {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(AppSurfaceStyle.success)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
             }
         }
     }

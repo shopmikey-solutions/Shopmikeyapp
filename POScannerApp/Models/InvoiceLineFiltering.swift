@@ -52,6 +52,78 @@ enum InvoiceLineClassifier {
         return false
     }
 
+    /// Returns true when a line appears to be a labor/service charge row that should not be posted
+    /// as a parts/tire/fee inventory line item.
+    static func isLaborServiceLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let lower = trimmed.lowercased()
+        if isNonProductSummaryLine(trimmed) {
+            return false
+        }
+
+        // Keep explicit fee-like rows; these are valid for PO intake.
+        let feeSignals = [
+            "fee",
+            "disposal",
+            "hazmat",
+            "environmental",
+            "shop supplies",
+            "shipping",
+            "freight",
+            "core",
+            "surcharge",
+            "mount",
+            "balance"
+        ]
+        if feeSignals.contains(where: { lower.contains($0) }) {
+            return false
+        }
+
+        // If the row still looks like a concrete purchasable part/tire line, keep it.
+        if containsPartNumberLikeToken(trimmed) {
+            return false
+        }
+        if lower.range(
+            of: #"\b\d{3}/\d{2,3}(?:/\d{2}|(?:zr|r|-)?\d{2})\b"#,
+            options: [.regularExpression]
+        ) != nil {
+            return false
+        }
+        if lower.range(
+            of: #"\b(part|battery|filter|rotor|pad|sensor|hub|bearing|wiper|coil|coolant|gasket|fluid)\b"#,
+            options: [.regularExpression]
+        ) != nil {
+            return false
+        }
+
+        if lower.range(of: #"\b(labor|labour|technician|mechanic)\b"#, options: [.regularExpression]) != nil {
+            return true
+        }
+
+        if lower.range(of: #"\b\d+(?:\.\d+)?\s*(hr|hrs|hour|hours)\b"#, options: [.regularExpression]) != nil {
+            return true
+        }
+
+        let hasServiceKeyword = lower.range(of: #"\bservice\b"#, options: [.regularExpression]) != nil
+        let laborActionSignal = lower.range(
+            of: #"\b(alignment|diagnostic|diagnostics|install(?:ation)?|program(?:ming)?|calibration|inspection|repair)\b"#,
+            options: [.regularExpression]
+        ) != nil
+        if hasServiceKeyword && laborActionSignal {
+            return true
+        }
+
+        let hasRateSignal = lower.range(of: #"\b(rate|labor rate|lab)\b"#, options: [.regularExpression]) != nil
+        let hasDollarAmount = lower.range(of: #"\$\s*\d"#, options: [.regularExpression]) != nil
+        if hasServiceKeyword && hasRateSignal && hasDollarAmount {
+            return true
+        }
+
+        return false
+    }
+
     // MARK: - Summary detection
 
     private static func isSubtotalLine(_ lower: String) -> Bool {

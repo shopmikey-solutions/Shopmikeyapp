@@ -522,7 +522,11 @@ final class ScanViewModel: ObservableObject {
             state: ReviewDraftSnapshot.State(
                 parsedInvoice: ReviewDraftSnapshot.ParsedInvoiceSnapshot(invoice: parsedInvoice),
                 vendorName: parsedInvoice.vendorName ?? "",
-                vendorPhone: "",
+                vendorPhone: parsedInvoice.header.vendorPhone?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                vendorEmail: {
+                    let trimmed = parsedInvoice.header.vendorEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return (trimmed?.isEmpty == false) ? trimmed : nil
+                }(),
                 vendorInvoiceNumber: parsedInvoice.invoiceNumber ?? "",
                 poReference: parsedInvoice.poNumber ?? "",
                 notes: "",
@@ -654,6 +658,8 @@ final class ScanViewModel: ObservableObject {
         }
 
         ai.header.vendorName = preferred(nonEmpty(ai.header.vendorName), fallback: nonEmpty(rulesInvoice.header.vendorName)) ?? ""
+        ai.header.vendorPhone = preferred(nonEmpty(ai.header.vendorPhone), fallback: nonEmpty(rulesInvoice.header.vendorPhone))
+        ai.header.vendorEmail = preferred(nonEmpty(ai.header.vendorEmail), fallback: nonEmpty(rulesInvoice.header.vendorEmail))
         ai.header.vendorInvoiceNumber = preferred(nonEmpty(ai.header.vendorInvoiceNumber), fallback: nonEmpty(rulesInvoice.header.vendorInvoiceNumber)) ?? ""
         ai.header.poReference = preferred(nonEmpty(ai.header.poReference), fallback: nonEmpty(rulesInvoice.header.poReference)) ?? ""
         ai.header.workOrderId = preferred(nonEmpty(ai.header.workOrderId), fallback: nonEmpty(rulesInvoice.header.workOrderId)) ?? ""
@@ -736,10 +742,11 @@ final class ScanViewModel: ObservableObject {
                 var submitted = 0
                 var failed = 0
                 var total = Decimal.zero
+                var mostRecentSubmittedOrder: PurchaseOrder?
                 var mostRecentTrackedOrder: PurchaseOrder?
 
                 for order in results {
-                    let statusBucket = PurchaseOrderStatusBucket(rawStatus: order.status)
+                    let statusBucket = PurchaseOrderStatusBucket.from(order)
                     guard statusBucket.countsAsTrackedScan else {
                         continue
                     }
@@ -749,6 +756,9 @@ final class ScanViewModel: ObservableObject {
                         count += 1
                         submitted += 1
                         total += Decimal(order.totalAmount)
+                        if mostRecentSubmittedOrder == nil {
+                            mostRecentSubmittedOrder = order
+                        }
                         if mostRecentTrackedOrder == nil {
                             mostRecentTrackedOrder = order
                         }
@@ -788,8 +798,16 @@ final class ScanViewModel: ObservableObject {
                     let dateText = dateFormatter.string(from: order.date)
                     return RecentSummary(vendor: vendor, total: totalText, date: dateText)
                 }
+                let preferredRecent = (mostRecentSubmittedOrder ?? mostRecentTrackedOrder).map { order in
+                    let vendor = order.vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "Unknown Vendor"
+                        : order.vendorName
+                    let totalText = currencyFormatter.string(from: NSNumber(value: order.totalAmount)) ?? "$0.00"
+                    let dateText = dateFormatter.string(from: order.date)
+                    return RecentSummary(vendor: vendor, total: totalText, date: dateText)
+                }
 
-                return (count, pending, submitted, failed, total, recent)
+                return (count, pending, submitted, failed, total, preferredRecent ?? recent)
             }
 
             guard !Task.isCancelled else {

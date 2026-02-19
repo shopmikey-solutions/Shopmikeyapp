@@ -4,6 +4,7 @@
 //
 
 import Testing
+import Foundation
 @testable import POScannerApp
 
 struct POParserAdvancedTests {
@@ -140,5 +141,20 @@ struct POParserAdvancedTests {
 
         #expect(parsed.invoiceNumber == "MAP-45821")
         #expect(parsed.poNumber == "PO-99012")
+    }
+
+    @Test func filtersLaborLinesButKeepsFeeAndParts() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        Advance Auto Parts
+        Alignment Service Labor 1.5 hr $119.99
+        BRAKEPAD-FR-887 Front Ceramic Brake Pad Set Qty: 1 $112.45
+        Tire Disposal Fee Qty: 4 $6.00
+        """)
+
+        #expect(parsed.items.count == 2)
+        #expect(parsed.items.contains(where: { $0.name.localizedCaseInsensitiveContains("Brake Pad") }))
+        #expect(parsed.items.contains(where: { $0.name.localizedCaseInsensitiveContains("Disposal") }))
+        #expect(!parsed.items.contains(where: { $0.name.localizedCaseInsensitiveContains("Alignment Service Labor") }))
     }
 }

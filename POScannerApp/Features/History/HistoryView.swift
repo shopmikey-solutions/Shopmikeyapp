@@ -129,7 +129,7 @@ struct HistoryView: View {
                                     historyRow(row)
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    if statusBucket(for: row.status).allowsRetry {
+                                    if row.statusBucket.allowsRetry {
                                         Button("Retry") {
                                             AppHaptics.impact(.medium, intensity: 0.8)
                                             Task { await retry(row) }
@@ -211,10 +211,10 @@ struct HistoryView: View {
             scoped = viewModel.orders
         case .attention:
             scoped = viewModel.orders.filter { row in
-                statusBucket(for: row.status).countsAsAttention
+                row.statusBucket.countsAsAttention
             }
         case .submitted:
-            scoped = viewModel.orders.filter { statusBucket(for: $0.status) == .submitted }
+            scoped = viewModel.orders.filter { $0.statusBucket == .submitted }
         }
 
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -243,7 +243,7 @@ struct HistoryView: View {
     }
 
     private var todayTrackedOrders: [HistoryViewModel.HistoryRow] {
-        todayOrders.filter { statusBucket(for: $0.status).countsAsTrackedScan }
+        todayOrders.filter { $0.statusBucket.countsAsTrackedScan }
     }
 
     private var historyOverviewCard: some View {
@@ -277,15 +277,15 @@ struct HistoryView: View {
     }
 
     private var submittedCount: Int {
-        todayTrackedOrders.filter { statusBucket(for: $0.status) == .submitted }.count
+        todayTrackedOrders.filter { $0.statusBucket == .submitted }.count
     }
 
     private var pendingCount: Int {
-        todayTrackedOrders.filter { statusBucket(for: $0.status) == .pending }.count
+        todayTrackedOrders.filter { $0.statusBucket == .pending }.count
     }
 
     private var failedCount: Int {
-        todayTrackedOrders.filter { statusBucket(for: $0.status) == .failed }.count
+        todayTrackedOrders.filter { $0.statusBucket == .failed }.count
     }
 
     private var totalValueFormatted: String {
@@ -299,7 +299,7 @@ struct HistoryView: View {
                 Text(row.vendorName)
                     .font(.body.weight(.semibold))
                 Spacer()
-                StatusBadge(status: row.status)
+                StatusBadge(status: row.status, bucket: row.statusBucket)
             }
             HStack(spacing: 8) {
                 Text(row.formattedDate)
@@ -313,7 +313,7 @@ struct HistoryView: View {
             .font(.footnote)
             .foregroundStyle(.secondary)
 
-            if statusBucket(for: row.status).allowsRetry,
+            if row.statusBucket.allowsRetry,
                let lastError = row.lastError,
                !lastError.isEmpty {
                 Text(lastError)
@@ -344,17 +344,15 @@ struct HistoryView: View {
         }
     }
 
-    private func statusBucket(for rawStatus: String) -> PurchaseOrderStatusBucket {
-        PurchaseOrderStatusBucket(rawStatus: rawStatus)
-    }
 }
 
 private struct StatusBadge: View {
     let status: String
+    let bucket: PurchaseOrderStatusBucket
 
     private var label: String {
         let normalized = PurchaseOrderStatusBucket.normalized(status)
-        switch PurchaseOrderStatusBucket(rawStatus: status) {
+        switch bucket {
         case .submitted:
             return "Submitted"
         case .pending:
@@ -381,7 +379,7 @@ private struct StatusBadge: View {
     }
 
     private var color: Color {
-        switch PurchaseOrderStatusBucket(rawStatus: status) {
+        switch bucket {
         case .submitted:
             return AppSurfaceStyle.success
         case .pending:

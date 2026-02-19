@@ -83,6 +83,10 @@ final class ReviewViewModel: ObservableObject {
     private var lineItemSuggestionTask: Task<Void, Never>?
     private var purchaseOrderLookupTask: Task<Void, Never>?
     private var todayMetricsTask: Task<Void, Never>?
+    private var submissionActivityEndTask: Task<Void, Never>?
+    private var lastVendorLookupQuery: String?
+    private var lastVendorLookupAt: Date?
+    private var vendorLookupCache: [String: [VendorSummary]] = [:]
     private var vendorAutoSelectAttempts: Int = 0
     private var vendorAutoSelectSuccesses: Int = 0
     private var lastSubmissionFingerprint: Int?
@@ -111,6 +115,8 @@ final class ReviewViewModel: ObservableObject {
         self.suggestedPONumber = poCandidate
 
         self.vendorName = Self.isHighConfidenceVendorName(vendorCandidate) ? (vendorCandidate ?? "") : ""
+        self.vendorPhone = Self.trimmedValue(header.vendorPhone) ?? ""
+        self.vendorEmail = Self.trimmedValue(header.vendorEmail) ?? ""
         self.vendorInvoiceNumber = Self.isHighConfidenceDocumentIdentifier(invoiceCandidate) ? (invoiceCandidate ?? "") : ""
         self.poReference = Self.isHighConfidenceDocumentIdentifier(poCandidate) ? (poCandidate ?? "") : ""
         self.orderId = header.workOrderId
@@ -164,6 +170,7 @@ final class ReviewViewModel: ObservableObject {
         lineItemSuggestionTask?.cancel()
         purchaseOrderLookupTask?.cancel()
         todayMetricsTask?.cancel()
+        submissionActivityEndTask?.cancel()
     }
 
     var submissionMode: SubmissionMode {
@@ -637,6 +644,12 @@ final class ReviewViewModel: ObservableObject {
         statusMessage = nil
         errorMessage = nil
         showSuccessAlert = false
+        publishSubmissionLiveActivity(
+            isActive: true,
+            statusText: "Submitting purchase order",
+            detailText: "Posting parts intake to Shopmonkey.",
+            progress: 0.96
+        )
 
         _ = try? await persistDraft(
             showStatusMessage: false,
@@ -656,6 +669,13 @@ final class ReviewViewModel: ObservableObject {
         if result.succeeded {
             statusMessage = "Repair-order payload submitted to sandbox."
             showSuccessAlert = true
+            publishSubmissionLiveActivity(
+                isActive: true,
+                statusText: "PO submitted",
+                detailText: "Purchase order synced with Shopmonkey.",
+                progress: 1.0
+            )
+            scheduleLiveActivityEnd(after: 1.4)
             await environment.localNotificationService.notify(
                 .submissionSucceeded(
                     vendor: trimmedOrNil(vendorName),
@@ -665,6 +685,13 @@ final class ReviewViewModel: ObservableObject {
             await clearDraftAfterSuccessfulSubmission()
         } else {
             errorMessage = result.message ?? "Submission failed."
+            publishSubmissionLiveActivity(
+                isActive: true,
+                statusText: "Submission failed",
+                detailText: result.message ?? "Review vendor and line item details.",
+                progress: 0.55
+            )
+            scheduleLiveActivityEnd(after: 2.0)
             _ = try? await persistDraft(
                 showStatusMessage: false,
                 workflowState: .failed,
@@ -676,6 +703,45 @@ final class ReviewViewModel: ObservableObject {
         }
 
         isSubmitting = false
+    }
+
+    private func publishSubmissionLiveActivity(
+        isActive: Bool,
+        statusText: String,
+        detailText: String,
+        progress: Double
+    ) {
+        let draftURL: URL? = {
+            if let activeDraftID {
+                return AppDeepLink.scanURL(draftID: activeDraftID)
+            }
+            return AppDeepLink.historyURL
+        }()
+
+        PartsIntakeLiveActivityBridge.sync(
+            isActive: isActive,
+            statusText: statusText,
+            detailText: detailText,
+            progress: progress,
+            deepLinkURL: draftURL
+        )
+    }
+
+    private func scheduleLiveActivityEnd(after delay: TimeInterval) {
+        submissionActivityEndTask?.cancel()
+        submissionActivityEndTask = Task { [weak self] in
+            let nanos = UInt64((max(0, delay) * 1_000_000_000).rounded())
+            try? await Task.sleep(nanoseconds: nanos)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.publishSubmissionLiveActivity(
+                    isActive: false,
+                    statusText: "",
+                    detailText: "",
+                    progress: 0
+                )
+            }
+        }
     }
 
     func submit() async throws {
@@ -748,10 +814,14 @@ final class ReviewViewModel: ObservableObject {
                 request.predicate = NSPredicate(format: "date >= %@", startOfDay as NSDate)
 
                 let results = (try? context.fetch(request)) ?? []
+                var trackedCount = 0
                 let total = results.reduce(Decimal.zero) { partial, order in
-                    partial + Decimal(order.totalAmount)
+                    let bucket = PurchaseOrderStatusBucket.from(order)
+                    guard bucket.countsAsTrackedScan else { return partial }
+                    trackedCount += 1
+                    return partial + Decimal(order.totalAmount)
                 }
-                return (results.count, total)
+                return (trackedCount, total)
             }
 
             guard !Task.isCancelled else {
@@ -861,9 +931,24 @@ final class ReviewViewModel: ObservableObject {
         vendorLookupTask?.cancel()
 
         let query = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard query.count >= 2 else {
+        let minimumLength = debounce ? 3 : 2
+        guard query.count >= minimumLength else {
             vendorSuggestions = []
             selectedVendorId = nil
+            return
+        }
+        let normalizedQuery = query.normalizedVendorName
+        if let cachedVendors = vendorLookupCache[normalizedQuery] {
+            let ranked = rankVendorSuggestions(cachedVendors, query: query)
+            vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
+            applyVendorAutoSelectionIfNeeded(ranked, query: query)
+            lastVendorLookupQuery = normalizedQuery
+            lastVendorLookupAt = Date()
+            return
+        }
+        if lastVendorLookupQuery == normalizedQuery,
+           let lastVendorLookupAt,
+           Date().timeIntervalSince(lastVendorLookupAt) < 1.5 {
             return
         }
 
@@ -874,14 +959,33 @@ final class ReviewViewModel: ObservableObject {
             guard !Task.isCancelled, let self else { return }
 
             do {
+                if debounce,
+                   let previousQuery = self.lastVendorLookupQuery,
+                   normalizedQuery.hasPrefix(previousQuery),
+                   let lastLookupAt = self.lastVendorLookupAt,
+                   Date().timeIntervalSince(lastLookupAt) < 1.1,
+                   let previousResults = self.vendorLookupCache[previousQuery] {
+                    let ranked = self.rankVendorSuggestions(previousResults, query: query)
+                    self.vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
+                    self.applyVendorAutoSelectionIfNeeded(ranked, query: query)
+                    self.lastVendorLookupQuery = normalizedQuery
+                    self.lastVendorLookupAt = Date()
+                    return
+                }
+
                 let remote = try await self.shopmonkeyService.searchVendors(name: query)
                 guard !Task.isCancelled else { return }
 
                 let ranked = self.rankVendorSuggestions(remote, query: query)
+                self.vendorLookupCache[normalizedQuery] = remote
+                self.lastVendorLookupQuery = normalizedQuery
+                self.lastVendorLookupAt = Date()
                 self.vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
                 self.applyVendorAutoSelectionIfNeeded(ranked, query: query)
             } catch {
                 guard !Task.isCancelled else { return }
+                self.lastVendorLookupQuery = normalizedQuery
+                self.lastVendorLookupAt = Date()
                 self.vendorSuggestions = []
                 self.selectedVendorId = nil
             }

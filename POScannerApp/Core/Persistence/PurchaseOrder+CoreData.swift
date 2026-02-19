@@ -48,6 +48,19 @@ enum PurchaseOrderStatusBucket: Equatable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
     }
+
+    static func from(_ order: PurchaseOrder) -> PurchaseOrderStatusBucket {
+        if order.submittedAt != nil {
+            return .submitted
+        }
+
+        if let lastError = order.lastError?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !lastError.isEmpty {
+            return .failed
+        }
+
+        return PurchaseOrderStatusBucket(rawStatus: order.status)
+    }
 }
 
 @objc(PurchaseOrder)

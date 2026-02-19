@@ -396,8 +396,13 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     private func rankVendorSearchResults(_ vendors: [VendorSummary], query: String) -> [VendorSummary] {
-        VendorMatcher.rankVendors(
-            vendors,
+        let sanitized = vendors.filter { vendor in
+            !vendor.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !vendor.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        return VendorMatcher.rankVendors(
+            sanitized,
             query: query,
             minimumScore: VendorMatcher.minimumSuggestionScore
         ).map(\.vendor)
@@ -1162,6 +1167,20 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 struct CreateVendorRequest: Encodable {
     let name: String
     let phone: String?
+    let email: String?
+    let notes: String?
+
+    init(
+        name: String,
+        phone: String? = nil,
+        email: String? = nil,
+        notes: String? = nil
+    ) {
+        self.name = name
+        self.phone = phone
+        self.email = email
+        self.notes = notes
+    }
 }
 
 struct CreateVendorResponse: Decodable {
@@ -2197,4 +2216,110 @@ struct ServiceSummary: Decodable, Identifiable {
 struct VendorSummary: Decodable, Identifiable {
     let id: String
     let name: String
+    let phone: String?
+    let email: String?
+    let notes: String?
+
+    init(
+        id: String,
+        name: String,
+        phone: String? = nil,
+        email: String? = nil,
+        notes: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.phone = phone
+        self.email = email
+        self.notes = notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let root = try JSONValue(from: decoder)
+
+        self.id = Self.firstString(
+            keys: ["id", "vendor_id", "vendorId"],
+            in: root
+        ) ?? ""
+        self.name = Self.firstString(
+            keys: ["name", "vendor_name", "vendorName"],
+            in: root
+        ) ?? ""
+        self.phone = Self.firstString(
+            keys: ["phone", "phone_number", "phoneNumber", "telephone", "mobile"],
+            in: root
+        )
+        self.email = Self.firstString(
+            keys: ["email", "email_address", "emailAddress", "primary_email", "primaryEmail"],
+            in: root
+        )
+        self.notes = Self.firstNonEmpty([
+            Self.firstString(keys: ["vendor_notes", "vendorNotes"], in: root),
+            Self.firstString(keys: ["notes", "note"], in: root)
+        ])
+    }
+
+    private static func firstString(keys: [String], in value: JSONValue) -> String? {
+        let lookup = Set(keys.map { $0.lowercased() })
+        return firstString(matching: lookup, in: value)
+    }
+
+    private static func firstString(matching keys: Set<String>, in value: JSONValue) -> String? {
+        switch value {
+        case .object(let object):
+            for (rawKey, nestedValue) in object {
+                if keys.contains(rawKey.lowercased()),
+                   let scalar = scalarString(from: nestedValue) {
+                    let trimmed = scalar.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        return trimmed
+                    }
+                }
+            }
+
+            for nestedValue in object.values {
+                if let found = firstString(matching: keys, in: nestedValue) {
+                    return found
+                }
+            }
+            return nil
+
+        case .array(let values):
+            for nestedValue in values {
+                if let found = firstString(matching: keys, in: nestedValue) {
+                    return found
+                }
+            }
+            return nil
+
+        default:
+            return nil
+        }
+    }
+
+    private static func firstNonEmpty(_ candidates: [String?]) -> String? {
+        for candidate in candidates {
+            guard let candidate else { continue }
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func scalarString(from value: JSONValue) -> String? {
+        switch value {
+        case .string(let value):
+            return value
+        case .int(let value):
+            return String(value)
+        case .double(let value):
+            return String(value)
+        case .bool(let value):
+            return value ? "true" : "false"
+        default:
+            return nil
+        }
+    }
 }

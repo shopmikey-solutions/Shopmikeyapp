@@ -25,6 +25,27 @@ private struct MinimalShopmonkeyService: ShopmonkeyServicing {
     func testConnection() async throws {}
 }
 
+private final class VendorContactShopmonkeyService: ShopmonkeyServicing {
+    var createVendorRequests: [CreateVendorRequest] = []
+
+    func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse {
+        createVendorRequests.append(request)
+        return .init(id: "v_new", name: request.name)
+    }
+
+    func createPart(orderId: String, serviceId: String, request: CreatePartRequest) async throws -> CreatePartResponse {
+        _ = orderId
+        _ = serviceId
+        return .init(id: "p_1", name: request.name)
+    }
+
+    func getPurchaseOrders() async throws -> [PurchaseOrderResponse] { [] }
+    func fetchOrders() async throws -> [OrderSummary] { [] }
+    func fetchServices(orderId: String) async throws -> [ServiceSummary] { [] }
+    func searchVendors(name: String) async throws -> [VendorSummary] { [] }
+    func testConnection() async throws {}
+}
+
 struct ReviewViewModelTests {
     @Test func manualTypeOverridePersistsInSubmissionPayload() async throws {
         let parsed = ParsedInvoice(
@@ -140,5 +161,70 @@ struct ReviewViewModelTests {
 
         let descriptions = await MainActor.run { vm.items.map(\.description) }
         #expect(descriptions == ["Line B", "Line A", "Line C"])
+    }
+
+    @Test func selectVendorSuggestionPopulatesVendorContactDetails() async throws {
+        let vm = await MainActor.run {
+            ReviewViewModel(
+                environment: .preview,
+                parsedInvoice: ParsedInvoice(items: []),
+                shopmonkeyService: MinimalShopmonkeyService()
+            )
+        }
+
+        await MainActor.run {
+            vm.selectVendorSuggestion(
+                VendorSummary(
+                    id: "v_123",
+                    name: "ACME Parts",
+                    phone: "555-1212",
+                    email: "parts@acme.example",
+                    notes: "Ask for parts desk."
+                )
+            )
+        }
+
+        let selectedVendor = await MainActor.run { vm.selectedVendorId }
+        let vendorPhone = await MainActor.run { vm.vendorPhone }
+        let vendorEmail = await MainActor.run { vm.vendorEmail }
+        let vendorNotes = await MainActor.run { vm.vendorNotes }
+
+        #expect(selectedVendor == "v_123")
+        #expect(vendorPhone == "555-1212")
+        #expect(vendorEmail == "parts@acme.example")
+        #expect(vendorNotes == "Ask for parts desk.")
+    }
+
+    @Test func createVendorUsesContactFieldsAndSelectsCreatedVendor() async throws {
+        let service = VendorContactShopmonkeyService()
+        let vm = await MainActor.run {
+            ReviewViewModel(
+                environment: .preview,
+                parsedInvoice: ParsedInvoice(items: []),
+                shopmonkeyService: service
+            )
+        }
+
+        await MainActor.run {
+            vm.setVendorName("Brand New Vendor")
+            vm.vendorPhone = "800-555-9999"
+            vm.vendorEmail = "contact@vendor.example"
+            vm.vendorNotes = "Preferred for emergency tire orders."
+        }
+
+        await vm.createVendorFromCurrentInput()
+
+        let selectedVendor = await MainActor.run { vm.selectedVendorId }
+        let vendorName = await MainActor.run { vm.vendorName }
+        let statusMessage = await MainActor.run { vm.statusMessage }
+
+        #expect(service.createVendorRequests.count == 1)
+        #expect(service.createVendorRequests.first?.name == "Brand New Vendor")
+        #expect(service.createVendorRequests.first?.phone == "800-555-9999")
+        #expect(service.createVendorRequests.first?.email == "contact@vendor.example")
+        #expect(service.createVendorRequests.first?.notes == "Preferred for emergency tire orders.")
+        #expect(selectedVendor == "v_new")
+        #expect(vendorName == "Brand New Vendor")
+        #expect(statusMessage == "Vendor created and selected.")
     }
 }

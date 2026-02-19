@@ -8,6 +8,8 @@ import SwiftUI
 struct ReviewView: View {
     private enum FocusedField: Hashable {
         case vendor
+        case vendorPhone
+        case vendorEmail
         case invoice
         case po
         case order
@@ -254,6 +256,29 @@ struct ReviewView: View {
             .submitLabel(.next)
             .accessibilityIdentifier("review.vendorField")
 
+            TextField("Vendor Phone (optional)", text: $viewModel.vendorPhone)
+                .keyboardType(.phonePad)
+                .textContentType(.telephoneNumber)
+                .focused($focusedField, equals: .vendorPhone)
+                .submitLabel(.next)
+                .accessibilityIdentifier("review.vendorPhoneField")
+
+            TextField("Vendor Email (optional)", text: $viewModel.vendorEmail)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .textContentType(.emailAddress)
+                .focused($focusedField, equals: .vendorEmail)
+                .submitLabel(.next)
+                .accessibilityIdentifier("review.vendorEmailField")
+
+            NativeTextView(
+                text: $viewModel.vendorNotes,
+                placeholder: "Vendor notes (optional)",
+                accessibilityIdentifier: "review.vendorNotesField"
+            )
+            .frame(minHeight: 84)
+
             Label(
                 viewModel.selectedVendorId == nil ? "Vendor not selected" : "Vendor selected",
                 systemImage: viewModel.selectedVendorId == nil ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
@@ -277,6 +302,25 @@ struct ReviewView: View {
                 .font(.footnote)
             }
 
+            if viewModel.selectedVendorId == nil {
+                Button {
+                    AppHaptics.impact(.light, intensity: 0.85)
+                    Task { await viewModel.createVendorFromCurrentInput() }
+                } label: {
+                    Label(
+                        viewModel.isCreatingVendor ? "Creating Vendor..." : "Create Vendor",
+                        systemImage: "person.crop.circle.badge.plus"
+                    )
+                }
+                .appSecondaryActionButton()
+                .disabled(!viewModel.canCreateVendorFromCurrentInput || viewModel.isCreatingVendor)
+                .accessibilityIdentifier("review.createVendorButton")
+
+                Text("No match found? Create a new Shopmonkey vendor with these contact details.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             if !viewModel.vendorSuggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(viewModel.vendorSuggestions.prefix(5)) { vendor in
@@ -284,8 +328,16 @@ struct ReviewView: View {
                             viewModel.selectVendorSuggestion(vendor)
                         } label: {
                             HStack {
-                                Text(vendor.name)
-                                    .foregroundStyle(.primary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(vendor.name)
+                                        .foregroundStyle(.primary)
+                                    if let detail = vendorContactSummary(for: vendor) {
+                                        Text(detail)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
                                 Spacer()
                                 if viewModel.selectedVendorId == vendor.id ||
                                     vendor.name.normalizedVendorName == viewModel.vendorName.normalizedVendorName {
@@ -637,6 +689,22 @@ struct ReviewView: View {
         "\(Int((value * 100).rounded()))%"
     }
 
+    private func vendorContactSummary(for vendor: VendorSummary) -> String? {
+        let phone = vendor.phone?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let email = vendor.email?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let phone, !phone.isEmpty, let email, !email.isEmpty {
+            return "\(phone) • \(email)"
+        }
+        if let phone, !phone.isEmpty {
+            return phone
+        }
+        if let email, !email.isEmpty {
+            return email
+        }
+        return nil
+    }
+
     private var orderIdBinding: Binding<String> {
         Binding(
             get: { viewModel.orderId },
@@ -678,6 +746,10 @@ struct ReviewView: View {
     private func advanceKeyboardFocus() {
         switch focusedField {
         case .vendor:
+            focusedField = .vendorPhone
+        case .vendorPhone:
+            focusedField = .vendorEmail
+        case .vendorEmail:
             focusedField = .invoice
         case .invoice:
             focusedField = .po

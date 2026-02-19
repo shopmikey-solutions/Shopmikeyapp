@@ -123,6 +123,8 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         var parsedInvoice: ParsedInvoiceSnapshot
         var vendorName: String
         var vendorPhone: String
+        var vendorEmail: String? = nil
+        var vendorNotes: String? = nil
         var vendorInvoiceNumber: String
         var poReference: String
         var notes: String

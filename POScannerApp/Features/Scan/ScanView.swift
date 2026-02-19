@@ -462,7 +462,7 @@ struct ScanView: View {
     private var processingBanner: some View {
         if viewModel.isProcessing {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Live Parts Intake Pipeline")
+                Text("Parts Intake Processing")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
@@ -575,21 +575,7 @@ struct ScanView: View {
             )
         }
 
-        guard let latestDraft = viewModel.latestDraft else {
-            return (false, "", "", 0, nil)
-        }
-
-        guard latestDraft.workflowState == .submitting else {
-            return (false, "", "", 0, nil)
-        }
-
-        return (
-            true,
-            "Submitting to Shopmonkey",
-            latestDraft.displaySecondaryLine,
-            latestDraft.workflowProgressEstimate,
-            AppDeepLink.scanURL(draftID: latestDraft.id)
-        )
+        return (false, "", "", 0, nil)
     }
 
     @MainActor

@@ -64,7 +64,7 @@ actor PartsIntakeLiveActivityManager {
 
         guard isActive else {
             Self.logger.debug("Live Activity sync ending because workflow is inactive.")
-            await endCurrent(dismissalPolicy: .default)
+            await endCurrent(dismissalPolicy: .immediate)
             return
         }
 
@@ -132,8 +132,8 @@ actor PartsIntakeLiveActivityManager {
     private func endCurrent(dismissalPolicy: ActivityUIDismissalPolicy) async {
         guard let activity else { return }
         let state = PartsIntakeActivityAttributes.ContentState(
-            statusText: "Completed",
-            detailText: "Parts intake finished.",
+            statusText: "Finishing",
+            detailText: "Closing intake activity.",
             progress: 1,
             updatedAt: Date(),
             deepLinkURL: nil
@@ -157,11 +157,22 @@ actor PartsIntakeLiveActivityManager {
 #endif
 
 enum PartsIntakeLiveActivityBridge {
+    private struct PendingSyncPayload {
+        let isActive: Bool
+        let statusText: String
+        let detailText: String
+        let progress: Double
+        let deepLinkURL: URL?
+    }
+
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.LiveActivity")
     private static var firstForegroundSyncAt: Date?
     private static var hasLoggedGatePassForForegroundSession: Bool = false
     private static var hasLoggedInactiveBlockForForegroundSession: Bool = false
-    private static let startupGateInterval: TimeInterval = 1.0
+    private static var deferredSyncTask: Task<Void, Never>?
+    private static var pendingSyncPayload: PendingSyncPayload?
+    private static let startupGateInterval: TimeInterval = 0.6
+    private static let minimumDeferredSyncDelay: TimeInterval = 0.15
 
     @MainActor
     static func sync(
@@ -171,23 +182,32 @@ enum PartsIntakeLiveActivityBridge {
         progress: Double,
         deepLinkURL: URL? = nil
     ) {
+        if !isActive {
+            cancelDeferredSync()
+        }
+
         if isActive && !readyForForegroundSync() {
             logger.debug("Live Activity bridge blocked by startup foreground gate.")
+            queueDeferredSync(
+                PendingSyncPayload(
+                    isActive: isActive,
+                    statusText: statusText,
+                    detailText: detailText,
+                    progress: progress,
+                    deepLinkURL: deepLinkURL
+                )
+            )
             return
         }
 
-        #if canImport(ActivityKit)
-        guard #available(iOS 16.1, *) else { return }
-        Task {
-            await PartsIntakeLiveActivityManager.shared.sync(
-                isActive: isActive,
-                statusText: statusText,
-                detailText: detailText,
-                progress: progress,
-                deepLinkURL: deepLinkURL
-            )
-        }
-        #endif
+        cancelDeferredSync()
+        dispatchToManager(
+            isActive: isActive,
+            statusText: statusText,
+            detailText: detailText,
+            progress: progress,
+            deepLinkURL: deepLinkURL
+        )
     }
 
     @MainActor
@@ -220,6 +240,71 @@ enum PartsIntakeLiveActivityBridge {
         return false
         #else
         return true
+        #endif
+    }
+
+    @MainActor
+    private static func queueDeferredSync(_ payload: PendingSyncPayload) {
+        #if canImport(UIKit)
+        guard UIApplication.shared.applicationState == .active else {
+            pendingSyncPayload = payload
+            deferredSyncTask?.cancel()
+            deferredSyncTask = nil
+            return
+        }
+        #endif
+
+        pendingSyncPayload = payload
+        deferredSyncTask?.cancel()
+
+        let remainingDelay = max(minimumDeferredSyncDelay, remainingGateDelay())
+        deferredSyncTask = Task { @MainActor in
+            let nanos = UInt64((remainingDelay * 1_000_000_000).rounded())
+            try? await Task.sleep(nanoseconds: nanos)
+            guard !Task.isCancelled,
+                  let pending = pendingSyncPayload else { return }
+            pendingSyncPayload = nil
+            sync(
+                isActive: pending.isActive,
+                statusText: pending.statusText,
+                detailText: pending.detailText,
+                progress: pending.progress,
+                deepLinkURL: pending.deepLinkURL
+            )
+        }
+    }
+
+    @MainActor
+    private static func cancelDeferredSync() {
+        deferredSyncTask?.cancel()
+        deferredSyncTask = nil
+        pendingSyncPayload = nil
+    }
+
+    @MainActor
+    private static func remainingGateDelay() -> TimeInterval {
+        guard let firstForegroundSyncAt else { return startupGateInterval }
+        return max(0, startupGateInterval - Date().timeIntervalSince(firstForegroundSyncAt))
+    }
+
+    private static func dispatchToManager(
+        isActive: Bool,
+        statusText: String,
+        detailText: String,
+        progress: Double,
+        deepLinkURL: URL?
+    ) {
+        #if canImport(ActivityKit)
+        guard #available(iOS 16.1, *) else { return }
+        Task {
+            await PartsIntakeLiveActivityManager.shared.sync(
+                isActive: isActive,
+                statusText: statusText,
+                detailText: detailText,
+                progress: progress,
+                deepLinkURL: deepLinkURL
+            )
+        }
         #endif
     }
 }

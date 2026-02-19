@@ -287,7 +287,8 @@ final class POSubmissionService {
             persistVendor(
                 VendorSummary(
                     id: selectedVendorID,
-                    name: payload.vendorName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    name: payload.vendorName.trimmingCharacters(in: .whitespacesAndNewlines),
+                    phone: payload.vendorPhone?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 ),
                 context: context
             )
@@ -313,7 +314,7 @@ final class POSubmissionService {
             return match.id
         }
 
-        throw ValidationError.invalidPayload("Select an existing vendor from suggestions before submitting.")
+        throw ValidationError.invalidPayload("Select or create a vendor before submitting.")
     }
 
     // MARK: - Stage 3: Line item submission

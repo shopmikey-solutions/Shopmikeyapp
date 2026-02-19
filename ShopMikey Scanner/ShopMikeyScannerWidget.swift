@@ -96,8 +96,20 @@ struct PartsIntakeWidgetEntry: TimelineEntry {
 
 struct ShopMikeyScannerEntryView: View {
     var entry: PartsIntakeWidgetProvider.Entry
+    @Environment(\.widgetFamily) private var family
 
     var body: some View {
+        switch family {
+        case .accessoryInline:
+            inlineAccessoryView
+        case .accessoryRectangular:
+            rectangularAccessoryView
+        default:
+            dashboardWidgetView
+        }
+    }
+
+    private var dashboardWidgetView: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("Parts Intake", systemImage: "doc.text.viewfinder")
@@ -122,6 +134,37 @@ struct ShopMikeyScannerEntryView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+
+    private var inlineAccessoryView: some View {
+        Text("Intake \(entry.submittedCount)/\(max(1, entry.scansToday))")
+            .font(.caption.weight(.semibold))
+    }
+
+    private var rectangularAccessoryView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Label("Parts Intake", systemImage: "doc.text.viewfinder")
+                    .font(.caption.weight(.semibold))
+                    .labelStyle(.titleAndIcon)
+                Spacer(minLength: 4)
+                Text("\(Int((progress * 100).rounded()))%")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            ProgressView(value: progress)
+                .tint(.accentColor)
+
+            HStack(spacing: 12) {
+                Label("\(entry.scansToday)", systemImage: "doc.text.viewfinder")
+                Label("\(entry.submittedCount)", systemImage: "checkmark.circle")
+                Label("\(entry.pendingCount + entry.failedCount)", systemImage: "exclamationmark.triangle")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
     }
 
     private var progress: Double {
@@ -155,10 +198,11 @@ struct ShopMikeyScannerWidget: Widget {
         StaticConfiguration(kind: kind, provider: PartsIntakeWidgetProvider()) { entry in
             ShopMikeyScannerEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
+                .widgetURL(URL(string: "shopmikey://scan"))
         }
         .configurationDisplayName("Parts Intake")
         .description("Snapshot of today’s Shopmikey parts intake pipeline.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryInline, .accessoryRectangular])
     }
 }
 

@@ -236,6 +236,43 @@ struct ShopmonkeyAPISandboxTests {
         #expect(created.name == "Mikey Test")
     }
 
+    @Test func searchVendorsDecodesContactDetailsWhenAvailable() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PurchaseOrderURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        PurchaseOrderURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            #expect(url.path == "/v3/vendor")
+            #expect(url.query?.contains("search=acme") == true)
+
+            let body = Data(
+                #"""
+                {"data":[{"id":"v_1","name":"ACME Parts","phone_number":"555-1212","email":"parts@acme.example","notes":"Preferred vendor"}]}
+                """#.utf8
+            )
+            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, body)
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyAPI.baseURL,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+        let api = ShopmonkeyAPI(client: client)
+
+        let vendors = try await api.searchVendors(name: "acme")
+        #expect(vendors.count == 1)
+        #expect(vendors.first?.id == "v_1")
+        #expect(vendors.first?.name == "ACME Parts")
+        #expect(vendors.first?.phone == "555-1212")
+        #expect(vendors.first?.email == "parts@acme.example")
+        #expect(vendors.first?.notes == "Preferred vendor")
+    }
+
     @Test func getPurchaseOrdersDecodesWrappedListWithNullableVendorId() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PurchaseOrderURLProtocol.self]

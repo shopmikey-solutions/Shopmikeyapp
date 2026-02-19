@@ -30,6 +30,8 @@ final class ReviewViewModel: ObservableObject {
 
     @Published var vendorName: String = ""
     @Published var vendorPhone: String = ""
+    @Published var vendorEmail: String = ""
+    @Published var vendorNotes: String = ""
     @Published var vendorInvoiceNumber: String = ""
     @Published var poReference: String = ""
     @Published var notes: String = ""
@@ -66,6 +68,7 @@ final class ReviewViewModel: ObservableObject {
     @Published var ignoreTaxOverride: Bool = false
 
     @Published var isSubmitting: Bool = false
+    @Published private(set) var isCreatingVendor: Bool = false
     @Published var statusMessage: String?
     @Published var errorMessage: String?
     @Published var showSuccessAlert: Bool = false
@@ -244,6 +247,12 @@ final class ReviewViewModel: ObservableObject {
             }
             return selectedPurchaseOrder?.isDraft == true
         }
+    }
+
+    var canCreateVendorFromCurrentInput: Bool {
+        trimmedOrNil(vendorName) != nil
+            && trimmedOrNil(selectedVendorId) == nil
+            && !isCreatingVendor
     }
 
     var subtotalFormatted: String {
@@ -576,9 +585,41 @@ final class ReviewViewModel: ObservableObject {
 
     func selectVendorSuggestion(_ vendor: VendorSummary) {
         vendorLookupTask?.cancel()
-        vendorName = vendor.name
-        selectedVendorId = vendor.id
-        vendorSuggestions = []
+        selectVendor(vendor, adoptVendorName: true, replaceContactDetails: true)
+    }
+
+    func createVendorFromCurrentInput() async {
+        guard !isCreatingVendor else { return }
+        guard let requestedVendorName = trimmedOrNil(vendorName) else {
+            errorMessage = "Enter a vendor name before creating a new vendor."
+            return
+        }
+
+        isCreatingVendor = true
+        defer { isCreatingVendor = false }
+
+        let request = CreateVendorRequest(
+            name: requestedVendorName,
+            phone: trimmedOrNil(vendorPhone),
+            email: trimmedOrNil(vendorEmail),
+            notes: trimmedOrNil(vendorNotes)
+        )
+
+        do {
+            let created = try await shopmonkeyService.createVendor(request)
+            let createdVendor = VendorSummary(
+                id: created.id,
+                name: created.name,
+                phone: request.phone,
+                email: request.email,
+                notes: request.notes
+            )
+            selectVendor(createdVendor, adoptVendorName: true, replaceContactDetails: true)
+            statusMessage = "Vendor created and selected."
+            errorMessage = nil
+        } catch {
+            errorMessage = "Could not create vendor. Verify vendor details and try again."
+        }
     }
 
     func recordTypeOverride(from oldKind: POItemKind, to newKind: POItemKind) {
@@ -936,12 +977,13 @@ final class ReviewViewModel: ObservableObject {
             && (normalizedTop == normalizedQuery || canonicalTop == canonicalQuery)
 
         if shouldAutoSelect {
-            selectedVendorId = top.vendor.id
+            let shouldAdoptVendorName = normalizedTop == normalizedQuery
+            selectVendor(
+                top.vendor,
+                adoptVendorName: shouldAdoptVendorName,
+                replaceContactDetails: false
+            )
             vendorAutoSelectSuccesses += 1
-
-            if normalizedTop == normalizedQuery, vendorName != top.vendor.name {
-                vendorName = top.vendor.name
-            }
         } else {
             selectedVendorId = nil
         }
@@ -950,6 +992,37 @@ final class ReviewViewModel: ObservableObject {
             vendorAutoSelectSuccessRate = Double(vendorAutoSelectSuccesses) / Double(vendorAutoSelectAttempts)
         } else {
             vendorAutoSelectSuccessRate = 0
+        }
+    }
+
+    private func selectVendor(
+        _ vendor: VendorSummary,
+        adoptVendorName: Bool,
+        replaceContactDetails: Bool
+    ) {
+        selectedVendorId = vendor.id
+        if adoptVendorName {
+            vendorName = vendor.name
+        }
+        applyVendorContactDetails(from: vendor, replaceExistingValues: replaceContactDetails)
+        vendorSuggestions = []
+    }
+
+    private func applyVendorContactDetails(from vendor: VendorSummary, replaceExistingValues: Bool) {
+        let incomingPhone = trimmedOrNil(vendor.phone)
+        let incomingEmail = trimmedOrNil(vendor.email)
+        let incomingNotes = trimmedOrNil(vendor.notes)
+
+        if replaceExistingValues || trimmedOrNil(vendorPhone) == nil {
+            vendorPhone = incomingPhone ?? ""
+        }
+
+        if replaceExistingValues || trimmedOrNil(vendorEmail) == nil {
+            vendorEmail = incomingEmail ?? ""
+        }
+
+        if replaceExistingValues || trimmedOrNil(vendorNotes) == nil {
+            vendorNotes = incomingNotes ?? ""
         }
     }
 
@@ -1004,7 +1077,7 @@ final class ReviewViewModel: ObservableObject {
 
     private var submissionGuardMessage: String {
         if trimmedOrNil(selectedVendorId) == nil {
-            return "Select an existing vendor from suggestions before submitting."
+            return "Select or create a vendor before submitting."
         }
 
         switch modeUI {
@@ -1044,7 +1117,13 @@ final class ReviewViewModel: ObservableObject {
             return true
         }
 
-        if trimmedOrNil(vendorName) != nil || trimmedOrNil(vendorInvoiceNumber) != nil || trimmedOrNil(poReference) != nil {
+        if trimmedOrNil(vendorName) != nil
+            || trimmedOrNil(vendorPhone) != nil
+            || trimmedOrNil(vendorEmail) != nil
+            || trimmedOrNil(vendorNotes) != nil
+            || trimmedOrNil(vendorInvoiceNumber) != nil
+            || trimmedOrNil(poReference) != nil
+            || trimmedOrNil(notes) != nil {
             return true
         }
 
@@ -1055,6 +1134,8 @@ final class ReviewViewModel: ObservableObject {
         let state = snapshot.state
         vendorName = state.vendorName
         vendorPhone = state.vendorPhone
+        vendorEmail = state.vendorEmail ?? ""
+        vendorNotes = state.vendorNotes ?? ""
         vendorInvoiceNumber = state.vendorInvoiceNumber
         poReference = state.poReference
         notes = state.notes
@@ -1091,6 +1172,8 @@ final class ReviewViewModel: ObservableObject {
                 parsedInvoice: ReviewDraftSnapshot.ParsedInvoiceSnapshot(invoice: parsedInvoice),
                 vendorName: vendorName,
                 vendorPhone: vendorPhone,
+                vendorEmail: trimmedOrNil(vendorEmail),
+                vendorNotes: trimmedOrNil(vendorNotes),
                 vendorInvoiceNumber: vendorInvoiceNumber,
                 poReference: poReference,
                 notes: notes,

@@ -12,7 +12,8 @@ final class DataController {
     private(set) var loadError: Error?
     private let loadLock = NSLock()
     private var isLoaded: Bool = false
-    private var loadContinuations: [CheckedContinuation<Void, Never>] = []
+    private var loadContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private let loadWaitTimeout: TimeInterval = 6.0
 
     init(inMemory: Bool = false) {
         let model: NSManagedObjectModel
@@ -43,19 +44,9 @@ final class DataController {
 
         container.loadPersistentStores { [weak self] _, error in
             guard let self else { return }
-            if let error {
-                self.loadError = error
-            }
-
-            self.loadLock.lock()
-            self.isLoaded = true
-            let continuations = self.loadContinuations
-            self.loadContinuations.removeAll()
-            self.loadLock.unlock()
-            for cont in continuations {
-                cont.resume()
-            }
+            self.markLoaded(error: error)
         }
+        scheduleLoadTimeoutFallback()
 
         container.viewContext.automaticallyMergesChangesFromParent = true
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
@@ -88,7 +79,7 @@ final class DataController {
     }
 
     /// Await the persistent store load completion. Useful for tests.
-    func waitUntilLoaded() async {
+    func waitUntilLoaded(timeout: TimeInterval = 5.0) async {
         loadLock.lock()
         if isLoaded {
             loadLock.unlock()
@@ -96,6 +87,7 @@ final class DataController {
         }
         loadLock.unlock()
 
+        let token = UUID()
         await withCheckedContinuation { cont in
             loadLock.lock()
             if isLoaded {
@@ -103,8 +95,56 @@ final class DataController {
                 cont.resume()
                 return
             }
-            loadContinuations.append(cont)
+            loadContinuations[token] = cont
             loadLock.unlock()
+
+            guard timeout > 0 else { return }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in
+                self?.resumeLoadContinuationIfPending(token: token)
+            }
+        }
+    }
+
+    private func markLoaded(error: Error?) {
+        loadLock.lock()
+        guard !isLoaded else {
+            loadLock.unlock()
+            return
+        }
+
+        if let error, loadError == nil {
+            loadError = error
+        }
+        isLoaded = true
+        let continuations = loadContinuations.values
+        loadContinuations.removeAll()
+        loadLock.unlock()
+
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    private func resumeLoadContinuationIfPending(token: UUID) {
+        loadLock.lock()
+        guard let continuation = loadContinuations.removeValue(forKey: token) else {
+            loadLock.unlock()
+            return
+        }
+        loadLock.unlock()
+        continuation.resume()
+    }
+
+    private func scheduleLoadTimeoutFallback() {
+        let timeout = loadWaitTimeout
+        guard timeout > 0 else { return }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in
+            guard let self else { return }
+            self.markLoaded(error: NSError(
+                domain: "POScannerApp.DataController",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Persistent store load timed out after \(Int(timeout))s."]
+            ))
         }
     }
 }

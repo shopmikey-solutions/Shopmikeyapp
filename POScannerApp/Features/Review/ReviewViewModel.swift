@@ -76,6 +76,7 @@ final class ReviewViewModel: ObservableObject {
     private var vendorLookupTask: Task<Void, Never>?
     private var lineItemSuggestionTask: Task<Void, Never>?
     private var purchaseOrderLookupTask: Task<Void, Never>?
+    private var todayMetricsTask: Task<Void, Never>?
     private var vendorAutoSelectAttempts: Int = 0
     private var vendorAutoSelectSuccesses: Int = 0
     private var lastSubmissionFingerprint: Int?
@@ -149,6 +150,13 @@ final class ReviewViewModel: ObservableObject {
         }
 
         applyLineItemSuggestions()
+    }
+
+    deinit {
+        vendorLookupTask?.cancel()
+        lineItemSuggestionTask?.cancel()
+        purchaseOrderLookupTask?.cancel()
+        todayMetricsTask?.cancel()
     }
 
     var submissionMode: SubmissionMode {
@@ -665,10 +673,13 @@ final class ReviewViewModel: ObservableObject {
     }
 
     func loadTodayMetrics() {
+        todayMetricsTask?.cancel()
         let dataController = environment.dataController
 
-        Task(priority: .userInitiated) {
+        todayMetricsTask = Task(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
             await dataController.waitUntilLoaded()
+            guard !Task.isCancelled else { return }
             let container = dataController.container
             let context = container.newBackgroundContext()
             let hasPurchaseOrderEntity = NSEntityDescription.entity(forEntityName: "PurchaseOrder", in: context) != nil
@@ -689,6 +700,7 @@ final class ReviewViewModel: ObservableObject {
                 return (results.count, total)
             }
 
+            guard !Task.isCancelled else { return }
             todayCount = metrics.count
             todayTotal = metrics.total
         }

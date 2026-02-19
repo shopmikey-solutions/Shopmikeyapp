@@ -51,7 +51,7 @@ struct ScanView: View {
             matching: .images,
             preferredItemEncoding: .current
         )
-        .sheet(isPresented: $showScanner) {
+        .fullScreenCover(isPresented: $showScanner) {
             if VNDocumentCameraViewController.isSupported {
                 VisionDocumentScanner(
                     onScan: { image, orientation in

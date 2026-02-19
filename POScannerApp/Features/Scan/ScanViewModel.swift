@@ -9,9 +9,12 @@ import CoreGraphics
 import CoreData
 import ImageIO
 import UIKit
+import os
 
 @MainActor
 final class ScanViewModel: ObservableObject {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.Scan")
+
     enum ProcessingStage: String {
         case extractingText = "Reading parts invoice"
         case preparingReview = "Preparing technician review"
@@ -93,6 +96,7 @@ final class ScanViewModel: ObservableObject {
     }
 
     deinit {
+        Self.logger.debug("ScanViewModel deinit: cancelling background metric/draft tasks.")
         todayMetricsTask?.cancel()
         inProgressDraftsTask?.cancel()
     }
@@ -271,12 +275,20 @@ final class ScanViewModel: ObservableObject {
     }
 
     func loadInProgressDrafts() {
+        if inProgressDraftsTask != nil {
+            Self.logger.debug("Cancelling previous in-progress drafts task before reloading.")
+        }
         inProgressDraftsTask?.cancel()
         inProgressDraftsTask = Task { [weak self] in
             guard let self else { return }
+            Self.logger.debug("Loading in-progress drafts.")
             let drafts = await environment.reviewDraftStore.list()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                Self.logger.debug("In-progress drafts task cancelled before state update.")
+                return
+            }
             inProgressDrafts = drafts
+            Self.logger.debug("Loaded in-progress drafts count=\(drafts.count, privacy: .public).")
         }
     }
 
@@ -665,17 +677,25 @@ final class ScanViewModel: ObservableObject {
     }
 
     func loadTodayMetrics() {
+        if todayMetricsTask != nil {
+            Self.logger.debug("Cancelling previous today-metrics task before reloading.")
+        }
         todayMetricsTask?.cancel()
         let dataController = environment.dataController
 
         todayMetricsTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+            Self.logger.debug("Loading dashboard metrics for today.")
             await dataController.waitUntilLoaded()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                Self.logger.debug("Today-metrics task cancelled before Core Data fetch.")
+                return
+            }
             let container = dataController.container
             let context = container.newBackgroundContext()
             let hasPurchaseOrderEntity = NSEntityDescription.entity(forEntityName: "PurchaseOrder", in: context) != nil
             guard hasPurchaseOrderEntity else {
+                Self.logger.error("PurchaseOrder entity missing while loading dashboard metrics.")
                 todayCount = 0
                 todayTotal = 0
                 pendingCount = 0
@@ -729,13 +749,19 @@ final class ScanViewModel: ObservableObject {
                 return (count, pending, submitted, failed, total, recent)
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                Self.logger.debug("Today-metrics task cancelled after Core Data fetch.")
+                return
+            }
             todayCount = metrics.count
             todayTotal = metrics.total
             pendingCount = metrics.pending
             submittedCount = metrics.submitted
             failedCount = metrics.failed
             mostRecentSummary = metrics.recent
+            Self.logger.debug(
+                "Loaded today metrics scans=\(metrics.count, privacy: .public) submitted=\(metrics.submitted, privacy: .public) failed=\(metrics.failed, privacy: .public)."
+            )
             PartsIntakeWidgetBridge.publish(
                 scansToday: metrics.count,
                 submittedCount: metrics.submitted,

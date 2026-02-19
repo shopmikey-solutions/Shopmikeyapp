@@ -15,7 +15,6 @@ struct ScanView: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isImportingPhoto: Bool = false
     @State private var showProcessingDetails: Bool = true
-    @State private var showResumeDraftDialog: Bool = false
     @State private var hasPerformedInitialLoad: Bool = false
     @State private var initialLoadTask: Task<Void, Never>?
     @StateObject private var viewModel: ScanViewModel
@@ -45,47 +44,6 @@ struct ScanView: View {
                 onScanWithCamera: { showScanner = true },
                 onChooseFromPhotos: { showPhotoPicker = true }
             )
-        }
-        .confirmationDialog(
-            "Resume saved intake?",
-            isPresented: $showResumeDraftDialog,
-            titleVisibility: .visible
-        ) {
-            if let latestDraft = viewModel.latestDraft, viewModel.canResumeOCRReview(latestDraft) {
-                Button("Review OCR Draft") {
-                    AppHaptics.selection()
-                    viewModel.resumeOCRReview(latestDraft)
-                }
-            } else if let latestDraft = viewModel.latestResumableDraft {
-                Button("Resume Intake Review") {
-                    AppHaptics.selection()
-                    viewModel.resumeDraft(latestDraft)
-                }
-            }
-
-            Button("Start New Capture") {
-                AppHaptics.selection()
-                presentCaptureSourcePicker()
-            }
-
-            if let latestDraft = viewModel.latestDraft, !latestDraft.canResumeInReview {
-                Button("Remove Previous Session", role: .destructive) {
-                    AppHaptics.warning()
-                    viewModel.deleteDraft(latestDraft)
-                }
-            }
-
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            if let latestDraft = viewModel.latestDraft {
-                if viewModel.canResumeOCRReview(latestDraft) {
-                    Text("\(latestDraft.displaySecondaryLine). You can continue OCR review or start a new capture.")
-                } else if latestDraft.canResumeInReview {
-                    Text("\(latestDraft.displaySecondaryLine). You can resume review or start a new capture.")
-                } else {
-                    Text("The previous session did not reach a resumable review state. Start a new capture or remove it.")
-                }
-            }
         }
         .photosPicker(
             isPresented: $showPhotoPicker,
@@ -362,11 +320,7 @@ struct ScanView: View {
     private func presentCaptureFlow() {
         guard !showScanner, !viewModel.isProcessing, !isImportingPhoto else { return }
         AppHaptics.impact(.medium, intensity: 0.9)
-        if viewModel.latestDraft != nil {
-            showResumeDraftDialog = true
-        } else {
-            presentCaptureSourcePicker()
-        }
+        presentCaptureSourcePicker()
     }
 
     private func presentCaptureSourcePicker() {
@@ -413,7 +367,7 @@ struct ScanView: View {
 
     @ViewBuilder
     private func currentSessionActions(for draft: ReviewDraftSnapshot) -> some View {
-        let showsResumePrimary = viewModel.canResumeOCRReview(draft) || draft.canResumeInReview
+        let canResume = viewModel.canResumeOCRReview(draft) || draft.canResumeInReview
 
         VStack(spacing: 8) {
             if viewModel.canResumeOCRReview(draft) {
@@ -445,35 +399,34 @@ struct ScanView: View {
                 .frame(maxWidth: .infinity)
             }
 
-            if showsResumePrimary {
-                HStack(spacing: 10) {
-                    Button {
-                        AppHaptics.selection()
-                        presentCaptureSourcePicker()
-                    } label: {
-                        actionButtonLabel(title: "New Capture")
-                    }
-                    .appSecondaryActionButton()
-                    .frame(maxWidth: .infinity)
-
-                    Button(role: .destructive) {
-                        AppHaptics.warning()
-                        viewModel.deleteDraft(draft)
-                    } label: {
-                        actionButtonLabel(title: "Remove Draft")
-                    }
-                    .appSecondaryActionButton()
-                    .frame(maxWidth: .infinity)
-                }
-            } else {
-                Button(role: .destructive) {
-                    AppHaptics.warning()
-                    viewModel.deleteDraft(draft)
+            if canResume {
+                Button {
+                    AppHaptics.selection()
+                    presentCaptureSourcePicker()
                 } label: {
-                    actionButtonLabel(title: "Remove Draft")
+                    actionButtonLabel(title: "Start New Capture")
                 }
                 .appSecondaryActionButton()
                 .frame(maxWidth: .infinity)
+            }
+
+            Button(role: .destructive) {
+                AppHaptics.warning()
+                viewModel.deleteDraft(draft)
+            } label: {
+                Text(canResume ? "Remove Draft" : "Remove Previous Session")
+                    .font(.footnote.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 2)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
+            if !draft.canResumeInReview {
+                Text("This session cannot be resumed.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 2)
             }
         }
     }

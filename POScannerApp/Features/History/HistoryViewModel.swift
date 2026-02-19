@@ -6,9 +6,12 @@
 import CoreData
 import Combine
 import Foundation
+import os
 
 @MainActor
 final class HistoryViewModel: ObservableObject {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.History")
+
     struct HistoryRow: Identifiable, Hashable {
         let objectID: NSManagedObjectID
         let vendorName: String
@@ -52,10 +55,14 @@ final class HistoryViewModel: ObservableObject {
     }
 
     deinit {
+        Self.logger.debug("HistoryViewModel deinit: cancelling history load task.")
         loadHistoryTask?.cancel()
     }
 
     func loadHistory() {
+        if loadHistoryTask != nil {
+            Self.logger.debug("Cancelling previous history load task before reloading.")
+        }
         loadHistoryTask?.cancel()
         isLoading = true
 
@@ -63,9 +70,13 @@ final class HistoryViewModel: ObservableObject {
 
         loadHistoryTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+            Self.logger.debug("Loading history rows and in-progress drafts.")
             async let drafts = reviewDraftStore.list()
             await self.dataController.waitUntilLoaded()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                Self.logger.debug("History load task cancelled before Core Data fetch.")
+                return
+            }
             let backgroundContext = container.newBackgroundContext()
             backgroundContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
@@ -100,10 +111,16 @@ final class HistoryViewModel: ObservableObject {
             }
 
             let draftSnapshots = await drafts
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                Self.logger.debug("History load task cancelled after fetch and before state update.")
+                return
+            }
             orders = mapped
             inProgressDrafts = draftSnapshots
             isLoading = false
+            Self.logger.debug(
+                "Loaded history rows=\(mapped.count, privacy: .public) drafts=\(draftSnapshots.count, privacy: .public)."
+            )
         }
     }
 

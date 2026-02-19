@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import os
 
 #if canImport(UIKit)
 import UIKit
@@ -27,6 +28,8 @@ struct PartsIntakeActivityAttributes: ActivityAttributes {
 
 @available(iOS 16.1, *)
 actor PartsIntakeLiveActivityManager {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.LiveActivity")
+
     static let shared = PartsIntakeLiveActivityManager()
 
     private var activity: Activity<PartsIntakeActivityAttributes>?
@@ -48,16 +51,19 @@ actor PartsIntakeLiveActivityManager {
         deepLinkURL: URL?
     ) async {
         guard isEnabled else {
+            Self.logger.debug("Live Activity sync skipped: disabled by user setting.")
             await endCurrent(dismissalPolicy: .immediate)
             return
         }
 
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            Self.logger.debug("Live Activity sync skipped: activities disabled on device.")
             await endCurrent(dismissalPolicy: .immediate)
             return
         }
 
         guard isActive else {
+            Self.logger.debug("Live Activity sync ending because workflow is inactive.")
             await endCurrent(dismissalPolicy: .default)
             return
         }
@@ -75,6 +81,7 @@ actor PartsIntakeLiveActivityManager {
            lastSignature == signature,
            let lastUpdateAt,
            Date().timeIntervalSince(lastUpdateAt) < 1.2 {
+            Self.logger.debug("Live Activity sync skipped due to churn guard.")
             return
         }
 
@@ -91,6 +98,7 @@ actor PartsIntakeLiveActivityManager {
         )
 
         if let activity {
+            Self.logger.debug("Live Activity updated. progress=\(clampedProgress, privacy: .public)")
             await activity.update(content)
             self.lastSignature = signature
             self.lastUpdateAt = Date()
@@ -103,9 +111,11 @@ actor PartsIntakeLiveActivityManager {
                 content: content,
                 pushType: nil
             )
+            Self.logger.info("Live Activity created. progress=\(clampedProgress, privacy: .public)")
             self.lastSignature = signature
             self.lastUpdateAt = Date()
         } catch {
+            Self.logger.error("Live Activity creation failed: \(String(describing: error), privacy: .public)")
             self.activity = nil
             self.lastSignature = nil
             self.lastUpdateAt = nil
@@ -133,6 +143,7 @@ actor PartsIntakeLiveActivityManager {
             staleDate: nil
         )
         await activity.end(content, dismissalPolicy: dismissalPolicy)
+        Self.logger.debug("Live Activity ended.")
         self.activity = nil
         self.lastSignature = nil
         self.lastUpdateAt = nil
@@ -141,6 +152,7 @@ actor PartsIntakeLiveActivityManager {
 #endif
 
 enum PartsIntakeLiveActivityBridge {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.LiveActivity")
     private static var firstForegroundSyncAt: Date?
     private static let startupGateInterval: TimeInterval = 1.0
 
@@ -153,6 +165,7 @@ enum PartsIntakeLiveActivityBridge {
         deepLinkURL: URL? = nil
     ) {
         if isActive && !readyForForegroundSync() {
+            logger.debug("Live Activity bridge blocked by startup foreground gate.")
             return
         }
 
@@ -174,15 +187,21 @@ enum PartsIntakeLiveActivityBridge {
     private static func readyForForegroundSync() -> Bool {
         #if canImport(UIKit)
         guard UIApplication.shared.applicationState == .active else {
+            logger.debug("Live Activity gate blocked because app is not active.")
             return false
         }
 
         let now = Date()
         if let firstForegroundSyncAt {
-            return now.timeIntervalSince(firstForegroundSyncAt) >= startupGateInterval
+            let isReady = now.timeIntervalSince(firstForegroundSyncAt) >= startupGateInterval
+            if isReady {
+                logger.debug("Live Activity gate passed after startup delay.")
+            }
+            return isReady
         }
 
         firstForegroundSyncAt = now
+        logger.debug("Live Activity foreground gate started.")
         return false
         #else
         return true

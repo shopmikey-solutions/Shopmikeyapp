@@ -6,6 +6,7 @@
 import Combine
 import CoreData
 import Foundation
+import os
 
 enum SubmissionMode: String, CaseIterable, Hashable {
     case attachToExistingPO = "Attach to PO"
@@ -15,6 +16,8 @@ enum SubmissionMode: String, CaseIterable, Hashable {
 
 @MainActor
 final class ReviewViewModel: ObservableObject {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.Review")
+
     enum ModeUI: String, CaseIterable, Hashable {
         case attach
         case quickAdd
@@ -153,6 +156,7 @@ final class ReviewViewModel: ObservableObject {
     }
 
     deinit {
+        Self.logger.debug("ReviewViewModel deinit: cancelling outstanding tasks.")
         vendorLookupTask?.cancel()
         lineItemSuggestionTask?.cancel()
         purchaseOrderLookupTask?.cancel()
@@ -673,17 +677,25 @@ final class ReviewViewModel: ObservableObject {
     }
 
     func loadTodayMetrics() {
+        if todayMetricsTask != nil {
+            Self.logger.debug("Cancelling previous review metrics task before reloading.")
+        }
         todayMetricsTask?.cancel()
         let dataController = environment.dataController
 
         todayMetricsTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+            Self.logger.debug("Loading review metrics for current day.")
             await dataController.waitUntilLoaded()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                Self.logger.debug("Review metrics task cancelled before Core Data fetch.")
+                return
+            }
             let container = dataController.container
             let context = container.newBackgroundContext()
             let hasPurchaseOrderEntity = NSEntityDescription.entity(forEntityName: "PurchaseOrder", in: context) != nil
             guard hasPurchaseOrderEntity else {
+                Self.logger.error("PurchaseOrder entity missing while loading review metrics.")
                 todayCount = 0
                 todayTotal = 0
                 return
@@ -700,9 +712,13 @@ final class ReviewViewModel: ObservableObject {
                 return (results.count, total)
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                Self.logger.debug("Review metrics task cancelled after Core Data fetch.")
+                return
+            }
             todayCount = metrics.count
             todayTotal = metrics.total
+            Self.logger.debug("Loaded review metrics scans=\(metrics.count, privacy: .public).")
         }
     }
 

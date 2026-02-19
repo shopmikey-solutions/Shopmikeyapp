@@ -5,23 +5,29 @@
 
 import CoreData
 import Foundation
+import os
 
 /// Core Data stack owner.
 final class DataController {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.CoreData")
+
     let container: NSPersistentContainer
     private(set) var loadError: Error?
     private let loadLock = NSLock()
     private var isLoaded: Bool = false
     private var loadContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
     private let loadWaitTimeout: TimeInterval = 6.0
+    private let loadStartedAt: Date = Date()
 
     init(inMemory: Bool = false) {
+        Self.logger.info("Persistent store initialization started. inMemory=\(inMemory, privacy: .public)")
         let model: NSManagedObjectModel
         do {
             model = try Self.resolveModel()
         } catch {
             loadError = error
             model = NSManagedObjectModel()
+            Self.logger.error("Core Data model resolution failed: \(String(describing: error), privacy: .public)")
         }
 
         self.container = NSPersistentContainer(name: "POScannerApp", managedObjectModel: model)
@@ -97,6 +103,7 @@ final class DataController {
             }
             loadContinuations[token] = cont
             loadLock.unlock()
+            Self.logger.debug("Registered persistent store wait continuation. token=\(token.uuidString, privacy: .public)")
 
             guard timeout > 0 else { return }
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in
@@ -117,8 +124,21 @@ final class DataController {
         }
         isLoaded = true
         let continuations = loadContinuations.values
+        let continuationCount = continuations.count
         loadContinuations.removeAll()
         loadLock.unlock()
+
+        let elapsed = Date().timeIntervalSince(loadStartedAt)
+        let elapsedText = String(format: "%.2f", elapsed)
+        if let error {
+            Self.logger.error(
+                "Persistent store load finished with error after \(elapsedText, privacy: .public)s. waitingContinuations=\(continuationCount, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+        } else {
+            Self.logger.info(
+                "Persistent store load succeeded after \(elapsedText, privacy: .public)s. waitingContinuations=\(continuationCount, privacy: .public)"
+            )
+        }
 
         for continuation in continuations {
             continuation.resume()
@@ -132,6 +152,7 @@ final class DataController {
             return
         }
         loadLock.unlock()
+        Self.logger.warning("Persistent store wait continuation timed out. token=\(token.uuidString, privacy: .public)")
         continuation.resume()
     }
 
@@ -140,6 +161,7 @@ final class DataController {
         guard timeout > 0 else { return }
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in
             guard let self else { return }
+            Self.logger.error("Persistent store load timeout fallback triggered at \(Int(timeout), privacy: .public)s")
             self.markLoaded(error: NSError(
                 domain: "POScannerApp.DataController",
                 code: 2,

@@ -5,12 +5,16 @@
 
 import UIKit
 import UserNotifications
+import os
 
 final class AppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.App")
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        Self.logger.info("Application didFinishLaunching.")
         UNUserNotificationCenter.current().delegate = self
         return true
     }
@@ -34,6 +38,7 @@ final class AppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         }
 
         await MainActor.run {
+            Self.logger.debug("Posting deep link request from local notification.")
             NotificationCenter.default.post(name: .appDeepLinkRequested, object: deepLinkURL)
         }
     }

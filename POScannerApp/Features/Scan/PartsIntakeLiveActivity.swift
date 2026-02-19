@@ -5,6 +5,10 @@
 
 import Foundation
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 #if canImport(ActivityKit)
 import ActivityKit
 
@@ -137,6 +141,10 @@ actor PartsIntakeLiveActivityManager {
 #endif
 
 enum PartsIntakeLiveActivityBridge {
+    private static var firstForegroundSyncAt: Date?
+    private static let startupGateInterval: TimeInterval = 1.0
+
+    @MainActor
     static func sync(
         isActive: Bool,
         statusText: String,
@@ -144,6 +152,10 @@ enum PartsIntakeLiveActivityBridge {
         progress: Double,
         deepLinkURL: URL? = nil
     ) {
+        if isActive && !readyForForegroundSync() {
+            return
+        }
+
         #if canImport(ActivityKit)
         guard #available(iOS 16.1, *) else { return }
         Task {
@@ -155,6 +167,25 @@ enum PartsIntakeLiveActivityBridge {
                 deepLinkURL: deepLinkURL
             )
         }
+        #endif
+    }
+
+    @MainActor
+    private static func readyForForegroundSync() -> Bool {
+        #if canImport(UIKit)
+        guard UIApplication.shared.applicationState == .active else {
+            return false
+        }
+
+        let now = Date()
+        if let firstForegroundSyncAt {
+            return now.timeIntervalSince(firstForegroundSyncAt) >= startupGateInterval
+        }
+
+        firstForegroundSyncAt = now
+        return false
+        #else
+        return true
         #endif
     }
 }

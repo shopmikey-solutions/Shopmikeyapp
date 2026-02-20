@@ -8,6 +8,14 @@ import VisionKit
 import PhotosUI
 
 struct ScanView: View {
+    private struct LiveActivityPayloadSignature: Equatable {
+        let isActive: Bool
+        let status: String
+        let detail: String
+        let progressBucket: Int
+        let deepLinkURL: String?
+    }
+
     private enum PendingCaptureSource {
         case camera
         case photos
@@ -25,6 +33,7 @@ struct ScanView: View {
     @State private var initialLoadTask: Task<Void, Never>?
     @State private var draftStoreRefreshTask: Task<Void, Never>?
     @State private var liveActivityEndTask: Task<Void, Never>?
+    @State private var lastLiveActivitySignature: LiveActivityPayloadSignature?
     @State private var lastDashboardRefreshAt: Date?
     @StateObject private var viewModel: ScanViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -166,6 +175,7 @@ struct ScanView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            lastLiveActivitySignature = nil
             scheduleDraftStoreRefresh()
             syncLiveActivity()
         }
@@ -536,6 +546,12 @@ struct ScanView: View {
 
     private func syncLiveActivity() {
         let payload = liveActivityPayload()
+        let signature = liveActivitySignature(for: payload)
+        if signature == lastLiveActivitySignature {
+            return
+        }
+        lastLiveActivitySignature = signature
+
         if payload.isActive {
             liveActivityEndTask?.cancel()
             liveActivityEndTask = nil
@@ -596,6 +612,10 @@ struct ScanView: View {
         }
 
         if let draft = viewModel.latestDraft {
+            guard shouldSurfaceLiveDraft(draft) else {
+                return (false, "", "", 0, nil)
+            }
+
             let status: String
             let detail: String
             let progress: Double
@@ -633,6 +653,39 @@ struct ScanView: View {
         }
 
         return (false, "", "", 0, nil)
+    }
+
+    private func liveActivitySignature(
+        for payload: (
+            isActive: Bool,
+            status: String,
+            detail: String,
+            progress: Double,
+            deepLinkURL: URL?
+        )
+    ) -> LiveActivityPayloadSignature {
+        let bucket = Int((min(1, max(0, payload.progress)) * 100).rounded())
+        return LiveActivityPayloadSignature(
+            isActive: payload.isActive,
+            status: payload.status.trimmingCharacters(in: .whitespacesAndNewlines),
+            detail: payload.detail.trimmingCharacters(in: .whitespacesAndNewlines),
+            progressBucket: bucket,
+            deepLinkURL: payload.deepLinkURL?.absoluteString
+        )
+    }
+
+    private func shouldSurfaceLiveDraft(_ draft: ReviewDraftSnapshot) -> Bool {
+        let age = Date().timeIntervalSince(draft.updatedAt)
+        switch draft.workflowState {
+        case .reviewReady, .reviewEdited:
+            return age <= 90
+        case .scanning, .ocrReview, .parsing:
+            return age <= 5 * 60
+        case .submitting:
+            return age <= 10 * 60
+        case .failed:
+            return false
+        }
     }
 
     @MainActor

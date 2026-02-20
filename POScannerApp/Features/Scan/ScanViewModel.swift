@@ -92,6 +92,7 @@ final class ScanViewModel: ObservableObject {
     private var cachedOCRReviewDrafts: [UUID: OCRReviewDraft] = [:]
     private var todayMetricsTask: Task<Void, Never>?
     private var inProgressDraftsTask: Task<Void, Never>?
+    private var pendingInProgressDraftsReload: Bool = false
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -278,20 +279,29 @@ final class ScanViewModel: ObservableObject {
 
     func loadInProgressDrafts() {
         if inProgressDraftsTask != nil {
-            Self.logger.debug("Cancelling previous in-progress drafts task before reloading.")
+            pendingInProgressDraftsReload = true
+            Self.logger.debug("Queued in-progress drafts reload while existing load is active.")
+            return
         }
-        inProgressDraftsTask?.cancel()
         inProgressDraftsTask = Task { [weak self] in
             guard let self else { return }
             Self.logger.debug("Loading in-progress drafts.")
             let drafts = await environment.reviewDraftStore.list()
+            inProgressDraftsTask = nil
             guard !Task.isCancelled else {
                 Self.logger.debug("In-progress drafts task cancelled before state update.")
                 return
             }
-            inProgressDrafts = drafts
+            if inProgressDrafts != drafts {
+                inProgressDrafts = drafts
+            }
             refreshDraftMetrics(from: drafts)
             Self.logger.debug("Loaded in-progress drafts count=\(drafts.count, privacy: .public).")
+
+            if pendingInProgressDraftsReload {
+                pendingInProgressDraftsReload = false
+                loadInProgressDrafts()
+            }
         }
     }
 

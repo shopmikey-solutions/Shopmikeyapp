@@ -91,10 +91,13 @@ actor PartsIntakeLiveActivityManager {
 
         // Avoid churn when app re-enters foreground and repeatedly emits equivalent updates.
         if let lastSignature,
-           lastSignature == signature,
-           let lastUpdateAt,
-           Date().timeIntervalSince(lastUpdateAt) < 1.2 {
-            Self.logger.debug("Live Activity sync skipped due to churn guard.")
+           lastSignature == signature {
+            if let lastUpdateAt,
+               Date().timeIntervalSince(lastUpdateAt) < 1.2 {
+                Self.logger.debug("Live Activity sync skipped due to churn guard.")
+            } else {
+                Self.logger.debug("Live Activity sync skipped: duplicate state.")
+            }
             return
         }
 

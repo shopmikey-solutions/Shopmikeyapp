@@ -163,6 +163,10 @@ private extension POParser {
             return false
         }
 
+        if InvoiceLineClassifier.isHeaderArtifactLine(description) {
+            return false
+        }
+
         if InvoiceLineClassifier.isLaborServiceLine(description) {
             return false
         }
@@ -228,6 +232,7 @@ private extension POParser {
     }
 
     func isIgnorableLine(_ line: String) -> Bool {
+        if InvoiceLineClassifier.isHeaderArtifactLine(line) { return true }
         if isTableHeaderLine(line) { return true }
 
         // Always ignore non-product summary lines (tax/subtotal/total). These must never become items.
@@ -235,7 +240,10 @@ private extension POParser {
 
         let lower = line.lowercased()
         if lower.contains("pickup location") { return true }
-        if lower.contains("unit ($)") && lower.contains("ext ($)") { return true }
+        if (lower.contains("unit") && lower.contains("ext"))
+            && (lower.contains("pickup location") || lower.contains("part #") || lower.contains("description")) {
+            return true
+        }
         if lower.contains("unit price") && lower.contains("extended") { return true }
         if lower.contains("purchase order") { return true }
         if lower.localizedCaseInsensitiveHasPrefix("po:") { return true }
@@ -460,6 +468,7 @@ private extension POParser {
             guard trimmed.rangeOfCharacter(from: .letters) != nil else { return false }
             guard !isAttributeOnlyLine(trimmed) else { return false }
             guard !InvoiceLineClassifier.isNonProductSummaryLine(trimmed) else { return false }
+            guard !InvoiceLineClassifier.isHeaderArtifactLine(trimmed) else { return false }
             return true
         }
 

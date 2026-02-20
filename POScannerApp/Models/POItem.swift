@@ -104,13 +104,13 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         self.id = id
         self.sku = sku
         self.description = description
-        self.quantity = max(1, quantity)
+        self.quantity = Self.sanitizedQuantity(quantity)
         self.unitCost = max(0, unitCost)
         self.isTaxable = isTaxable
         self.partNumber = partNumber
-        self.confidence = confidence
+        self.confidence = Self.sanitizedUnitInterval(confidence, fallback: 0.5)
         self.kind = kind
-        self.kindConfidence = max(0, min(1, kindConfidence))
+        self.kindConfidence = Self.sanitizedUnitInterval(kindConfidence, fallback: 0)
         self.kindReasons = kindReasons
     }
 
@@ -135,13 +135,14 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         if let costCents {
             self.unitCost = Decimal(costCents) / 100
         } else {
-            self.unitCost = max(0, Decimal(cost))
+            let safeCost = cost.isFinite ? cost : 0
+            self.unitCost = max(0, Decimal(safeCost))
         }
         self.isTaxable = isTaxable
         self.partNumber = partNumber
-        self.confidence = confidence
+        self.confidence = Self.sanitizedUnitInterval(confidence, fallback: 0.5)
         self.kind = kind
-        self.kindConfidence = max(0, min(1, kindConfidence))
+        self.kindConfidence = Self.sanitizedUnitInterval(kindConfidence, fallback: 0)
         self.kindReasons = kindReasons
     }
 
@@ -153,6 +154,7 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
                 return value
             }
             if let value = try container.decodeIfPresent(Double.self, forKey: key) {
+                guard value.isFinite else { return nil }
                 return Decimal(value)
             }
             if let value = try container.decodeIfPresent(Int.self, forKey: key) {
@@ -178,7 +180,7 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         }
 
         if let decodedQuantity = try container.decodeIfPresent(Double.self, forKey: .quantity) {
-            quantity = max(1, decodedQuantity)
+            quantity = Self.sanitizedQuantity(decodedQuantity)
         } else if let decodedQuantityInt = try container.decodeIfPresent(Int.self, forKey: .quantity) {
             quantity = Double(max(1, decodedQuantityInt))
         } else {
@@ -198,9 +200,15 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
 
         isTaxable = try container.decodeIfPresent(Bool.self, forKey: .isTaxable) ?? true
         partNumber = try container.decodeIfPresent(String.self, forKey: .partNumber)
-        confidence = max(0, min(1, try container.decodeIfPresent(Double.self, forKey: .confidence) ?? 0.5))
+        confidence = Self.sanitizedUnitInterval(
+            try container.decodeIfPresent(Double.self, forKey: .confidence) ?? 0.5,
+            fallback: 0.5
+        )
         kind = try container.decodeIfPresent(POItemKind.self, forKey: .kind) ?? .unknown
-        kindConfidence = max(0, min(1, try container.decodeIfPresent(Double.self, forKey: .kindConfidence) ?? 0))
+        kindConfidence = Self.sanitizedUnitInterval(
+            try container.decodeIfPresent(Double.self, forKey: .kindConfidence) ?? 0,
+            fallback: 0
+        )
         kindReasons = try container.decodeIfPresent([String].self, forKey: .kindReasons) ?? []
     }
 
@@ -221,7 +229,8 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
 
     /// Decimal-accurate line subtotal used by the review UI.
     var subtotal: Decimal {
-        Decimal(quantity) * unitCost
+        let safeQuantity = quantity.isFinite ? quantity : 1
+        return Decimal(safeQuantity) * unitCost
     }
 
     var isKindConfidenceHigh: Bool {
@@ -268,7 +277,10 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
 
     var cost: Double {
         get { NSDecimalNumber(decimal: unitCost).doubleValue }
-        set { unitCost = max(0, Decimal(newValue)) }
+        set {
+            let safeValue = newValue.isFinite ? newValue : 0
+            unitCost = max(0, Decimal(safeValue))
+        }
     }
 
     var costCents: Int {
@@ -277,7 +289,8 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
     }
 
     var quantityForSubmission: Int {
-        max(1, Int(quantity.rounded(.toNearestOrAwayFromZero)))
+        let safeQuantity = quantity.isFinite ? quantity : 1
+        return max(1, Int(safeQuantity.rounded(.toNearestOrAwayFromZero)))
     }
 
     var unitPrice: Double? {
@@ -330,6 +343,16 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         formatter.currencyCode = "USD"
         return formatter
     }()
+
+    private static func sanitizedQuantity(_ value: Double) -> Double {
+        guard value.isFinite else { return 1 }
+        return max(1, value)
+    }
+
+    private static func sanitizedUnitInterval(_ value: Double, fallback: Double) -> Double {
+        guard value.isFinite else { return fallback }
+        return min(1, max(0, value))
+    }
 
     private func quotedToken(in reason: String) -> String? {
         guard let firstQuote = reason.firstIndex(of: "'") else { return nil }

@@ -36,6 +36,9 @@ actor PartsIntakeLiveActivityManager {
     private var lastSignature: Signature?
     private var lastUpdateAt: Date?
     private var lastDeepLinkRawValue: String?
+    private var scheduledEndTask: Task<Void, Never>?
+    private let inactiveWorkflowEndDelay: TimeInterval = 45
+    private let terminalCompletionEndDelay: TimeInterval = 12
 
     private struct Signature: Equatable {
         let statusText: String
@@ -51,23 +54,26 @@ actor PartsIntakeLiveActivityManager {
         deepLinkURL: URL?
     ) async {
         guard isEnabled else {
+            cancelScheduledEnd()
             await endCurrent(dismissalPolicy: .immediate)
             return
         }
 
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            cancelScheduledEnd()
             await endCurrent(dismissalPolicy: .immediate)
             return
         }
 
-        bindExistingActivityIfNeeded()
+        await bindExistingActivityIfNeeded()
 
         guard isActive else {
             guard activity != nil || !Activity<PartsIntakeActivityAttributes>.activities.isEmpty else { return }
-            Self.logger.debug("Live Activity sync ending because workflow is inactive.")
-            await endCurrent(dismissalPolicy: .immediate)
+            scheduleDeferredEnd()
             return
         }
+
+        cancelScheduledEnd()
 
         guard isMeaningfulActiveState(
             statusText: statusText,
@@ -146,10 +152,33 @@ actor PartsIntakeLiveActivityManager {
         }
     }
 
-    private func bindExistingActivityIfNeeded() {
-        let activities = Activity<PartsIntakeActivityAttributes>.activities
+    private func bindExistingActivityIfNeeded() async {
+        if let activity, isStaleTerminalActivity(activity) {
+            await activity.end(nil, dismissalPolicy: .immediate)
+            self.activity = nil
+            self.lastSignature = nil
+            self.lastUpdateAt = nil
+            self.lastDeepLinkRawValue = nil
+            Self.logger.debug("Live Activity manager dismissed stale local terminal activity.")
+        }
+
+        var activities = Activity<PartsIntakeActivityAttributes>.activities
+        if !activities.isEmpty {
+            var retained: [Activity<PartsIntakeActivityAttributes>] = []
+            for candidate in activities {
+                if isStaleTerminalActivity(candidate) {
+                    await candidate.end(nil, dismissalPolicy: .immediate)
+                    Self.logger.debug("Live Activity manager dismissed stale terminal activity.")
+                } else {
+                    retained.append(candidate)
+                }
+            }
+            activities = retained
+        }
+
         guard !activities.isEmpty else {
-            activity = nil
+            // Keep an in-memory reference if ActivityKit has not surfaced the collection yet.
+            // This prevents duplicate create/update churn during rapid lifecycle transitions.
             return
         }
 
@@ -167,6 +196,14 @@ actor PartsIntakeLiveActivityManager {
         }
     }
 
+    private func isStaleTerminalActivity(_ candidate: Activity<PartsIntakeActivityAttributes>) -> Bool {
+        let state = candidate.content.state
+        guard isTerminalCompletionStatus(state.statusText, progress: state.progress) else {
+            return false
+        }
+        return Date().timeIntervalSince(state.updatedAt) >= 90
+    }
+
     private var isEnabled: Bool {
         if let value = UserDefaults.standard.object(forKey: "scanLiveActivitiesEnabled") as? Bool {
             return value
@@ -175,6 +212,7 @@ actor PartsIntakeLiveActivityManager {
     }
 
     private func endCurrent(dismissalPolicy: ActivityUIDismissalPolicy) async {
+        cancelScheduledEnd()
         var targets: [Activity<PartsIntakeActivityAttributes>] = []
         if let activity {
             targets.append(activity)
@@ -237,6 +275,36 @@ actor PartsIntakeLiveActivityManager {
         self.lastSignature = nil
         self.lastUpdateAt = nil
         self.lastDeepLinkRawValue = nil
+    }
+
+    private func scheduleDeferredEnd() {
+        let stateStatus = activity?.content.state.statusText ?? ""
+        let stateProgress = activity?.content.state.progress ?? 0
+        let priorStatus = lastSignature?.statusText ?? stateStatus
+        let priorProgress: Double = {
+            if let bucket = lastSignature?.progressBucket {
+                return min(1, max(0, Double(bucket) / 100))
+            }
+            return min(1, max(0, stateProgress))
+        }()
+
+        let delay = isTerminalCompletionStatus(priorStatus, progress: priorProgress)
+            ? terminalCompletionEndDelay
+            : inactiveWorkflowEndDelay
+        let nanos = UInt64((delay * 1_000_000_000).rounded())
+
+        scheduledEndTask?.cancel()
+        scheduledEndTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: nanos)
+            guard !Task.isCancelled else { return }
+            await self?.endCurrent(dismissalPolicy: .immediate)
+        }
+        Self.logger.debug("Live Activity end scheduled in \(delay, privacy: .public)s.")
+    }
+
+    private func cancelScheduledEnd() {
+        scheduledEndTask?.cancel()
+        scheduledEndTask = nil
     }
 
     private func isTerminalCompletionStatus(_ statusText: String, progress: Double) -> Bool {

@@ -101,8 +101,8 @@ final class ScanViewModel: ObservableObject {
     private var inProgressDraftsTask: Task<Void, Never>?
     private var pendingInProgressDraftsReload: Bool = false
     private var lastInProgressDraftsLoadAt: Date?
-    private let minimumTodayMetricsReloadInterval: TimeInterval = 1.5
-    private let minimumInProgressDraftsReloadInterval: TimeInterval = 1.5
+    private let minimumTodayMetricsReloadInterval: TimeInterval = 2.5
+    private let minimumInProgressDraftsReloadInterval: TimeInterval = 2.5
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -382,7 +382,11 @@ final class ScanViewModel: ObservableObject {
                     activeWorkflowDraftID = nil
                 }
                 cachedOCRReviewDrafts[draft.id] = nil
-                inProgressDrafts = await environment.reviewDraftStore.list()
+                let drafts = await environment.reviewDraftStore.list()
+                lastInProgressDraftsLoadAt = Date()
+                lastDraftRefreshAt = lastInProgressDraftsLoadAt
+                inProgressDrafts = drafts
+                refreshDraftMetrics(from: drafts)
             } catch {
                 errorMessage = "Could not remove saved intake draft."
             }
@@ -431,6 +435,7 @@ final class ScanViewModel: ObservableObject {
                 from: cgImage,
                 orientation: effectiveOrientation
             )
+            AppHaptics.success()
             await ensureMinimumStageDuration(since: extractionStageStart, stage: .extractingText)
             processingStage = .preparingReview
             let preparingStageStart = Date()
@@ -716,7 +721,14 @@ final class ScanViewModel: ObservableObject {
 
         do {
             try await environment.reviewDraftStore.upsert(snapshot)
-            inProgressDrafts = await environment.reviewDraftStore.list()
+            let drafts = await environment.reviewDraftStore.list()
+            lastInProgressDraftsLoadAt = now
+            lastDraftRefreshAt = now
+            if inProgressDrafts != drafts {
+                inProgressDrafts = drafts
+            }
+            refreshDraftMetrics(from: drafts)
+            reconcileActiveWorkflowDraft(with: drafts)
             return snapshot
         } catch {
             return nil

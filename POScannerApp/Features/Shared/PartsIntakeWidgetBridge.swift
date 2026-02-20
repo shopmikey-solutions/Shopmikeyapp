@@ -70,7 +70,10 @@ enum PartsIntakeWidgetBridge {
     private static var sharedDefaults: UserDefaults? {
         let configuredID = (Bundle.main.object(forInfoDictionaryKey: appGroupKey) as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let groupID = (configuredID?.isEmpty == false) ? configuredID : fallbackAppGroupID
+        let groupID = ((configuredID?.isEmpty == false) ? configuredID : nil) ?? fallbackAppGroupID
+        guard FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID) != nil else {
+            return nil
+        }
         return UserDefaults(suiteName: groupID)
     }
 }

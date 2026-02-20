@@ -244,4 +244,60 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
             return false
         }
     }
+
+    var liveActivityRecencyWindow: TimeInterval {
+        switch workflowState {
+        case .scanning, .ocrReview, .parsing:
+            return 20 * 60
+        case .reviewReady, .reviewEdited:
+            return 8 * 60
+        case .submitting:
+            return 25 * 60
+        case .failed:
+            return 0
+        }
+    }
+
+    var liveActivityPayload: (status: String, detail: String, progress: Double)? {
+        switch workflowState {
+        case .scanning:
+            return (
+                status: "Capturing invoice",
+                detail: "Step 1 of 4 • Running on-device OCR.",
+                progress: max(0.20, workflowProgressEstimate)
+            )
+        case .ocrReview:
+            return (
+                status: "Reviewing OCR",
+                detail: "Step 2 of 4 • Confirm text and barcode hints.",
+                progress: max(0.45, workflowProgressEstimate)
+            )
+        case .parsing:
+            return (
+                status: "Parsing line items",
+                detail: "Step 2 of 4 • Classifying parts, tires, and fees.",
+                progress: max(0.64, workflowProgressEstimate)
+            )
+        case .reviewReady:
+            return (
+                status: "Draft ready",
+                detail: "Step 3 of 4 • Verify lines before submit.",
+                progress: max(0.90, workflowProgressEstimate)
+            )
+        case .reviewEdited:
+            return (
+                status: "Draft updated",
+                detail: "Step 3 of 4 • Ready for Shopmonkey submission.",
+                progress: max(0.94, workflowProgressEstimate)
+            )
+        case .submitting:
+            return (
+                status: "Submitting to Shopmonkey",
+                detail: "Step 4 of 4 • Posting purchase order now.",
+                progress: max(0.96, workflowProgressEstimate)
+            )
+        case .failed:
+            return nil
+        }
+    }
 }

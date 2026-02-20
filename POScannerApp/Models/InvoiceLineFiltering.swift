@@ -15,6 +15,54 @@ func filterNonProductLines(_ lines: [String], ignoreTax: Bool) -> [String] {
 }
 
 enum InvoiceLineClassifier {
+    /// Returns true for OCR artifacts that represent table header metadata rather than item rows.
+    static func isHeaderArtifactLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let lower = trimmed.lowercased()
+        if lower.contains("pickup location") {
+            return true
+        }
+
+        let hasPickupHeaderSignal = lower.contains("pickup location")
+        let hasUnitHeaderSignal = lower.contains("unit ($)")
+            || lower.contains("unit price")
+            || lower.contains("unit cost")
+        let hasExtendedHeaderSignal = lower.contains("ext ($)")
+            || lower.contains("extended")
+            || lower.contains("ext price")
+        if hasPickupHeaderSignal && hasUnitHeaderSignal && hasExtendedHeaderSignal {
+            return true
+        }
+
+        let headerTokens = [
+            "qty",
+            "quantity",
+            "part #",
+            "description",
+            "brand",
+            "unit",
+            "ext",
+            "amount",
+            "price",
+            "location"
+        ]
+        let tokenMatches = headerTokens.filter { lower.contains($0) }.count
+        guard tokenMatches >= 3 else { return false }
+
+        // If no concrete currency amount or SKU token exists, this is almost always a header artifact.
+        let hasCurrencyValue = lower.range(
+            of: #"\$\s*\d|\d{1,3}(?:,\d{3})*\.\d{2}"#,
+            options: [.regularExpression]
+        ) != nil
+        if hasCurrencyValue {
+            return false
+        }
+
+        return !containsPartNumberLikeToken(trimmed)
+    }
+
     /// Returns true when a line is semantically a tax/subtotal/total summary row (not a product row).
     static func isNonProductSummaryLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,6 +111,18 @@ enum InvoiceLineClassifier {
             return false
         }
 
+        let hasLaborKeyword = lower.range(
+            of: #"\b(labor|labour|technician|mechanic|alignment service|diagnostic service|service labor|labor charge|labor rate)\b"#,
+            options: [.regularExpression]
+        ) != nil
+        if hasLaborKeyword {
+            return true
+        }
+
+        if lower.range(of: #"\b\d+(?:\.\d+)?\s*(hr|hrs|hour|hours)\b"#, options: [.regularExpression]) != nil {
+            return true
+        }
+
         // Keep explicit fee-like rows; these are valid for PO intake.
         let feeSignals = [
             "fee",
@@ -86,14 +146,6 @@ enum InvoiceLineClassifier {
         ]
         if feeSignals.contains(where: { lower.contains($0) }) {
             return false
-        }
-
-        if lower.range(of: #"\b(labor|labour|technician|mechanic)\b"#, options: [.regularExpression]) != nil {
-            return true
-        }
-
-        if lower.range(of: #"\b\d+(?:\.\d+)?\s*(hr|hrs|hour|hours)\b"#, options: [.regularExpression]) != nil {
-            return true
         }
 
         let hasServiceKeyword = lower.range(of: #"\bservice\b"#, options: [.regularExpression]) != nil

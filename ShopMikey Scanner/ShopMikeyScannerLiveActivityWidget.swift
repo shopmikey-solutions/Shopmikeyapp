@@ -56,11 +56,10 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading, priority: 1) {
-                    Text(stageLabel(for: context.state.statusText))
+                    Label(stageLabel(for: context.state.statusText), systemImage: stageIconName(for: context.state.statusText))
+                        .labelStyle(.iconOnly)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
                         .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.trailing, priority: 1) {
@@ -71,22 +70,27 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                         .minimumScaleFactor(0.9)
                         .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
-                DynamicIslandExpandedRegion(.center, priority: 2) {
-                    Text(context.state.statusText)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
-                        .multilineTextAlignment(.leading)
-                        .minimumScaleFactor(0.8)
-                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
-                }
-                DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ProgressView(value: clampedProgress(context.state.progress))
-                            .tint(.accentColor)
+                DynamicIslandExpandedRegion(.center, priority: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(context.state.statusText)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
                         Text(context.state.detailText)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+                    }
+                    .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    HStack(spacing: 10) {
+                        ProgressView(value: clampedProgress(context.state.progress))
+                            .tint(.accentColor)
+                        Text(context.state.updatedAt, style: .relative)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
                 }
             } compactLeading: {
@@ -129,6 +133,26 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             return "Attention"
         }
         return "Parts Intake"
+    }
+
+    private func stageIconName(for statusText: String) -> String {
+        let normalized = statusText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.contains("step 1") || normalized.contains("capture") {
+            return "camera.viewfinder"
+        }
+        if normalized.contains("step 2") || normalized.contains("ocr") || normalized.contains("parsing") {
+            return "doc.text.magnifyingglass"
+        }
+        if normalized.contains("step 3") || normalized.contains("draft") {
+            return "square.and.pencil"
+        }
+        if normalized.contains("step 4") || normalized.contains("submit") {
+            return "paperplane"
+        }
+        if normalized.contains("fail") {
+            return "exclamationmark.triangle"
+        }
+        return "doc.text.viewfinder"
     }
 
     private func deepLinkURL(for context: ActivityViewContext<PartsIntakeActivityAttributes>) -> URL? {

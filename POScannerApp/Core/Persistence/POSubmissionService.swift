@@ -627,7 +627,8 @@ final class POSubmissionService {
             invoiceNumber:
                 payload.invoiceNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 ?? payload.poNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-            status: "draft",
+            // Let the API default status first; Shopmonkey tenants vary on accepted status values.
+            status: nil,
             purchaseOrderId: purchaseOrderId,
             orderId: orderId,
             lineItems: lineItems,

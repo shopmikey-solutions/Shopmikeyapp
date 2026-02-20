@@ -336,6 +336,7 @@ final class ReviewViewModel: ObservableObject {
     var averageConfidence: Double {
         guard !items.isEmpty else { return parsedConfidenceScore }
         let average = items.reduce(0.0) { $0 + $1.confidence } / Double(items.count)
+        guard average.isFinite else { return parsedConfidenceScore }
         return max(0, min(1, average))
     }
 
@@ -381,7 +382,9 @@ final class ReviewViewModel: ObservableObject {
             }
         }
 
-        return (vendorReady + itemReadiness + contextReady) / 3.0
+        let score = (vendorReady + itemReadiness + contextReady) / 3.0
+        guard score.isFinite else { return 0 }
+        return max(0, min(1, score))
     }
 
     var submissionPayload: POSubmissionPayload {
@@ -417,7 +420,9 @@ final class ReviewViewModel: ObservableObject {
     }
 
     var parsedConfidenceScore: Double {
-        parsedInvoice.confidenceScore
+        let score = parsedInvoice.confidenceScore
+        guard score.isFinite else { return 0 }
+        return max(0, min(1, score))
     }
 
     func addEmptyItem() {
@@ -705,8 +710,8 @@ final class ReviewViewModel: ObservableObject {
         showSuccessAlert = false
         publishSubmissionLiveActivity(
             isActive: true,
-            statusText: "Submitting PO • Step 4 of 4",
-            detailText: "Posting reviewed draft to Shopmonkey.",
+            statusText: "Submitting to Shopmonkey",
+            detailText: "Step 4 of 4 • Posting reviewed draft.",
             progress: 0.96
         )
 
@@ -731,7 +736,7 @@ final class ReviewViewModel: ObservableObject {
             publishSubmissionLiveActivity(
                 isActive: true,
                 statusText: "Submitted",
-                detailText: "Draft moved to submitted successfully.",
+                detailText: "Step 4 of 4 • Draft moved to submitted.",
                 progress: 1.0
             )
             scheduleLiveActivityEnd(after: 6.0)
@@ -746,8 +751,8 @@ final class ReviewViewModel: ObservableObject {
             errorMessage = result.message ?? "Submission failed."
             publishSubmissionLiveActivity(
                 isActive: true,
-                statusText: "Submission failed • Step 4 of 4",
-                detailText: result.message ?? "Review vendor and line item details.",
+                statusText: "Submission failed",
+                detailText: result.message ?? "Step 4 of 4 • Review vendor and line item details.",
                 progress: 0.55
             )
             scheduleLiveActivityEnd(after: 8.0)
@@ -1471,6 +1476,11 @@ final class ReviewViewModel: ObservableObject {
         if showStatusMessage {
             statusMessage = "Saved intake draft locally."
         }
+        publishDraftReviewLiveActivity(
+            workflowState: workflowState,
+            workflowDetail: workflowDetail,
+            draftID: draftID
+        )
         return snapshot
     }
 
@@ -1484,6 +1494,48 @@ final class ReviewViewModel: ObservableObject {
         draftCreatedAt = nil
         lastDraftSavedAt = nil
         lastDraftFingerprint = nil
+    }
+
+    private func publishDraftReviewLiveActivity(
+        workflowState: ReviewDraftSnapshot.WorkflowState,
+        workflowDetail: String?,
+        draftID: UUID
+    ) {
+        let detail = workflowDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackDetail: String
+        let status: String
+        let progress: Double
+
+        switch workflowState {
+        case .reviewReady:
+            status = "Draft ready"
+            fallbackDetail = "Step 3 of 4 • Review lines, vendor details, and submit."
+            progress = 0.90
+        case .reviewEdited:
+            status = "Draft updated"
+            fallbackDetail = "Step 3 of 4 • Review complete and ready to submit."
+            progress = 0.94
+        case .submitting:
+            status = "Submitting to Shopmonkey"
+            fallbackDetail = "Step 4 of 4 • Posting reviewed draft."
+            progress = 0.96
+        case .failed:
+            status = "Needs attention"
+            fallbackDetail = "Step 4 of 4 • Update details and retry submission."
+            progress = 0.55
+        case .scanning, .ocrReview, .parsing:
+            return
+        }
+
+        let resolvedDetail = detail.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackDetail
+
+        PartsIntakeLiveActivityBridge.sync(
+            isActive: true,
+            statusText: status,
+            detailText: resolvedDetail,
+            progress: progress,
+            deepLinkURL: AppDeepLink.scanURL(draftID: draftID)
+        )
     }
 
     private func trimmedOrNil(_ value: String?) -> String? {

@@ -122,7 +122,10 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
     private var sharedDefaults: UserDefaults? {
         let configuredID = (Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let groupID = (configuredID?.isEmpty == false) ? configuredID : "group.com.mikey.POScannerApp"
+        let groupID = ((configuredID?.isEmpty == false) ? configuredID : nil) ?? "group.com.mikey.POScannerApp"
+        guard FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID) != nil else {
+            return nil
+        }
         return UserDefaults(suiteName: groupID)
     }
 }

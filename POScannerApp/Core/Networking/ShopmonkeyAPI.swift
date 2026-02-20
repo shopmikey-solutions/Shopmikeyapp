@@ -592,13 +592,18 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
                     // When status is invalid, skip cost/body compatibility retries and move to next status.
                     if await isStatusValidationFailure(for: path) {
                         lastValidationError = firstError
+                        if let status,
+                           statusCandidateKey(status) == statusCandidateKey(preferredPurchaseOrderStatus()) {
+                            persistPreferredPurchaseOrderStatus(nil)
+                        }
                         if !didLoadFailureDerivedStatuses {
                             didLoadFailureDerivedStatuses = true
                             let additionalStatuses = await additionalStatusCandidates(for: path)
                             appendStatusCandidates(
                                 additionalStatuses,
                                 to: &statusesToTry,
-                                queuedKeys: &queuedKeys
+                                queuedKeys: &queuedKeys,
+                                insertionIndex: index
                             )
                         }
                         continue statusLoop
@@ -623,13 +628,18 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
                         // Status validation errors should immediately rotate to another status candidate.
                         if await isStatusValidationFailure(for: path) {
+                            if let status,
+                               statusCandidateKey(status) == statusCandidateKey(preferredPurchaseOrderStatus()) {
+                                persistPreferredPurchaseOrderStatus(nil)
+                            }
                             if !didLoadFailureDerivedStatuses {
                                 didLoadFailureDerivedStatuses = true
                                 let additionalStatuses = await additionalStatusCandidates(for: path)
                                 appendStatusCandidates(
                                     additionalStatuses,
                                     to: &statusesToTry,
-                                    queuedKeys: &queuedKeys
+                                    queuedKeys: &queuedKeys,
+                                    insertionIndex: index
                                 )
                             }
                             continue statusLoop
@@ -897,21 +907,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
         startingWith initial: String?,
         additional: [String] = []
     ) -> [String?] {
-        let defaults = [
-            // Matches observed Shopmonkey PO status dropdown in sandbox tenant.
-            "draft",
-            "ordered",
-            "received",
-            "fulfilled",
-            "cancelled",
-            "canceled",
-            "open",
-            "submitted",
-            "closed",
-            "created",
-            "complete",
-            "pending"
-        ]
+        let defaults = ["draft", "open", "pending", "submitted"]
 
         var seen = Set<String>()
         var ordered: [String?] = []
@@ -943,8 +939,6 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
         for status in defaults {
             append(status)
-            append(status.capitalized)
-            append(status.uppercased())
         }
 
         return ordered
@@ -959,8 +953,10 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     private func appendStatusCandidates(
         _ additions: [String],
         to statuses: inout [String?],
-        queuedKeys: inout Set<String>
+        queuedKeys: inout Set<String>,
+        insertionIndex: Int? = nil
     ) {
+        var insertAt = insertionIndex ?? statuses.count
         for status in additions {
             let trimmed = status.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
@@ -969,7 +965,13 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
             guard !queuedKeys.contains(key) else { continue }
 
             queuedKeys.insert(key)
-            statuses.append(trimmed)
+            if insertAt >= statuses.count {
+                statuses.append(trimmed)
+                insertAt = statuses.count
+            } else {
+                statuses.insert(trimmed, at: insertAt)
+                insertAt += 1
+            }
         }
     }
 

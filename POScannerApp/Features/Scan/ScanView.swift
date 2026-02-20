@@ -682,8 +682,10 @@ struct ScanView: View {
 
         let now = Date()
         return drafts.first(where: {
-            $0.workflowState == .submitting
-                && now.timeIntervalSince($0.updatedAt) <= (12 * 60)
+            let detail = ($0.state.workflowDetail ?? "").lowercased()
+            return $0.workflowState == .submitting
+                && detail.contains("submit")
+                && now.timeIntervalSince($0.updatedAt) <= (3 * 60)
         })
     }
 

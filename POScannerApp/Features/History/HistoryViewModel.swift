@@ -49,6 +49,7 @@ final class HistoryViewModel: ObservableObject {
     private let dataController: DataController
     private let reviewDraftStore: ReviewDraftStore
     private var loadHistoryTask: Task<Void, Never>?
+    private var pendingHistoryReload: Bool = false
 
     init(dataController: DataController, reviewDraftStore: ReviewDraftStore) {
         self.dataController = dataController
@@ -62,15 +63,23 @@ final class HistoryViewModel: ObservableObject {
 
     func loadHistory() {
         if loadHistoryTask != nil {
-            Self.logger.debug("Cancelling previous history load task before reloading.")
+            pendingHistoryReload = true
+            Self.logger.debug("Queued history reload while existing load is active.")
+            return
         }
-        loadHistoryTask?.cancel()
         isLoading = true
 
         let container = dataController.container
 
         loadHistoryTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+            defer {
+                loadHistoryTask = nil
+                if pendingHistoryReload {
+                    pendingHistoryReload = false
+                    loadHistory()
+                }
+            }
             Self.logger.debug("Loading history rows and in-progress drafts.")
             async let drafts = reviewDraftStore.list()
             await self.dataController.waitUntilLoaded()

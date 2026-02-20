@@ -326,114 +326,122 @@ private struct OCROverlayPreview: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let proposedScale = zoomScale * gestureScale
-            let combinedScale = proposedScale.isFinite ? max(1, min(4, proposedScale)) : 1
-            let combinedOffset = clampedOffset(
-                CGSize(
-                    width: panOffset.width + gesturePanOffset.width,
-                    height: panOffset.height + gesturePanOffset.height
-                ),
-                scale: combinedScale,
-                containerSize: proxy.size
-            )
+            let containerSize = proxy.size
+            if isValidContainerSize(containerSize) {
+                let proposedScale = zoomScale * gestureScale
+                let combinedScale = proposedScale.isFinite ? max(1, min(4, proposedScale)) : 1
+                let combinedOffset = clampedOffset(
+                    CGSize(
+                        width: panOffset.width + gesturePanOffset.width,
+                        height: panOffset.height + gesturePanOffset.height
+                    ),
+                    scale: combinedScale,
+                    containerSize: containerSize
+                )
 
-            ZStack(alignment: .topLeading) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                ZStack(alignment: .topLeading) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
-                if showTextHighlights {
-                    ForEach(lines) { line in
-                        let rect = rectInView(for: line.boundingBox, in: proxy.size)
-                        if rect.width > 0, rect.height > 0 {
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .stroke(
-                                    selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning,
-                                    lineWidth: selectedLineID == line.id ? 2 : 1
-                                )
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill((selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning).opacity(0.14))
-                                )
-                                .frame(width: rect.width, height: rect.height)
-                                .position(x: rect.midX, y: rect.midY)
+                    if showTextHighlights {
+                        ForEach(lines) { line in
+                            let rect = boundedRectInView(for: line.boundingBox, in: containerSize)
+                            if rect.width > 0, rect.height > 0 {
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(
+                                        selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning,
+                                        lineWidth: selectedLineID == line.id ? 2 : 1
+                                    )
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .fill((selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning).opacity(0.14))
+                                    )
+                                    .frame(width: rect.width, height: rect.height)
+                                    .position(x: rect.midX, y: rect.midY)
+                            }
+                        }
+                    }
+
+                    if showBarcodeHighlights {
+                        ForEach(barcodes) { barcode in
+                            let rect = boundedRectInView(for: barcode.boundingBox, in: containerSize)
+                            if rect.width > 0, rect.height > 0 {
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal, lineWidth: selectedBarcodeID == barcode.id ? 2 : 1)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .fill((selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal).opacity(0.16))
+                                    )
+                                    .frame(width: rect.width, height: rect.height)
+                                    .position(x: rect.midX, y: rect.midY)
+                            }
                         }
                     }
                 }
-
-                if showBarcodeHighlights {
-                    ForEach(barcodes) { barcode in
-                        let rect = rectInView(for: barcode.boundingBox, in: proxy.size)
-                        if rect.width > 0, rect.height > 0 {
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .stroke(selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal, lineWidth: selectedBarcodeID == barcode.id ? 2 : 1)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill((selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal).opacity(0.16))
-                                )
-                                .frame(width: rect.width, height: rect.height)
-                                .position(x: rect.midX, y: rect.midY)
+                .scaleEffect(combinedScale)
+                .offset(x: combinedOffset.width, y: combinedOffset.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .highPriorityGesture(
+                    MagnificationGesture()
+                        .updating($gestureScale) { value, state, _ in
+                            state = value
                         }
-                    }
-                }
-            }
-            .scaleEffect(combinedScale)
-            .offset(x: combinedOffset.width, y: combinedOffset.height)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-            .highPriorityGesture(
-                MagnificationGesture()
-                    .updating($gestureScale) { value, state, _ in
-                        state = value
-                    }
-                    .onEnded { value in
-                        zoomScale = min(4, max(1, zoomScale * value))
-                        if zoomScale <= 1.01 {
+                        .onEnded { value in
+                            zoomScale = min(4, max(1, zoomScale * value))
+                            if zoomScale <= 1.01 {
+                                zoomScale = 1
+                                panOffset = .zero
+                            } else {
+                                panOffset = clampedOffset(
+                                    panOffset,
+                                    scale: zoomScale,
+                                    containerSize: containerSize
+                                )
+                            }
+                        }
+                )
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .updating($gesturePanOffset) { value, state, _ in
+                            guard combinedScale > 1.01 else { return }
+                            state = value.translation
+                        }
+                        .onEnded { value in
+                            guard zoomScale > 1.01 else {
+                                panOffset = .zero
+                                return
+                            }
+                            panOffset = clampedOffset(
+                                CGSize(
+                                    width: panOffset.width + value.translation.width,
+                                    height: panOffset.height + value.translation.height
+                                ),
+                                scale: zoomScale,
+                                containerSize: containerSize
+                            )
+                        }
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        if zoomScale > 1.01 {
                             zoomScale = 1
                             panOffset = .zero
                         } else {
-                            panOffset = clampedOffset(
-                                panOffset,
-                                scale: zoomScale,
-                                containerSize: proxy.size
-                            )
+                            zoomScale = 2
                         }
-                    }
-            )
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .updating($gesturePanOffset) { value, state, _ in
-                        guard combinedScale > 1.01 else { return }
-                        state = value.translation
-                    }
-                    .onEnded { value in
-                        guard zoomScale > 1.01 else {
-                            panOffset = .zero
-                            return
-                        }
-                        panOffset = clampedOffset(
-                            CGSize(
-                                width: panOffset.width + value.translation.width,
-                                height: panOffset.height + value.translation.height
-                            ),
-                            scale: zoomScale,
-                            containerSize: proxy.size
-                        )
-                    }
-            )
-            .onTapGesture(count: 2) {
-                withAnimation(.snappy(duration: 0.2)) {
-                    if zoomScale > 1.01 {
-                        zoomScale = 1
-                        panOffset = .zero
-                    } else {
-                        zoomScale = 2
                     }
                 }
-            }
-            .onChange(of: combinedScale) { _, newValue in
-                lockParentScroll = newValue > 1.01
+                .onChange(of: combinedScale) { _, newValue in
+                    lockParentScroll = newValue > 1.01
+                }
+            } else {
+                Color.clear
+                    .onAppear {
+                        lockParentScroll = false
+                    }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -487,6 +495,30 @@ private struct OCROverlayPreview: View {
             return .zero
         }
         return rect
+    }
+
+    private func boundedRectInView(for normalized: CGRect, in containerSize: CGSize) -> CGRect {
+        let raw = rectInView(for: normalized, in: containerSize)
+        guard raw.width > 0, raw.height > 0 else { return .zero }
+        let bounds = CGRect(origin: .zero, size: containerSize)
+        guard bounds.width > 0, bounds.height > 0 else { return .zero }
+        let bounded = raw.intersection(bounds)
+        guard bounded.width.isFinite,
+              bounded.height.isFinite,
+              bounded.midX.isFinite,
+              bounded.midY.isFinite,
+              bounded.width > 0,
+              bounded.height > 0 else {
+            return .zero
+        }
+        return bounded
+    }
+
+    private func isValidContainerSize(_ size: CGSize) -> Bool {
+        size.width.isFinite
+            && size.height.isFinite
+            && size.width > 1
+            && size.height > 1
     }
 
     private func clampedOffset(_ offset: CGSize, scale: CGFloat, containerSize: CGSize) -> CGSize {

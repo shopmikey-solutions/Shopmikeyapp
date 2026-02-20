@@ -112,6 +112,7 @@ final class ReviewViewModel: ObservableObject {
     private var lineItemSuggestionTask: Task<Void, Never>?
     private var purchaseOrderLookupTask: Task<Void, Never>?
     private var todayMetricsTask: Task<Void, Never>?
+    private var pendingTodayMetricsReload: Bool = false
     private var submissionActivityEndTask: Task<Void, Never>?
     private var draftAutosaveTask: Task<Void, Never>?
     private var lastVendorLookupQuery: String?
@@ -829,13 +830,21 @@ final class ReviewViewModel: ObservableObject {
 
     func loadTodayMetrics() {
         if todayMetricsTask != nil {
-            Self.logger.debug("Cancelling previous review metrics task before reloading.")
+            pendingTodayMetricsReload = true
+            Self.logger.debug("Queued review metrics reload while existing load is active.")
+            return
         }
-        todayMetricsTask?.cancel()
         let dataController = environment.dataController
 
         todayMetricsTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+            defer {
+                todayMetricsTask = nil
+                if pendingTodayMetricsReload {
+                    pendingTodayMetricsReload = false
+                    loadTodayMetrics()
+                }
+            }
             Self.logger.debug("Loading review metrics for current day.")
             await dataController.waitUntilLoaded()
             guard !Task.isCancelled else {

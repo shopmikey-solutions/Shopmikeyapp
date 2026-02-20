@@ -117,8 +117,6 @@ private struct KeyboardDoneToolbarModifier: ViewModifier {
                     Button("Done") {
                         dismissKeyboard()
                     }
-                    .buttonStyle(.plain)
-                    .font(.body.weight(.semibold))
                     .accessibilityIdentifier("keyboard.doneButton")
                 }
             }

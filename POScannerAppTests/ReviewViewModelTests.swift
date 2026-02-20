@@ -326,6 +326,8 @@ struct ReviewViewModelTests {
 
     @Test func vendorLookupDebouncesAndReducesPrefixChurn() async throws {
         let service = VendorLookupCountingService()
+        let uniqueSeed = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(6)
+        let baseQuery = "Advance \(uniqueSeed)"
         let vm = await MainActor.run {
             ReviewViewModel(
                 environment: .preview,
@@ -341,13 +343,13 @@ struct ReviewViewModelTests {
         #expect(service.searchCalls.isEmpty)
 
         await MainActor.run {
-            vm.setVendorName("Advance")
+            vm.setVendorName(String(baseQuery))
         }
         try? await Task.sleep(nanoseconds: 650_000_000)
         #expect(service.searchCalls.count == 1)
 
         await MainActor.run {
-            vm.setVendorName("Advance Auto")
+            vm.setVendorName("\(baseQuery) Auto")
         }
         try? await Task.sleep(nanoseconds: 650_000_000)
         #expect(service.searchCalls.count == 1)

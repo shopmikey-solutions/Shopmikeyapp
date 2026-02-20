@@ -91,8 +91,13 @@ final class ScanViewModel: ObservableObject {
     private var activeWorkflowDraftID: UUID?
     private var cachedOCRReviewDrafts: [UUID: OCRReviewDraft] = [:]
     private var todayMetricsTask: Task<Void, Never>?
+    private var pendingTodayMetricsReload: Bool = false
+    private var lastTodayMetricsLoadAt: Date?
     private var inProgressDraftsTask: Task<Void, Never>?
     private var pendingInProgressDraftsReload: Bool = false
+    private var lastInProgressDraftsLoadAt: Date?
+    private let minimumTodayMetricsReloadInterval: TimeInterval = 0.35
+    private let minimumInProgressDraftsReloadInterval: TimeInterval = 0.35
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -277,31 +282,38 @@ final class ScanViewModel: ObservableObject {
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: Self.uiTestReviewInvoice, draftSnapshot: nil)
     }
 
-    func loadInProgressDrafts() {
+    func loadInProgressDrafts(force: Bool = false) {
         if inProgressDraftsTask != nil {
             pendingInProgressDraftsReload = true
             Self.logger.debug("Queued in-progress drafts reload while existing load is active.")
             return
         }
+        if !force,
+           let lastInProgressDraftsLoadAt,
+           Date().timeIntervalSince(lastInProgressDraftsLoadAt) < minimumInProgressDraftsReloadInterval {
+            return
+        }
         inProgressDraftsTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                inProgressDraftsTask = nil
+                if pendingInProgressDraftsReload {
+                    pendingInProgressDraftsReload = false
+                    loadInProgressDrafts(force: true)
+                }
+            }
             Self.logger.debug("Loading in-progress drafts.")
             let drafts = await environment.reviewDraftStore.list()
-            inProgressDraftsTask = nil
             guard !Task.isCancelled else {
                 Self.logger.debug("In-progress drafts task cancelled before state update.")
                 return
             }
+            lastInProgressDraftsLoadAt = Date()
             if inProgressDrafts != drafts {
                 inProgressDrafts = drafts
             }
             refreshDraftMetrics(from: drafts)
             Self.logger.debug("Loaded in-progress drafts count=\(drafts.count, privacy: .public).")
-
-            if pendingInProgressDraftsReload {
-                pendingInProgressDraftsReload = false
-                loadInProgressDrafts()
-            }
         }
     }
 
@@ -706,15 +718,28 @@ final class ScanViewModel: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    func loadTodayMetrics() {
+    func loadTodayMetrics(force: Bool = false) {
         if todayMetricsTask != nil {
-            Self.logger.debug("Cancelling previous today-metrics task before reloading.")
+            pendingTodayMetricsReload = true
+            Self.logger.debug("Queued today-metrics reload while existing load is active.")
+            return
         }
-        todayMetricsTask?.cancel()
+        if !force,
+           let lastTodayMetricsLoadAt,
+           Date().timeIntervalSince(lastTodayMetricsLoadAt) < minimumTodayMetricsReloadInterval {
+            return
+        }
         let dataController = environment.dataController
 
         todayMetricsTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+            defer {
+                todayMetricsTask = nil
+                if pendingTodayMetricsReload {
+                    pendingTodayMetricsReload = false
+                    loadTodayMetrics(force: true)
+                }
+            }
             Self.logger.debug("Loading dashboard metrics for today.")
             await dataController.waitUntilLoaded()
             guard !Task.isCancelled else {
@@ -834,6 +859,7 @@ final class ScanViewModel: ObservableObject {
             submittedCount = metrics.submitted
             failedCount = metrics.failed
             mostRecentSummary = metrics.recent
+            lastTodayMetricsLoadAt = Date()
             Self.logger.debug(
                 "Loaded today metrics scans=\(metrics.count, privacy: .public) submitted=\(metrics.submitted, privacy: .public) pending=\(metrics.pending, privacy: .public) failed=\(metrics.failed, privacy: .public)."
             )

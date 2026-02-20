@@ -276,6 +276,20 @@ enum PartsIntakeLiveActivityBridge {
         progress: Double,
         deepLinkURL: URL? = nil
     ) {
+        #if canImport(UIKit)
+        if isActive, UIApplication.shared.applicationState == .background {
+            cancelDeferredSync()
+            dispatchToManager(
+                isActive: isActive,
+                statusText: statusText,
+                detailText: detailText,
+                progress: progress,
+                deepLinkURL: deepLinkURL
+            )
+            return
+        }
+        #endif
+
         if !isActive {
             cancelDeferredSync()
         }

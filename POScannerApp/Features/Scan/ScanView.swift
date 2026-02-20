@@ -21,6 +21,8 @@ struct ScanView: View {
         case photos
     }
 
+    let isTabActive: Bool
+
     @AppStorage("ignoreTaxAndTotals") private var ignoreTaxAndTotals: Bool = false
     @State private var showScanner: Bool = false
     @State private var showSourceSheet: Bool = false
@@ -35,10 +37,12 @@ struct ScanView: View {
     @State private var liveActivityEndTask: Task<Void, Never>?
     @State private var lastLiveActivitySignature: LiveActivityPayloadSignature?
     @State private var lastDashboardRefreshAt: Date?
+    @State private var lastDraftReloadAt: Date?
     @StateObject private var viewModel: ScanViewModel
     @Environment(\.scenePhase) private var scenePhase
 
-    init(environment: AppEnvironment) {
+    init(environment: AppEnvironment, isTabActive: Bool = true) {
+        self.isTabActive = isTabActive
         _viewModel = StateObject(wrappedValue: ScanViewModel(environment: environment))
     }
 
@@ -122,7 +126,9 @@ struct ScanView: View {
             )
         }
         .onAppear {
-            scheduleInitialDashboardRefresh()
+            if isTabActive {
+                scheduleInitialDashboardRefresh()
+            }
         }
         .onDisappear {
             initialLoadTask?.cancel()
@@ -132,13 +138,32 @@ struct ScanView: View {
             liveActivityEndTask?.cancel()
             liveActivityEndTask = nil
         }
+        .onChange(of: isTabActive) { _, active in
+            if active {
+                scheduleInitialDashboardRefresh()
+                scheduleDraftStoreRefresh()
+                syncLiveActivity()
+            } else {
+                initialLoadTask?.cancel()
+                initialLoadTask = nil
+                draftStoreRefreshTask?.cancel()
+                draftStoreRefreshTask = nil
+                if !viewModel.isProcessing {
+                    syncLiveActivity()
+                }
+            }
+        }
         .onChange(of: viewModel.processingStage) { _, stage in
             guard stage != nil else { return }
             AppHaptics.selection()
-            syncLiveActivity()
+            if isTabActive || viewModel.isProcessing || lastLiveActivitySignature != nil {
+                syncLiveActivity()
+            }
         }
-        .onChange(of: viewModel.isProcessing) { _, _ in
-            syncLiveActivity()
+        .onChange(of: viewModel.isProcessing) { oldValue, newValue in
+            if isTabActive || oldValue || newValue || lastLiveActivitySignature != nil {
+                syncLiveActivity()
+            }
         }
         .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
             guard route != nil else { return }
@@ -171,16 +196,22 @@ struct ScanView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
+            guard isTabActive, !isReviewFlowPresented, !viewModel.isProcessing else { return }
             scheduleDraftStoreRefresh()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            guard isTabActive else { return }
             lastLiveActivitySignature = nil
             scheduleDraftStoreRefresh()
             syncLiveActivity()
         }
         .onChange(of: viewModel.inProgressDrafts) { _, _ in
-            syncLiveActivity()
+            guard isTabActive || lastLiveActivitySignature != nil else { return }
+            guard !isReviewFlowPresented || viewModel.isProcessing else { return }
+            if viewModel.isProcessing || liveActivitySubmittingCandidate() != nil || (lastLiveActivitySignature?.isActive == true) {
+                syncLiveActivity()
+            }
         }
         .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
     }
@@ -545,6 +576,8 @@ struct ScanView: View {
     }
 
     private func syncLiveActivity() {
+        guard isTabActive || viewModel.isProcessing || lastLiveActivitySignature != nil else { return }
+
         let payload = liveActivityPayload()
         let signature = liveActivitySignature(for: payload)
         if signature == lastLiveActivitySignature {
@@ -611,43 +644,12 @@ struct ScanView: View {
             )
         }
 
-        if let draft = viewModel.latestDraft {
-            guard shouldSurfaceLiveDraft(draft) else {
-                return (false, "", "", 0, nil)
-            }
-
-            let status: String
-            let detail: String
-            let progress: Double
-
-            switch draft.workflowState {
-            case .scanning, .ocrReview:
-                status = "Intake draft • Step 1 of 4"
-                detail = draft.displaySecondaryLine
-                progress = max(0.20, draft.workflowProgressEstimate)
-            case .parsing:
-                status = "Parsing line items • Step 2 of 4"
-                detail = draft.displaySecondaryLine
-                progress = max(0.40, draft.workflowProgressEstimate)
-            case .reviewReady, .reviewEdited:
-                status = "Review draft • Step 3 of 4"
-                detail = "Confirm line items, vendor, and PO details."
-                progress = max(0.80, draft.workflowProgressEstimate)
-            case .submitting:
-                status = "Submitting PO • Step 4 of 4"
-                detail = "Posting the reviewed draft to Shopmonkey."
-                progress = max(0.96, draft.workflowProgressEstimate)
-            case .failed:
-                status = "Needs attention"
-                detail = draft.displaySecondaryLine
-                progress = 0.55
-            }
-
+        if let draft = liveActivitySubmittingCandidate() {
             return (
                 true,
-                status,
-                detail,
-                progress,
+                "Submitting PO • Step 4 of 4",
+                "Posting the reviewed draft to Shopmonkey.",
+                max(0.96, draft.workflowProgressEstimate),
                 AppDeepLink.scanURL(draftID: draft.id)
             )
         }
@@ -674,18 +676,19 @@ struct ScanView: View {
         )
     }
 
-    private func shouldSurfaceLiveDraft(_ draft: ReviewDraftSnapshot) -> Bool {
-        let age = Date().timeIntervalSince(draft.updatedAt)
-        switch draft.workflowState {
-        case .reviewReady, .reviewEdited:
-            return age <= 90
-        case .scanning, .ocrReview, .parsing:
-            return age <= 5 * 60
-        case .submitting:
-            return age <= 10 * 60
-        case .failed:
-            return false
-        }
+    private func liveActivitySubmittingCandidate() -> ReviewDraftSnapshot? {
+        let drafts = viewModel.inProgressDrafts
+        guard !drafts.isEmpty else { return nil }
+
+        let now = Date()
+        return drafts.first(where: {
+            $0.workflowState == .submitting
+                && now.timeIntervalSince($0.updatedAt) <= (12 * 60)
+        })
+    }
+
+    private var isReviewFlowPresented: Bool {
+        viewModel.parsedInvoiceRoute != nil || viewModel.ocrReviewDraft != nil
     }
 
     @MainActor
@@ -736,13 +739,13 @@ struct ScanView: View {
         draftStoreRefreshTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 220_000_000)
             guard !Task.isCancelled else { return }
-            viewModel.loadInProgressDrafts()
+            triggerDraftReloadIfNeeded(minimumInterval: 0.8)
         }
     }
 
     @MainActor
     private func refreshDashboard(forceMetricsReload: Bool) {
-        viewModel.loadInProgressDrafts()
+        triggerDraftReloadIfNeeded(minimumInterval: 1.0, force: forceMetricsReload)
 
         let now = Date()
         let shouldReloadMetrics: Bool
@@ -758,6 +761,16 @@ struct ScanView: View {
             lastDashboardRefreshAt = now
             viewModel.loadTodayMetrics()
         }
+    }
+
+    @MainActor
+    private func triggerDraftReloadIfNeeded(minimumInterval: TimeInterval, force: Bool = false) {
+        let now = Date()
+        if !force, let lastDraftReloadAt, now.timeIntervalSince(lastDraftReloadAt) < minimumInterval {
+            return
+        }
+        lastDraftReloadAt = now
+        viewModel.loadInProgressDrafts()
     }
 }
 

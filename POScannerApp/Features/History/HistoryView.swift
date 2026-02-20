@@ -16,6 +16,7 @@ struct HistoryView: View {
     }
 
     let environment: AppEnvironment
+    let isTabActive: Bool
     @AppStorage("saveHistoryEnabled") private var saveHistoryEnabled: Bool = true
     @AppStorage("ignoreTaxAndTotals") private var ignoreTaxAndTotals: Bool = false
     @StateObject private var viewModel: HistoryViewModel
@@ -27,8 +28,9 @@ struct HistoryView: View {
     @State private var draftStoreRefreshTask: Task<Void, Never>?
     @Environment(\.openURL) private var openURL
 
-    init(environment: AppEnvironment) {
+    init(environment: AppEnvironment, isTabActive: Bool = true) {
         self.environment = environment
+        self.isTabActive = isTabActive
         _viewModel = StateObject(
             wrappedValue: HistoryViewModel(
                 dataController: environment.dataController,
@@ -158,16 +160,24 @@ struct HistoryView: View {
             Text(retryErrorMessage ?? "Unexpected error")
         }
         .onAppear {
-            if !hasLoaded {
+            if isTabActive && !hasLoaded {
                 hasLoaded = true
                 viewModel.loadHistory()
             }
+        }
+        .onChange(of: isTabActive) { _, active in
+            guard active else { return }
+            if !hasLoaded {
+                hasLoaded = true
+            }
+            viewModel.loadHistory()
         }
         .onDisappear {
             draftStoreRefreshTask?.cancel()
             draftStoreRefreshTask = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
+            guard isTabActive else { return }
             draftStoreRefreshTask?.cancel()
             draftStoreRefreshTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 260_000_000)
@@ -258,18 +268,23 @@ struct HistoryView: View {
 
     private var historyOverviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            LabeledContent("Scans Today") {
-                Text("\(todayTrackedOrders.count)")
+            LabeledContent("Draft Queue") {
+                Text("\(draftQueueCount)")
                     .monospacedDigit()
                     .contentTransition(.numericText())
             }
-            LabeledContent("Submitted POs") {
+            LabeledContent("Ready for Review") {
+                Text("\(reviewDraftCount)")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            LabeledContent("Submitted Today") {
                 Text("\(submittedCount)")
                     .monospacedDigit()
                     .contentTransition(.numericText())
             }
             LabeledContent("Needs Attention") {
-                Text("\(pendingCount + failedCount)")
+                Text("\(totalAttentionCount)")
                     .monospacedDigit()
                     .contentTransition(.numericText())
             }
@@ -280,10 +295,20 @@ struct HistoryView: View {
             }
             .font(.headline)
         }
-        .animation(.snappy(duration: 0.24), value: todayTrackedOrders.count)
+        .animation(.snappy(duration: 0.24), value: draftQueueCount)
+        .animation(.snappy(duration: 0.24), value: reviewDraftCount)
         .animation(.snappy(duration: 0.24), value: submittedCount)
-        .animation(.snappy(duration: 0.24), value: pendingCount)
-        .animation(.snappy(duration: 0.24), value: failedCount)
+        .animation(.snappy(duration: 0.24), value: totalAttentionCount)
+    }
+
+    private var draftQueueCount: Int {
+        viewModel.inProgressDrafts.count
+    }
+
+    private var reviewDraftCount: Int {
+        viewModel.inProgressDrafts.filter {
+            $0.workflowState == .reviewReady || $0.workflowState == .reviewEdited
+        }.count
     }
 
     private var submittedCount: Int {
@@ -296,6 +321,14 @@ struct HistoryView: View {
 
     private var failedCount: Int {
         todayTrackedOrders.filter { $0.statusBucket == .failed }.count
+    }
+
+    private var draftAttentionCount: Int {
+        viewModel.inProgressDrafts.filter { $0.workflowState == .failed }.count
+    }
+
+    private var totalAttentionCount: Int {
+        pendingCount + failedCount + draftAttentionCount
     }
 
     private var totalValueFormatted: String {

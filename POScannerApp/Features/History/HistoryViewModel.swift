@@ -119,6 +119,7 @@ final class HistoryViewModel: ObservableObject {
             }
             orders = mapped
             inProgressDrafts = draftSnapshots
+            publishWidgetSnapshot(orders: mapped, drafts: draftSnapshots)
             isLoading = false
             Self.logger.debug(
                 "Loaded history rows=\(mapped.count, privacy: .public) drafts=\(draftSnapshots.count, privacy: .public)."
@@ -137,5 +138,35 @@ final class HistoryViewModel: ObservableObject {
 
     func purchaseOrder(for row: HistoryRow) -> PurchaseOrder? {
         (try? dataController.viewContext.existingObject(with: row.objectID)) as? PurchaseOrder
+    }
+
+    private func publishWidgetSnapshot(orders: [HistoryRow], drafts: [ReviewDraftSnapshot]) {
+        let startOfDay = Calendar.current.startOfDay(for: Date())
+        let todayOrders = orders.filter { $0.date >= startOfDay && $0.statusBucket.countsAsTrackedScan }
+        let scansToday = todayOrders.count
+        let submitted = todayOrders.filter { $0.statusBucket == .submitted }.count
+        let pending = todayOrders.filter { $0.statusBucket == .pending }.count
+        let failed = todayOrders.filter { $0.statusBucket == .failed }.count
+        let total = todayOrders.reduce(Decimal.zero) { partial, row in
+            partial + Decimal(row.totalAmount)
+        }
+        let reviewCount = drafts.filter {
+            switch $0.workflowState {
+            case .reviewReady, .reviewEdited, .failed:
+                return true
+            case .scanning, .ocrReview, .parsing, .submitting:
+                return false
+            }
+        }.count
+
+        PartsIntakeWidgetBridge.publish(
+            scansToday: scansToday,
+            submittedCount: submitted,
+            failedCount: failed,
+            pendingCount: pending,
+            draftCount: drafts.count,
+            reviewCount: reviewCount,
+            totalValue: total
+        )
     }
 }

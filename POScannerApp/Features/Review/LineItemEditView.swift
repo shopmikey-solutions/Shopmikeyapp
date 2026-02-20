@@ -14,11 +14,17 @@ struct LineItemEditView: View {
     }
 
     @Binding var item: POItem
+    let allowTaxEditing: Bool
     var onKindChanged: ((POItemKind, POItemKind) -> Void)? = nil
     @FocusState private var focusedField: FocusField?
 
-    init(item: Binding<POItem>, onKindChanged: ((POItemKind, POItemKind) -> Void)? = nil) {
+    init(
+        item: Binding<POItem>,
+        allowTaxEditing: Bool = true,
+        onKindChanged: ((POItemKind, POItemKind) -> Void)? = nil
+    ) {
         self._item = item
+        self.allowTaxEditing = allowTaxEditing
         self.onKindChanged = onKindChanged
     }
 
@@ -98,6 +104,13 @@ struct LineItemEditView: View {
                     .submitLabel(.done)
 
                 Toggle("Taxable", isOn: $item.isTaxable)
+                    .disabled(!allowTaxEditing)
+
+                if !allowTaxEditing {
+                    Text("Tax is managed by global Parts Intake Preferences.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Subtotal") {
@@ -129,7 +142,18 @@ struct LineItemEditView: View {
         .onChange(of: item.kind) { oldValue, newValue in
             onKindChanged?(oldValue, newValue)
         }
+        .onAppear {
+            if !allowTaxEditing, item.isTaxable {
+                item.isTaxable = false
+            }
+        }
         .onChange(of: item.isTaxable) { _, _ in
+            if !allowTaxEditing {
+                if item.isTaxable {
+                    item.isTaxable = false
+                }
+                return
+            }
             AppHaptics.selection()
         }
     }

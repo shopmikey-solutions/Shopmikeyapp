@@ -535,7 +535,16 @@ struct ReviewView: View {
     }
 
     private var taxBehaviorRow: some View {
-        Toggle("Ignore tax and totals", isOn: $viewModel.ignoreTaxOverride)
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Ignore tax and totals", isOn: $viewModel.ignoreTaxOverride)
+                .disabled(viewModel.isGlobalIgnoreTaxEnabled)
+
+            if viewModel.isGlobalIgnoreTaxEnabled {
+                Text("Global Parts Intake Preferences has Ignore tax and totals enabled, so this review always excludes tax and total math.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     @ViewBuilder
@@ -549,7 +558,10 @@ struct ReviewView: View {
         ForEach(filteredItemIndices, id: \.self) { index in
             let itemBinding = $viewModel.items[index]
             NavigationLink {
-                LineItemEditView(item: itemBinding) { oldKind, newKind in
+                LineItemEditView(
+                    item: itemBinding,
+                    allowTaxEditing: !viewModel.shouldIgnoreTax
+                ) { oldKind, newKind in
                     viewModel.recordTypeOverride(from: oldKind, to: newKind)
                 }
             } label: {

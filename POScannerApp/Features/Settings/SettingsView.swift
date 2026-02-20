@@ -38,20 +38,39 @@ struct SettingsView: View {
             }
 
             Section("Parts Intake Preferences") {
-                Toggle("Save History", isOn: $saveHistoryEnabled)
-                    .accessibilityIdentifier("settings.saveHistoryToggle")
-                Toggle("Ignore Tax & Totals", isOn: $viewModel.ignoreTaxAndTotals)
-                    .accessibilityIdentifier("settings.ignoreTaxToggle")
-                Toggle("Live Activities", isOn: $scanLiveActivitiesEnabled)
-                    .accessibilityIdentifier("settings.liveActivitiesToggle")
-                Toggle("Widget Refresh", isOn: $scanWidgetRefreshEnabled)
-                    .accessibilityIdentifier("settings.widgetRefreshToggle")
-                Toggle("Local Notifications", isOn: $scanLocalNotificationsEnabled)
-                    .accessibilityIdentifier("settings.localNotificationsToggle")
+                preferenceToggle(
+                    title: "Save submitted history",
+                    isOn: $saveHistoryEnabled,
+                    description: "Keep a local history of submitted purchase orders for dashboard totals and audits.",
+                    accessibilityIdentifier: "settings.saveHistoryToggle"
+                )
+                preferenceToggle(
+                    title: "Ignore tax and totals",
+                    isOn: $viewModel.ignoreTaxAndTotals,
+                    description: "Focus parsing and review on product lines only, and exclude tax/summary math.",
+                    accessibilityIdentifier: "settings.ignoreTaxToggle"
+                )
+            }
 
-                Text("Live Activities show active intake progress on the Lock Screen and Dynamic Island. Widget refresh publishes the latest dashboard snapshot for widgets. Local notifications alert you when scans are ready or submissions fail.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            Section("App Experience Preferences") {
+                preferenceToggle(
+                    title: "Live Activities",
+                    isOn: $scanLiveActivitiesEnabled,
+                    description: "Show current intake progress on the Lock Screen and Dynamic Island.",
+                    accessibilityIdentifier: "settings.liveActivitiesToggle"
+                )
+                preferenceToggle(
+                    title: "Home Screen widget refresh",
+                    isOn: $scanWidgetRefreshEnabled,
+                    description: "Keep the widget in sync with dashboard counts and draft totals.",
+                    accessibilityIdentifier: "settings.widgetRefreshToggle"
+                )
+                preferenceToggle(
+                    title: "Local notifications",
+                    isOn: $scanLocalNotificationsEnabled,
+                    description: "Notify you when scans are ready for review or when submission needs attention.",
+                    accessibilityIdentifier: "settings.localNotificationsToggle"
+                )
             }
 
             Section("Shopmonkey API") {
@@ -109,7 +128,7 @@ struct SettingsView: View {
         .nativeListSurface()
         .keyboardDoneToolbar()
         .scrollDismissesKeyboard(.interactively)
-        .navigationTitle("Shopmonkey Settings")
+        .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
         .onChange(of: saveHistoryEnabled) { _, _ in
             AppHaptics.selection()
@@ -153,6 +172,21 @@ struct SettingsView: View {
 
     private var failureDiagnosticsCount: Int {
         viewModel.networkDiagnostics.filter(\.isFailure).count
+    }
+
+    private func preferenceToggle(
+        title: String,
+        isOn: Binding<Bool>,
+        description: String,
+        accessibilityIdentifier: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(title, isOn: isOn)
+                .accessibilityIdentifier(accessibilityIdentifier)
+            Text(description)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func healthChip(title: String, color: Color) -> some View {

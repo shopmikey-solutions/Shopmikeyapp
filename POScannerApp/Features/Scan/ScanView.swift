@@ -223,6 +223,7 @@ struct ScanView: View {
     private var scanList: some View {
         List {
             processingSection
+            syncStatusSection
             currentSessionSection
             dashboardSection
             preferencesSection
@@ -246,6 +247,21 @@ struct ScanView: View {
                     showsDetail: $showProcessingDetails
                 )
                 .accessibilityIdentifier("scan.processingInlineCard")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var syncStatusSection: some View {
+        if !viewModel.isProcessing && viewModel.isRefreshingAnyDashboardData {
+            Section("Updating ShopMikey") {
+                ScanRefreshStatusCard(
+                    statusText: viewModel.refreshStatusText,
+                    detailText: viewModel.refreshDetailText,
+                    draftsTimestamp: viewModel.lastDraftRefreshAt,
+                    dashboardTimestamp: viewModel.lastDashboardRefreshAt
+                )
+                .accessibilityIdentifier("scan.refreshStatusCard")
             }
         }
     }
@@ -317,13 +333,13 @@ struct ScanView: View {
     }
 
     private var toolsSection: some View {
-        Section("Shopmonkey Tools") {
+        Section("App Tools") {
             NavigationLink("Purchase Order History") {
                 HistoryView(environment: viewModel.environment)
             }
             .accessibilityIdentifier("scan.quickHistory")
 
-            NavigationLink("Intake Settings") {
+            NavigationLink("Settings") {
                 SettingsView(environment: viewModel.environment)
             }
             .accessibilityIdentifier("scan.quickSettings")
@@ -456,6 +472,11 @@ struct ScanView: View {
                 .progressViewStyle(.linear)
                 .tint(workflowTint(for: draft.workflowState))
                 .animation(.smooth(duration: 0.22), value: draft.workflowProgressEstimate)
+
+            Label(journeyNextActionText(for: draft.workflowState), systemImage: "arrow.triangle.branch")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 2)
         .accessibilityIdentifier("scan.currentSessionCard")
@@ -577,6 +598,25 @@ struct ScanView: View {
                 .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func journeyNextActionText(for state: ReviewDraftSnapshot.WorkflowState) -> String {
+        switch state {
+        case .scanning:
+            return "Next: OCR will extract text from your invoice."
+        case .ocrReview:
+            return "Next: confirm OCR text, then continue to line-item parsing."
+        case .parsing:
+            return "Next: line items will be classified for review."
+        case .reviewReady:
+            return "Next: open draft and verify part, tire, and fee types."
+        case .reviewEdited:
+            return "Next: submit to Shopmonkey when details are correct."
+        case .submitting:
+            return "Next: wait for Shopmonkey response and submission confirmation."
+        case .failed:
+            return "Next: reopen draft, adjust details, and retry."
+        }
     }
 
     private func syncLiveActivity() {
@@ -997,6 +1037,50 @@ private struct ScanProcessingWidget: View {
     private func clampedProgress(_ value: Double) -> Double {
         guard value.isFinite else { return 0.02 }
         return min(1, max(0.02, value))
+    }
+}
+
+private struct ScanRefreshStatusCard: View {
+    let statusText: String
+    let detailText: String
+    let draftsTimestamp: Date?
+    let dashboardTimestamp: Date?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(statusText)
+                    .font(.headline.weight(.semibold))
+                Spacer()
+            }
+
+            Text(detailText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            if let timestampText = statusTimestampText {
+                Text(timestampText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var statusTimestampText: String? {
+        let formatter = Date.FormatStyle(date: .omitted, time: .shortened)
+        switch (draftsTimestamp, dashboardTimestamp) {
+        case let (drafts?, dashboard?):
+            return "Drafts updated \(drafts.formatted(formatter)) • Metrics updated \(dashboard.formatted(formatter))"
+        case let (drafts?, nil):
+            return "Drafts updated \(drafts.formatted(formatter))"
+        case let (nil, dashboard?):
+            return "Metrics updated \(dashboard.formatted(formatter))"
+        case (nil, nil):
+            return nil
+        }
     }
 }
 

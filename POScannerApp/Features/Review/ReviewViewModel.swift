@@ -93,7 +93,10 @@ final class ReviewViewModel: ObservableObject {
         }
     }
     @Published var ignoreTaxOverride: Bool = false {
-        didSet { scheduleDraftAutosaveIfNeeded() }
+        didSet {
+            applyGlobalIgnoreTaxPolicy()
+            scheduleDraftAutosaveIfNeeded()
+        }
     }
 
     @Published var isSubmitting: Bool = false
@@ -203,6 +206,8 @@ final class ReviewViewModel: ObservableObject {
         if shouldApplyInitialSuggestions {
             applyLineItemSuggestions()
         }
+
+        applyGlobalIgnoreTaxPolicy(forceOverrideFromGlobalSetting: true)
     }
 
     deinit {
@@ -257,6 +262,10 @@ final class ReviewViewModel: ObservableObject {
     }
 
     var shouldIgnoreTax: Bool {
+        if ignoreTaxAndTotalsSetting {
+            return true
+        }
+
         if ignoreTaxOverride {
             return true
         }
@@ -267,6 +276,10 @@ final class ReviewViewModel: ObservableObject {
         case .attach, .quickAdd:
             return false
         }
+    }
+
+    var isGlobalIgnoreTaxEnabled: Bool {
+        ignoreTaxAndTotalsSetting
     }
 
     var canSubmit: Bool {
@@ -1404,13 +1417,14 @@ final class ReviewViewModel: ObservableObject {
             items = state.items
         }
         modeUI = ModeUI(rawValue: state.modeUIRawValue) ?? .attach
-        ignoreTaxOverride = state.ignoreTaxOverride
+        ignoreTaxOverride = state.ignoreTaxOverride || ignoreTaxAndTotalsSetting
         selectedPOId = nil
         selectedTicketId = trimmedOrNil(state.selectedTicketId)
         activeDraftID = snapshot.id
         draftCreatedAt = snapshot.createdAt
         lastDraftSavedAt = snapshot.updatedAt
         lastDraftFingerprint = draftFingerprint
+        applyGlobalIgnoreTaxPolicy(forceOverrideFromGlobalSetting: true)
     }
 
     @discardableResult
@@ -1441,7 +1455,7 @@ final class ReviewViewModel: ObservableObject {
                 serviceId: serviceId,
                 items: items,
                 modeUIRawValue: modeUI.rawValue,
-                ignoreTaxOverride: ignoreTaxOverride,
+                ignoreTaxOverride: shouldIgnoreTax,
                 selectedPOId: selectedPOId,
                 selectedTicketId: selectedTicketId,
                 workflowStateRawValue: workflowState.rawValue,
@@ -1492,6 +1506,22 @@ final class ReviewViewModel: ObservableObject {
             return (item.partNumber ?? item.sku).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         .count
+    }
+
+    private func applyGlobalIgnoreTaxPolicy(forceOverrideFromGlobalSetting: Bool = false) {
+        if forceOverrideFromGlobalSetting, ignoreTaxAndTotalsSetting, !ignoreTaxOverride {
+            ignoreTaxOverride = true
+            return
+        }
+
+        guard shouldIgnoreTax else { return }
+        guard items.contains(where: \.isTaxable) else { return }
+
+        var updated = items
+        for index in updated.indices {
+            updated[index].isTaxable = false
+        }
+        items = updated
     }
 
     private var saveHistoryEnabledSetting: Bool {

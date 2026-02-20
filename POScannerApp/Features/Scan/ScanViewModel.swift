@@ -86,9 +86,13 @@ final class ScanViewModel: ObservableObject {
     @Published var reviewQueueCount: Int = 0
     @Published var mostRecentSummary: RecentSummary?
     @Published var inProgressDrafts: [ReviewDraftSnapshot] = []
+    @Published private(set) var isLoadingTodayMetrics: Bool = false
+    @Published private(set) var isLoadingInProgressDrafts: Bool = false
+    @Published private(set) var lastDashboardRefreshAt: Date?
+    @Published private(set) var lastDraftRefreshAt: Date?
 
-    private let minimumOCRFlowDuration: TimeInterval = 0.85
-    private let minimumParseFlowDuration: TimeInterval = 1.15
+    private let minimumOCRFlowDuration: TimeInterval = 1.20
+    private let minimumParseFlowDuration: TimeInterval = 1.80
     private var activeWorkflowDraftID: UUID?
     private var cachedOCRReviewDrafts: [UUID: OCRReviewDraft] = [:]
     private var todayMetricsTask: Task<Void, Never>?
@@ -186,6 +190,7 @@ final class ScanViewModel: ObservableObject {
         let flowStart = Date()
         processingStartedAt = flowStart
         processingStage = .parsing
+        let parsingStageStart = Date()
 
         await upsertWorkflowDraft(
             stage: .parsing,
@@ -216,7 +221,9 @@ final class ScanViewModel: ObservableObject {
         }
 
         let invoice = mergedParsedInvoice(aiInvoice: ai, rulesInvoice: rulesInvoice)
+        await ensureMinimumStageDuration(since: parsingStageStart, stage: .parsing)
         processingStage = .finalizing
+        let finalizingStageStart = Date()
         logScanDiagnostics(
             handoff: handoff,
             invoice: invoice,
@@ -225,7 +232,11 @@ final class ScanViewModel: ObservableObject {
             usedAI: ai != nil,
             ignoreTaxAndTotals: ignoreTaxAndTotals
         )
-        await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumParseFlowDuration)
+        await ensureMinimumStageDuration(since: finalizingStageStart, stage: .finalizing)
+        await ensureMinimumProcessingDuration(
+            since: flowStart,
+            minimum: adjustedJourneyDuration(minimumParseFlowDuration)
+        )
         let draftSnapshot = await upsertWorkflowDraft(
             stage: .reviewReady,
             parsedInvoice: invoice,
@@ -297,7 +308,9 @@ final class ScanViewModel: ObservableObject {
         }
         inProgressDraftsTask = Task { [weak self] in
             guard let self else { return }
+            isLoadingInProgressDrafts = true
             defer {
+                isLoadingInProgressDrafts = false
                 inProgressDraftsTask = nil
                 if pendingInProgressDraftsReload {
                     pendingInProgressDraftsReload = false
@@ -311,6 +324,7 @@ final class ScanViewModel: ObservableObject {
                 return
             }
             lastInProgressDraftsLoadAt = Date()
+            lastDraftRefreshAt = lastInProgressDraftsLoadAt
             if inProgressDrafts != drafts {
                 inProgressDrafts = drafts
             }
@@ -387,6 +401,7 @@ final class ScanViewModel: ObservableObject {
         let flowStart = Date()
         processingStartedAt = flowStart
         processingStage = .extractingText
+        let extractionStageStart = Date()
         await upsertWorkflowDraft(
             stage: .scanning,
             parsedInvoice: makeWorkflowPlaceholderInvoice(),
@@ -416,14 +431,20 @@ final class ScanViewModel: ObservableObject {
                 from: cgImage,
                 orientation: effectiveOrientation
             )
+            await ensureMinimumStageDuration(since: extractionStageStart, stage: .extractingText)
             processingStage = .preparingReview
+            let preparingStageStart = Date()
             await upsertWorkflowDraft(
                 stage: .ocrReview,
                 parsedInvoice: makeWorkflowPlaceholderInvoice(),
                 items: [],
                 detail: "\(extraction.lines.count) text line\(extraction.lines.count == 1 ? "" : "s") detected."
             )
-            await ensureMinimumProcessingDuration(since: flowStart, minimum: minimumOCRFlowDuration)
+            await ensureMinimumStageDuration(since: preparingStageStart, stage: .preparingReview)
+            await ensureMinimumProcessingDuration(
+                since: flowStart,
+                minimum: adjustedJourneyDuration(minimumOCRFlowDuration)
+            )
             let draftID = activeWorkflowDraftID ?? UUID()
             let nextDraft = OCRReviewDraft(
                 draftID: draftID,
@@ -590,6 +611,35 @@ final class ScanViewModel: ObservableObject {
         try? await Task.sleep(nanoseconds: nanos)
     }
 
+    private func ensureMinimumStageDuration(since start: Date, stage: ProcessingStage) async {
+        await ensureMinimumProcessingDuration(
+            since: start,
+            minimum: adjustedJourneyDuration(minimumStageDuration(for: stage))
+        )
+    }
+
+    private func minimumStageDuration(for stage: ProcessingStage) -> TimeInterval {
+        switch stage {
+        case .extractingText:
+            return 0.35
+        case .preparingReview:
+            return 0.55
+        case .parsing:
+            return 0.70
+        case .finalizing:
+            return 0.40
+        }
+    }
+
+    private func adjustedJourneyDuration(_ duration: TimeInterval) -> TimeInterval {
+        #if canImport(UIKit)
+        let scale: Double = UIAccessibility.isReduceMotionEnabled ? 0.7 : 1.0
+        return duration * scale
+        #else
+        return duration
+        #endif
+    }
+
     private func makeWorkflowPlaceholderInvoice() -> ParsedInvoice {
         ParsedInvoice(
             vendorName: nil,
@@ -602,7 +652,8 @@ final class ScanViewModel: ObservableObject {
     }
 
     private func mapPOItems(from parsedItems: [ParsedLineItem]) -> [POItem] {
-        parsedItems.map { parsed in
+        let forceIgnoreTax = ignoreTaxAndTotalsSetting
+        return parsedItems.map { parsed in
             let cents = parsed.costCents ?? 0
             let normalizedSKU = parsed.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return POItem(
@@ -610,6 +661,7 @@ final class ScanViewModel: ObservableObject {
                 sku: normalizedSKU,
                 quantity: Double(max(1, parsed.quantity ?? 1)),
                 unitCost: cents > 0 ? (Decimal(cents) / 100) : 0,
+                isTaxable: !forceIgnoreTax,
                 partNumber: parsed.partNumber,
                 confidence: parsed.confidence,
                 kind: parsed.kind,
@@ -654,7 +706,7 @@ final class ScanViewModel: ObservableObject {
                 serviceId: "",
                 items: items,
                 modeUIRawValue: "quickAdd",
-                ignoreTaxOverride: false,
+                ignoreTaxOverride: ignoreTaxAndTotalsSetting,
                 selectedPOId: nil,
                 selectedTicketId: nil,
                 workflowStateRawValue: stage.rawValue,
@@ -681,6 +733,36 @@ final class ScanViewModel: ObservableObject {
 
     var processingDetailText: String {
         processingStage?.detail ?? "Preparing purchase-order intake result."
+    }
+
+    var isRefreshingAnyDashboardData: Bool {
+        isLoadingTodayMetrics || isLoadingInProgressDrafts
+    }
+
+    var refreshStatusText: String {
+        switch (isLoadingTodayMetrics, isLoadingInProgressDrafts) {
+        case (true, true):
+            return "Refreshing drafts and dashboard metrics"
+        case (true, false):
+            return "Refreshing dashboard metrics"
+        case (false, true):
+            return "Refreshing in-progress drafts"
+        case (false, false):
+            return "Dashboard is up to date"
+        }
+    }
+
+    var refreshDetailText: String {
+        switch (isLoadingTodayMetrics, isLoadingInProgressDrafts) {
+        case (true, true):
+            return "Syncing local draft state and Shopmonkey dashboard totals."
+        case (true, false):
+            return "Recomputing today's scans, submissions, and sync status."
+        case (false, true):
+            return "Loading current draft queue and workflow states."
+        case (false, false):
+            return "All intake metrics and drafts are current."
+        }
     }
 
     var needsAttentionCount: Int {
@@ -829,7 +911,9 @@ final class ScanViewModel: ObservableObject {
 
         todayMetricsTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
+            isLoadingTodayMetrics = true
             defer {
+                isLoadingTodayMetrics = false
                 todayMetricsTask = nil
                 if pendingTodayMetricsReload {
                     pendingTodayMetricsReload = false
@@ -854,6 +938,7 @@ final class ScanViewModel: ObservableObject {
                 failedCount = 0
                 publishWidgetSnapshot()
                 mostRecentSummary = nil
+                lastDashboardRefreshAt = Date()
                 return
             }
             
@@ -956,6 +1041,7 @@ final class ScanViewModel: ObservableObject {
             failedCount = metrics.failed
             mostRecentSummary = metrics.recent
             lastTodayMetricsLoadAt = Date()
+            lastDashboardRefreshAt = lastTodayMetricsLoadAt
             Self.logger.debug(
                 "Loaded today metrics scans=\(metrics.count, privacy: .public) submitted=\(metrics.submitted, privacy: .public) pending=\(metrics.pending, privacy: .public) failed=\(metrics.failed, privacy: .public)."
             )
@@ -1024,6 +1110,10 @@ final class ScanViewModel: ObservableObject {
         formatter.maximumFractionDigits = 2
         return formatter
     }()
+
+    private var ignoreTaxAndTotalsSetting: Bool {
+        UserDefaults.standard.bool(forKey: "ignoreTaxAndTotals")
+    }
 
     private static let uiTestReviewInvoice: ParsedInvoice = {
         ParsedInvoice(

@@ -96,15 +96,14 @@ final class ScanViewModel: ObservableObject {
     private var inProgressDraftsTask: Task<Void, Never>?
     private var pendingInProgressDraftsReload: Bool = false
     private var lastInProgressDraftsLoadAt: Date?
-    private let minimumTodayMetricsReloadInterval: TimeInterval = 1.0
-    private let minimumInProgressDraftsReloadInterval: TimeInterval = 1.0
+    private let minimumTodayMetricsReloadInterval: TimeInterval = 1.5
+    private let minimumInProgressDraftsReloadInterval: TimeInterval = 1.5
 
     init(environment: AppEnvironment) {
         self.environment = environment
     }
 
     deinit {
-        Self.logger.debug("ScanViewModel deinit: cancelling background metric/draft tasks.")
         todayMetricsTask?.cancel()
         inProgressDraftsTask?.cancel()
     }
@@ -284,7 +283,7 @@ final class ScanViewModel: ObservableObject {
 
     func loadInProgressDrafts(force: Bool = false) {
         if inProgressDraftsTask != nil {
-            if !pendingInProgressDraftsReload {
+            if force && !pendingInProgressDraftsReload {
                 pendingInProgressDraftsReload = true
                 Self.logger.debug("Queued in-progress drafts reload while existing load is active.")
             }
@@ -315,6 +314,7 @@ final class ScanViewModel: ObservableObject {
                 inProgressDrafts = drafts
             }
             refreshDraftMetrics(from: drafts)
+            reconcileActiveWorkflowDraft(with: drafts)
             Self.logger.debug("Loaded in-progress drafts count=\(drafts.count, privacy: .public).")
         }
     }
@@ -726,7 +726,7 @@ final class ScanViewModel: ObservableObject {
 
     func loadTodayMetrics(force: Bool = false) {
         if todayMetricsTask != nil {
-            if !pendingTodayMetricsReload {
+            if force && !pendingTodayMetricsReload {
                 pendingTodayMetricsReload = true
                 Self.logger.debug("Queued today-metrics reload while existing load is active.")
             }
@@ -898,6 +898,22 @@ final class ScanViewModel: ObservableObject {
             reviewCount: reviewQueueCount,
             totalValue: todayTotal
         )
+    }
+
+    private func reconcileActiveWorkflowDraft(with drafts: [ReviewDraftSnapshot]) {
+        guard let activeWorkflowDraftID else { return }
+        if drafts.contains(where: { $0.id == activeWorkflowDraftID }) {
+            return
+        }
+        if parsedInvoiceRoute?.draftSnapshot?.id == activeWorkflowDraftID {
+            return
+        }
+        if ocrReviewDraft?.draftID == activeWorkflowDraftID {
+            return
+        }
+        guard !isProcessing else { return }
+        self.activeWorkflowDraftID = nil
+        cachedOCRReviewDrafts[activeWorkflowDraftID] = nil
     }
 
     var todayTotalFormatted: String {

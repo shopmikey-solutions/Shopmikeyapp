@@ -202,7 +202,6 @@ struct ScanView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             guard isTabActive else { return }
-            lastLiveActivitySignature = nil
             scheduleDraftStoreRefresh()
             syncLiveActivity()
         }
@@ -625,15 +624,15 @@ struct ScanView: View {
             switch stage {
             case .extractingText:
                 status = "Capture in progress • Step 1 of 4"
-                detail = "Reading invoice text from the scan."
+                detail = "Running on-device Vision OCR across the scan."
             case .preparingReview:
                 status = "OCR review • Step 2 of 4"
-                detail = "Preparing highlighted lines and barcode hints."
+                detail = "Preparing highlighted text and barcode regions."
             case .parsing:
                 status = "Parsing line items • Step 2 of 4"
-                detail = "Classifying parts, tires, and fees."
+                detail = "Applying on-device AI + rules for automotive line items."
             case .finalizing:
-                status = "Review draft • Step 3 of 4"
+                status = "Draft ready • Step 3 of 4"
                 detail = "Open the draft to verify before submitting."
             }
             return (
@@ -660,41 +659,48 @@ struct ScanView: View {
         progress: Double,
         deepLinkURL: URL?
     )? {
-        let workflowDetail = draft.state.workflowDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
         let defaultDetail: String
         let status: String
         let progress: Double
+        let shouldUseWorkflowDetail: Bool
 
         switch draft.workflowState {
         case .scanning:
             status = "Capture in progress • Step 1 of 4"
-            defaultDetail = "Capturing and reading invoice text."
+            defaultDetail = "Running on-device Vision OCR across the scan."
             progress = max(0.20, draft.workflowProgressEstimate)
+            shouldUseWorkflowDetail = true
         case .ocrReview:
             status = "OCR review • Step 2 of 4"
-            defaultDetail = "Review recognized text before parsing."
+            defaultDetail = "Preparing highlighted text and barcode regions."
             progress = max(0.45, draft.workflowProgressEstimate)
+            shouldUseWorkflowDetail = true
         case .parsing:
             status = "Parsing line items • Step 2 of 4"
-            defaultDetail = "Classifying parts, tires, and fees."
+            defaultDetail = "Applying on-device AI + rules for automotive line items."
             progress = max(0.64, draft.workflowProgressEstimate)
+            shouldUseWorkflowDetail = true
         case .reviewReady:
             status = "Draft ready • Step 3 of 4"
             defaultDetail = "Open the draft to verify before submitting."
             progress = max(0.90, draft.workflowProgressEstimate)
+            shouldUseWorkflowDetail = false
         case .reviewEdited:
             status = "Draft edited • Step 3 of 4"
             defaultDetail = "Review complete. Ready to submit."
             progress = max(0.94, draft.workflowProgressEstimate)
+            shouldUseWorkflowDetail = false
         case .submitting:
             status = "Submitting PO • Step 4 of 4"
             defaultDetail = "Posting the reviewed draft to Shopmonkey."
             progress = max(0.96, draft.workflowProgressEstimate)
+            shouldUseWorkflowDetail = true
         case .failed:
             return nil
         }
 
-        let detail = workflowDetail.flatMap { $0.isEmpty ? nil : $0 } ?? defaultDetail
+        let workflowDetail = draft.state.workflowDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = shouldUseWorkflowDetail ? (workflowDetail.flatMap { $0.isEmpty ? nil : $0 } ?? defaultDetail) : defaultDetail
         return (
             true,
             status,
@@ -732,6 +738,7 @@ struct ScanView: View {
             .sorted { $0.updatedAt > $1.updatedAt }
             .first { draft in
                 guard draft.isLiveIntakeSession else { return false }
+                guard isDraftEligibleForLiveActivity(draft) else { return false }
                 let maxAge = liveActivityRecencyWindow(for: draft.workflowState)
                 return now.timeIntervalSince(draft.updatedAt) <= maxAge
             }
@@ -742,11 +749,33 @@ struct ScanView: View {
         case .scanning, .ocrReview, .parsing:
             return 10 * 60
         case .reviewReady, .reviewEdited:
-            return 8 * 60
+            return 3 * 60
         case .submitting:
-            return 12 * 60
+            return 3 * 60
         case .failed:
             return 0
+        }
+    }
+
+    private func isDraftEligibleForLiveActivity(_ draft: ReviewDraftSnapshot) -> Bool {
+        switch draft.workflowState {
+        case .scanning, .ocrReview, .parsing, .submitting:
+            return true
+        case .reviewReady, .reviewEdited:
+            if viewModel.activeWorkflowDraftIDForLiveActivity == draft.id {
+                return true
+            }
+            if let reviewDraftID = viewModel.parsedInvoiceRoute?.draftSnapshot?.id,
+               reviewDraftID == draft.id {
+                return true
+            }
+            if let ocrDraftID = viewModel.ocrReviewDraft?.draftID,
+               ocrDraftID == draft.id {
+                return true
+            }
+            return false
+        case .failed:
+            return false
         }
     }
 
@@ -808,7 +837,7 @@ struct ScanView: View {
 
     @MainActor
     private func refreshDashboard(forceMetricsReload: Bool) {
-        triggerDraftReloadIfNeeded(minimumInterval: 1.0, force: forceMetricsReload)
+        triggerDraftReloadIfNeeded(minimumInterval: 1.0, force: false)
 
         let now = Date()
         let shouldReloadMetrics: Bool

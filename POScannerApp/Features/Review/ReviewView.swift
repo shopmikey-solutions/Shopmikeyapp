@@ -173,6 +173,7 @@ struct ReviewView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(viewModel.isSubmitting ? "Submitting..." : submitButtonTitle) {
+                    focusedField = nil
                     AppHaptics.impact(.medium, intensity: 0.9)
                     Task { await viewModel.submitTapped() }
                 }

@@ -213,13 +213,13 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         case .scanning:
             return 0.20
         case .ocrReview:
-            return 0.42
+            return 0.45
         case .parsing:
             return 0.66
         case .reviewReady:
-            return 0.86
+            return 0.90
         case .reviewEdited:
-            return 0.92
+            return 0.94
         case .submitting:
             return 0.98
         case .failed:

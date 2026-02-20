@@ -96,8 +96,8 @@ final class ScanViewModel: ObservableObject {
     private var inProgressDraftsTask: Task<Void, Never>?
     private var pendingInProgressDraftsReload: Bool = false
     private var lastInProgressDraftsLoadAt: Date?
-    private let minimumTodayMetricsReloadInterval: TimeInterval = 0.35
-    private let minimumInProgressDraftsReloadInterval: TimeInterval = 0.35
+    private let minimumTodayMetricsReloadInterval: TimeInterval = 1.0
+    private let minimumInProgressDraftsReloadInterval: TimeInterval = 1.0
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -284,8 +284,10 @@ final class ScanViewModel: ObservableObject {
 
     func loadInProgressDrafts(force: Bool = false) {
         if inProgressDraftsTask != nil {
-            pendingInProgressDraftsReload = true
-            Self.logger.debug("Queued in-progress drafts reload while existing load is active.")
+            if !pendingInProgressDraftsReload {
+                pendingInProgressDraftsReload = true
+                Self.logger.debug("Queued in-progress drafts reload while existing load is active.")
+            }
             return
         }
         if !force,
@@ -319,6 +321,10 @@ final class ScanViewModel: ObservableObject {
 
     var latestDraft: ReviewDraftSnapshot? {
         inProgressDrafts.first
+    }
+
+    var activeWorkflowDraftIDForLiveActivity: UUID? {
+        activeWorkflowDraftID
     }
 
     var latestResumableDraft: ReviewDraftSnapshot? {
@@ -720,8 +726,10 @@ final class ScanViewModel: ObservableObject {
 
     func loadTodayMetrics(force: Bool = false) {
         if todayMetricsTask != nil {
-            pendingTodayMetricsReload = true
-            Self.logger.debug("Queued today-metrics reload while existing load is active.")
+            if !pendingTodayMetricsReload {
+                pendingTodayMetricsReload = true
+                Self.logger.debug("Queued today-metrics reload while existing load is active.")
+            }
             return
         }
         if !force,

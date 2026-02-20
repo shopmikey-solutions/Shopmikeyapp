@@ -65,7 +65,7 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                     }
                         .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
-                DynamicIslandExpandedRegion(.trailing, priority: 1) {
+                DynamicIslandExpandedRegion(.trailing, priority: 2) {
                     HStack(spacing: 6) {
                         Text("\(Int((clampedProgress(context.state.progress) * 100).rounded()))%")
                             .font(.caption.monospacedDigit())

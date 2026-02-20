@@ -619,7 +619,7 @@ struct ScanView: View {
         deepLinkURL: URL?
     ) {
         if viewModel.isProcessing, let stage = viewModel.processingStage {
-            let activeDraftID = viewModel.latestDraft?.id
+            let activeDraftID = viewModel.activeWorkflowDraftIDForLiveActivity ?? viewModel.latestDraft?.id
             let status: String
             let detail: String
             switch stage {
@@ -673,7 +673,7 @@ struct ScanView: View {
         case .ocrReview:
             status = "OCR review • Step 2 of 4"
             defaultDetail = "Review recognized text before parsing."
-            progress = max(0.42, draft.workflowProgressEstimate)
+            progress = max(0.45, draft.workflowProgressEstimate)
         case .parsing:
             status = "Parsing line items • Step 2 of 4"
             defaultDetail = "Classifying parts, tires, and fees."
@@ -681,11 +681,11 @@ struct ScanView: View {
         case .reviewReady:
             status = "Draft ready • Step 3 of 4"
             defaultDetail = "Open the draft to verify before submitting."
-            progress = max(0.86, draft.workflowProgressEstimate)
+            progress = max(0.90, draft.workflowProgressEstimate)
         case .reviewEdited:
             status = "Draft edited • Step 3 of 4"
             defaultDetail = "Review complete. Ready to submit."
-            progress = max(0.92, draft.workflowProgressEstimate)
+            progress = max(0.94, draft.workflowProgressEstimate)
         case .submitting:
             status = "Submitting PO • Step 4 of 4"
             defaultDetail = "Posting the reviewed draft to Shopmonkey."
@@ -740,11 +740,11 @@ struct ScanView: View {
     private func liveActivityRecencyWindow(for state: ReviewDraftSnapshot.WorkflowState) -> TimeInterval {
         switch state {
         case .scanning, .ocrReview, .parsing:
-            return 30 * 60
+            return 10 * 60
         case .reviewReady, .reviewEdited:
-            return 20 * 60
-        case .submitting:
             return 8 * 60
+        case .submitting:
+            return 12 * 60
         case .failed:
             return 0
         }

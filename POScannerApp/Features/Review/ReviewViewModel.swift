@@ -113,6 +113,8 @@ final class ReviewViewModel: ObservableObject {
     private var purchaseOrderLookupTask: Task<Void, Never>?
     private var todayMetricsTask: Task<Void, Never>?
     private var pendingTodayMetricsReload: Bool = false
+    private var lastTodayMetricsLoadAt: Date?
+    private let minimumTodayMetricsReloadInterval: TimeInterval = 1.0
     private var submissionActivityEndTask: Task<Void, Never>?
     private var draftAutosaveTask: Task<Void, Never>?
     private var lastVendorLookupQuery: String?
@@ -830,8 +832,14 @@ final class ReviewViewModel: ObservableObject {
 
     func loadTodayMetrics() {
         if todayMetricsTask != nil {
-            pendingTodayMetricsReload = true
-            Self.logger.debug("Queued review metrics reload while existing load is active.")
+            if !pendingTodayMetricsReload {
+                pendingTodayMetricsReload = true
+                Self.logger.debug("Queued review metrics reload while existing load is active.")
+            }
+            return
+        }
+        if let lastTodayMetricsLoadAt,
+           Date().timeIntervalSince(lastTodayMetricsLoadAt) < minimumTodayMetricsReloadInterval {
             return
         }
         let dataController = environment.dataController
@@ -882,6 +890,7 @@ final class ReviewViewModel: ObservableObject {
             }
             todayCount = metrics.count
             todayTotal = metrics.total
+            lastTodayMetricsLoadAt = Date()
             Self.logger.debug("Loaded review metrics scans=\(metrics.count, privacy: .public).")
         }
     }

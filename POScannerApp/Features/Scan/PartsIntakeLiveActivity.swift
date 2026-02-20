@@ -79,12 +79,24 @@ actor PartsIntakeLiveActivityManager {
             return
         }
 
-        let clampedProgress = normalizedProgress(progress)
+        let normalizedStatusText = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedDetailText = detailText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let deepLinkRawValue = deepLinkURL?.absoluteString
+        var progressBucket = Int((normalizedProgress(progress) * 100).rounded())
+
+        if let lastSignature,
+           lastSignature.deepLinkURL == deepLinkRawValue,
+           !shouldAllowProgressRegression(statusText: normalizedStatusText),
+           progressBucket < lastSignature.progressBucket {
+            progressBucket = lastSignature.progressBucket
+        }
+
+        let clampedProgress = min(1, max(0, Double(progressBucket) / 100))
         let signature = Signature(
-            statusText: statusText,
-            detailText: detailText,
-            progressBucket: Int((clampedProgress * 100).rounded()),
-            deepLinkURL: deepLinkURL?.absoluteString
+            statusText: normalizedStatusText,
+            detailText: normalizedDetailText,
+            progressBucket: progressBucket,
+            deepLinkURL: deepLinkRawValue
         )
 
         // Avoid churn when app re-enters foreground and repeatedly emits equivalent updates.
@@ -94,11 +106,11 @@ actor PartsIntakeLiveActivityManager {
         }
 
         let state = PartsIntakeActivityAttributes.ContentState(
-            statusText: statusText,
-            detailText: detailText,
+            statusText: normalizedStatusText,
+            detailText: normalizedDetailText,
             progress: clampedProgress,
             updatedAt: Date(),
-            deepLinkURL: deepLinkURL?.absoluteString
+            deepLinkURL: deepLinkRawValue
         )
         let content = ActivityContent(
             state: state,
@@ -226,6 +238,11 @@ actor PartsIntakeLiveActivityManager {
     private func normalizedProgress(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(1, max(0, value))
+    }
+
+    private func shouldAllowProgressRegression(statusText: String) -> Bool {
+        let normalized = statusText.lowercased()
+        return normalized.contains("step 1 of 4") || normalized.contains("capture in progress")
     }
 
     private func isMeaningfulActiveState(

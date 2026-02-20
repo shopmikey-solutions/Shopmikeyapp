@@ -50,6 +50,8 @@ final class HistoryViewModel: ObservableObject {
     private let reviewDraftStore: ReviewDraftStore
     private var loadHistoryTask: Task<Void, Never>?
     private var pendingHistoryReload: Bool = false
+    private var lastHistoryLoadAt: Date?
+    private let minimumHistoryReloadInterval: TimeInterval = 1.0
 
     init(dataController: DataController, reviewDraftStore: ReviewDraftStore) {
         self.dataController = dataController
@@ -63,8 +65,14 @@ final class HistoryViewModel: ObservableObject {
 
     func loadHistory() {
         if loadHistoryTask != nil {
-            pendingHistoryReload = true
-            Self.logger.debug("Queued history reload while existing load is active.")
+            if !pendingHistoryReload {
+                pendingHistoryReload = true
+                Self.logger.debug("Queued history reload while existing load is active.")
+            }
+            return
+        }
+        if let lastHistoryLoadAt,
+           Date().timeIntervalSince(lastHistoryLoadAt) < minimumHistoryReloadInterval {
             return
         }
         isLoading = true
@@ -129,6 +137,7 @@ final class HistoryViewModel: ObservableObject {
             orders = mapped
             inProgressDrafts = draftSnapshots
             publishWidgetSnapshot(orders: mapped, drafts: draftSnapshots)
+            lastHistoryLoadAt = Date()
             isLoading = false
             Self.logger.debug(
                 "Loaded history rows=\(mapped.count, privacy: .public) drafts=\(draftSnapshots.count, privacy: .public)."

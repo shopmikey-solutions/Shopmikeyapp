@@ -7,6 +7,35 @@ import Testing
 import Foundation
 @testable import POScannerApp
 
+private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
+    let dataController = DataController(inMemory: true)
+    let keychainService = KeychainService(service: "POScannerApp.tests.\(UUID().uuidString)")
+    let secureStorage = SecureStorage(keychainService: keychainService)
+    let networkDiagnostics = NetworkDiagnosticsRecorder.shared
+    let reviewDraftStore = ReviewDraftStore(fileURL: draftFileURL)
+    let localNotificationService = LocalNotificationService()
+    let apiClient = APIClient(
+        baseURL: ShopmonkeyAPI.baseURL,
+        tokenProvider: { throw APIError.missingToken },
+        diagnosticsRecorder: networkDiagnostics
+    )
+
+    return AppEnvironment(
+        dataController: dataController,
+        keychainService: keychainService,
+        secureStorage: secureStorage,
+        networkDiagnostics: networkDiagnostics,
+        reviewDraftStore: reviewDraftStore,
+        localNotificationService: localNotificationService,
+        apiClient: apiClient,
+        shopmonkeyAPI: ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics),
+        ocrService: OCRService(),
+        poParser: POParser(),
+        foundationModelService: FoundationModelService(),
+        parseHandoffService: LocalParseHandoffService()
+    )
+}
+
 private struct MinimalShopmonkeyService: ShopmonkeyServicing {
     func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse {
         .init(id: "v_1", name: request.name)
@@ -322,5 +351,121 @@ struct ReviewViewModelTests {
         }
         try? await Task.sleep(nanoseconds: 650_000_000)
         #expect(service.searchCalls.count == 1)
+    }
+
+    @Test func restoredDraftPreservesManualLineTypeOverrides() async throws {
+        let parsed = ParsedInvoice(
+            vendorName: "Advance Auto Parts - Online Cart",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 21_995,
+            items: [
+                ParsedLineItem(
+                    name: "AGM Battery H7 850CCA DieHard Gold",
+                    quantity: 1,
+                    costCents: 21_995,
+                    partNumber: "BAT-H7-AGM",
+                    confidence: 0.8,
+                    kind: .unknown,
+                    kindConfidence: 0.4,
+                    kindReasons: ["line type confidence below threshold"]
+                )
+            ]
+        )
+
+        let editedItem = POItem(
+            description: "AGM Battery H7 850CCA DieHard Gold",
+            sku: "BAT-H7-AGM",
+            quantity: 1,
+            unitCost: Decimal(21995) / 100,
+            partNumber: "BAT-H7-AGM",
+            confidence: 0.8,
+            kind: .part,
+            kindConfidence: 0.92,
+            kindReasons: ["manual override"]
+        )
+
+        let draft = ReviewDraftSnapshot(
+            id: UUID(),
+            createdAt: Date(),
+            updatedAt: Date(),
+            state: ReviewDraftSnapshot.State(
+                parsedInvoice: .init(invoice: parsed),
+                vendorName: "Advance Auto Parts - Online Cart",
+                vendorPhone: "",
+                vendorEmail: nil,
+                vendorNotes: nil,
+                vendorInvoiceNumber: "",
+                poReference: "",
+                notes: "",
+                selectedVendorId: "v_advance",
+                orderId: "",
+                serviceId: "",
+                items: [editedItem],
+                modeUIRawValue: ReviewViewModel.ModeUI.attach.rawValue,
+                ignoreTaxOverride: false,
+                selectedPOId: nil,
+                selectedTicketId: nil,
+                workflowStateRawValue: ReviewDraftSnapshot.WorkflowState.reviewEdited.rawValue,
+                workflowDetail: "Manual edits saved."
+            )
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(
+                environment: .preview,
+                parsedInvoice: parsed,
+                shopmonkeyService: MinimalShopmonkeyService(),
+                draftSnapshot: draft
+            )
+        }
+
+        try? await Task.sleep(nanoseconds: 450_000_000)
+        let restoredKind = await MainActor.run { vm.items.first?.kind }
+        #expect(restoredKind == .part)
+    }
+
+    @Test func autosavePersistsUpdatedLineItemDetails() async throws {
+        let draftURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("review-autosave-\(UUID().uuidString).json")
+        let environment = makeReviewTestEnvironment(draftFileURL: draftURL)
+
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 1_000,
+            items: [
+                ParsedLineItem(
+                    name: "Brake Pad",
+                    quantity: 1,
+                    costCents: 1_000,
+                    partNumber: "BP-1",
+                    confidence: 0.9,
+                    kind: .part,
+                    kindConfidence: 0.9,
+                    kindReasons: []
+                )
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(
+                environment: environment,
+                parsedInvoice: parsed,
+                shopmonkeyService: MinimalShopmonkeyService()
+            )
+        }
+
+        await MainActor.run {
+            vm.items[0].description = "Brake Pad - Updated"
+        }
+
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        let drafts = await environment.reviewDraftStore.list()
+        let savedDescription = drafts.first?.state.items.first?.description
+        #expect(savedDescription == "Brake Pad - Updated")
+
+        try? FileManager.default.removeItem(at: draftURL)
     }
 }

@@ -19,6 +19,7 @@ struct ReviewView: View {
     @AppStorage("experimentalOrderPOLinking") private var experimentalOrderPOLinking: Bool = false
     @StateObject var viewModel: ReviewViewModel
     @State private var focusNeedsReviewOnly: Bool = false
+    @State private var hasLoadedInitialMetrics: Bool = false
     @FocusState private var focusedField: FocusedField?
     @Environment(\.dismiss) private var dismiss
 
@@ -185,7 +186,10 @@ struct ReviewView: View {
             Text("Parts, tires, and fees were sent to Shopmonkey.")
         }
         .onAppear {
-            viewModel.loadTodayMetrics()
+            if !hasLoadedInitialMetrics {
+                hasLoadedInitialMetrics = true
+                viewModel.loadTodayMetrics()
+            }
             if !experimentalOrderPOLinking {
                 viewModel.applyProductionPolishMode()
             }

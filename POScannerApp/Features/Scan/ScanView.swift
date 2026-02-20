@@ -24,8 +24,10 @@ struct ScanView: View {
     @State private var hasPerformedInitialLoad: Bool = false
     @State private var initialLoadTask: Task<Void, Never>?
     @State private var draftStoreRefreshTask: Task<Void, Never>?
+    @State private var liveActivityEndTask: Task<Void, Never>?
     @State private var lastDashboardRefreshAt: Date?
     @StateObject private var viewModel: ScanViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     init(environment: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: ScanViewModel(environment: environment))
@@ -118,6 +120,8 @@ struct ScanView: View {
             initialLoadTask = nil
             draftStoreRefreshTask?.cancel()
             draftStoreRefreshTask = nil
+            liveActivityEndTask?.cancel()
+            liveActivityEndTask = nil
         }
         .onChange(of: viewModel.processingStage) { _, stage in
             guard stage != nil else { return }
@@ -159,6 +163,14 @@ struct ScanView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
             scheduleDraftStoreRefresh()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            scheduleDraftStoreRefresh()
+            syncLiveActivity()
+        }
+        .onChange(of: viewModel.inProgressDrafts) { _, _ in
+            syncLiveActivity()
         }
         .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
     }
@@ -524,13 +536,31 @@ struct ScanView: View {
 
     private func syncLiveActivity() {
         let payload = liveActivityPayload()
-        PartsIntakeLiveActivityBridge.sync(
-            isActive: payload.isActive,
-            statusText: payload.status,
-            detailText: payload.detail,
-            progress: payload.progress,
-            deepLinkURL: payload.deepLinkURL
-        )
+        if payload.isActive {
+            liveActivityEndTask?.cancel()
+            liveActivityEndTask = nil
+            PartsIntakeLiveActivityBridge.sync(
+                isActive: true,
+                statusText: payload.status,
+                detailText: payload.detail,
+                progress: payload.progress,
+                deepLinkURL: payload.deepLinkURL
+            )
+            return
+        }
+
+        liveActivityEndTask?.cancel()
+        liveActivityEndTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled else { return }
+            PartsIntakeLiveActivityBridge.sync(
+                isActive: false,
+                statusText: "",
+                detailText: "",
+                progress: 0,
+                deepLinkURL: nil
+            )
+        }
     }
 
     private func liveActivityPayload() -> (
@@ -547,11 +577,11 @@ struct ScanView: View {
             let detail: String
             switch stage {
             case .parsing:
-                status = "Drafting intake • Step 1 of 3"
+                status = "Parsing line items • Step 2 of 4"
                 detail = "Classifying parts, tires, and fees."
             case .finalizing:
-                status = "Review ready • Step 2 of 3"
-                detail = "Open the draft to edit and submit."
+                status = "Review draft • Step 3 of 4"
+                detail = "Open the draft to verify before submitting."
             case .extractingText, .preparingReview:
                 status = viewModel.processingStatusText
                 detail = viewModel.processingDetailText
@@ -562,6 +592,43 @@ struct ScanView: View {
                 detail,
                 viewModel.processingProgressEstimate,
                 activeDraftID.map { AppDeepLink.scanURL(draftID: $0) } ?? AppDeepLink.scanURL(openComposer: true)
+            )
+        }
+
+        if let draft = viewModel.latestDraft {
+            let status: String
+            let detail: String
+            let progress: Double
+
+            switch draft.workflowState {
+            case .scanning, .ocrReview:
+                status = "Intake draft • Step 1 of 4"
+                detail = draft.displaySecondaryLine
+                progress = max(0.20, draft.workflowProgressEstimate)
+            case .parsing:
+                status = "Parsing line items • Step 2 of 4"
+                detail = draft.displaySecondaryLine
+                progress = max(0.40, draft.workflowProgressEstimate)
+            case .reviewReady, .reviewEdited:
+                status = "Review draft • Step 3 of 4"
+                detail = "Confirm line items, vendor, and PO details."
+                progress = max(0.80, draft.workflowProgressEstimate)
+            case .submitting:
+                status = "Submitting PO • Step 4 of 4"
+                detail = "Posting the reviewed draft to Shopmonkey."
+                progress = max(0.96, draft.workflowProgressEstimate)
+            case .failed:
+                status = "Needs attention"
+                detail = draft.displaySecondaryLine
+                progress = 0.55
+            }
+
+            return (
+                true,
+                status,
+                detail,
+                progress,
+                AppDeepLink.scanURL(draftID: draft.id)
             )
         }
 
@@ -616,7 +683,7 @@ struct ScanView: View {
         draftStoreRefreshTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 220_000_000)
             guard !Task.isCancelled else { return }
-            refreshDashboard(forceMetricsReload: false)
+            viewModel.loadInProgressDrafts()
         }
     }
 

@@ -36,6 +36,9 @@ actor ReviewDraftStore {
     func upsert(_ snapshot: ReviewDraftSnapshot) throws {
         var drafts = readAll()
         if let index = drafts.firstIndex(where: { $0.id == snapshot.id }) {
+            if drafts[index].state == snapshot.state {
+                return
+            }
             drafts[index] = snapshot
         } else {
             drafts.append(snapshot)

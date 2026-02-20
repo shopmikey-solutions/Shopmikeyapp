@@ -24,6 +24,7 @@ struct HistoryView: View {
     @State private var isRetryErrorPresented: Bool = false
     @State private var scope: HistoryScope = .all
     @State private var searchText: String = ""
+    @State private var draftStoreRefreshTask: Task<Void, Never>?
     @Environment(\.openURL) private var openURL
 
     init(environment: AppEnvironment) {
@@ -162,8 +163,17 @@ struct HistoryView: View {
                 viewModel.loadHistory()
             }
         }
+        .onDisappear {
+            draftStoreRefreshTask?.cancel()
+            draftStoreRefreshTask = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
-            viewModel.loadHistory()
+            draftStoreRefreshTask?.cancel()
+            draftStoreRefreshTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 260_000_000)
+                guard !Task.isCancelled else { return }
+                viewModel.loadHistory()
+            }
         }
         .onChange(of: scope) { _, _ in
             AppHaptics.selection()

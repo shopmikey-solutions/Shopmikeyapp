@@ -62,8 +62,10 @@ actor PartsIntakeLiveActivityManager {
             return
         }
 
+        bindExistingActivityIfNeeded()
+
         guard isActive else {
-            guard activity != nil else { return }
+            guard activity != nil || !Activity<PartsIntakeActivityAttributes>.activities.isEmpty else { return }
             Self.logger.debug("Live Activity sync ending because workflow is inactive.")
             await endCurrent(dismissalPolicy: .immediate)
             return
@@ -133,6 +135,27 @@ actor PartsIntakeLiveActivityManager {
         }
     }
 
+    private func bindExistingActivityIfNeeded() {
+        let activities = Activity<PartsIntakeActivityAttributes>.activities
+        guard !activities.isEmpty else {
+            activity = nil
+            return
+        }
+
+        if let activity, activities.contains(where: { $0.id == activity.id }) {
+            return
+        }
+
+        let resolved = activities.max(by: { lhs, rhs in
+            lhs.content.state.updatedAt < rhs.content.state.updatedAt
+        }) ?? activities[0]
+        activity = resolved
+
+        if activities.count > 1 {
+            Self.logger.debug("Live Activity manager resolved multiple active activities; keeping most recent.")
+        }
+    }
+
     private var isEnabled: Bool {
         if let value = UserDefaults.standard.object(forKey: "scanLiveActivitiesEnabled") as? Bool {
             return value
@@ -141,9 +164,30 @@ actor PartsIntakeLiveActivityManager {
     }
 
     private func endCurrent(dismissalPolicy: ActivityUIDismissalPolicy) async {
-        guard let activity else { return }
-        let priorStatus = lastSignature?.statusText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let priorDetail = lastSignature?.detailText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var targets: [Activity<PartsIntakeActivityAttributes>] = []
+        if let activity {
+            targets.append(activity)
+        }
+        for existing in Activity<PartsIntakeActivityAttributes>.activities where !targets.contains(where: { $0.id == existing.id }) {
+            targets.append(existing)
+        }
+        guard !targets.isEmpty else {
+            self.activity = nil
+            self.lastSignature = nil
+            self.lastUpdateAt = nil
+            return
+        }
+
+        let fallbackStatus = targets.first?.content.state.statusText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallbackDetail = targets.first?.content.state.detailText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let priorStatus = {
+            let fromSignature = lastSignature?.statusText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return fromSignature.isEmpty ? fallbackStatus : fromSignature
+        }()
+        let priorDetail = {
+            let fromSignature = lastSignature?.detailText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return fromSignature.isEmpty ? fallbackDetail : fromSignature
+        }()
         let finalProgress: Double = {
             guard let bucket = lastSignature?.progressBucket else { return 1 }
             return min(1, max(0, Double(bucket) / 100))
@@ -166,7 +210,9 @@ actor PartsIntakeLiveActivityManager {
             state: state,
             staleDate: nil
         )
-        await activity.end(content, dismissalPolicy: dismissalPolicy)
+        for target in targets {
+            await target.end(content, dismissalPolicy: dismissalPolicy)
+        }
         Self.logger.debug("Live Activity ended.")
         self.activity = nil
         self.lastSignature = nil
@@ -195,7 +241,7 @@ actor PartsIntakeLiveActivityManager {
         let hasReadableStatus = !statusText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasReadableDetail = !detailText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let normalized = normalizedProgress(progress)
-        return hasReadableStatus && hasReadableDetail && normalized >= 0.55
+        return hasReadableStatus && hasReadableDetail && normalized >= 0.20
     }
 }
 #endif
@@ -261,9 +307,10 @@ enum PartsIntakeLiveActivityBridge {
     @MainActor
     private static func readyForForegroundSync() -> Bool {
         #if canImport(UIKit)
-        guard UIApplication.shared.applicationState == .active else {
+        let state = UIApplication.shared.applicationState
+        guard state != .background else {
             if !hasLoggedInactiveBlockForForegroundSession {
-                logger.debug("Live Activity gate blocked because app is not active.")
+                logger.debug("Live Activity gate blocked because app is backgrounded.")
                 hasLoggedInactiveBlockForForegroundSession = true
             }
             firstForegroundSyncAt = nil
@@ -299,7 +346,7 @@ enum PartsIntakeLiveActivityBridge {
     @MainActor
     private static func queueDeferredSync(_ payload: PendingSyncPayload) {
         #if canImport(UIKit)
-        guard UIApplication.shared.applicationState == .active else {
+        guard UIApplication.shared.applicationState != .background else {
             pendingSyncPayload = nil
             deferredSyncTask?.cancel()
             deferredSyncTask = nil

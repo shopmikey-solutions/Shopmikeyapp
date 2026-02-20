@@ -17,6 +17,7 @@ enum SubmissionMode: String, CaseIterable, Hashable {
 @MainActor
 final class ReviewViewModel: ObservableObject {
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.Review")
+    private static var sharedVendorLookupCache: [String: [VendorSummary]] = [:]
 
     enum ModeUI: String, CaseIterable, Hashable {
         case attach
@@ -28,24 +29,45 @@ final class ReviewViewModel: ObservableObject {
     let shopmonkeyService: ShopmonkeyServicing
     let parsedInvoice: ParsedInvoice
 
-    @Published var vendorName: String = ""
-    @Published var vendorPhone: String = ""
-    @Published var vendorEmail: String = ""
-    @Published var vendorNotes: String = ""
-    @Published var vendorInvoiceNumber: String = ""
-    @Published var poReference: String = ""
-    @Published var notes: String = ""
+    @Published var vendorName: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
+    @Published var vendorPhone: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
+    @Published var vendorEmail: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
+    @Published var vendorNotes: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
+    @Published var vendorInvoiceNumber: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
+    @Published var poReference: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
+    @Published var notes: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
     @Published private(set) var suggestedVendorName: String?
     @Published private(set) var suggestedInvoiceNumber: String?
     @Published private(set) var suggestedPONumber: String?
     @Published var vendorSuggestions: [VendorSummary] = []
-    @Published private(set) var selectedVendorId: String?
+    @Published private(set) var selectedVendorId: String? {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
 
-    @Published var orderId: String = ""
-    @Published var serviceId: String = ""
+    @Published var orderId: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
+    @Published var serviceId: String = "" {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
     @Published var items: [POItem] = [] {
         didSet {
             refreshUnknownKindRate()
+            scheduleDraftAutosaveIfNeeded()
         }
     }
 
@@ -57,15 +79,22 @@ final class ReviewViewModel: ObservableObject {
     @Published var selectedService: ServiceSummary?
     @Published var selectedPurchaseOrder: PurchaseOrderResponse?
     @Published private(set) var purchaseOrderMatchMessage: String?
-    @Published var selectedPOId: String?
-    @Published var selectedTicketId: String?
+    @Published var selectedPOId: String? {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
+    @Published var selectedTicketId: String? {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
 
     @Published var modeUI: ModeUI = .quickAdd {
         didSet {
             synchronizeForModeChange(from: oldValue, to: modeUI)
+            scheduleDraftAutosaveIfNeeded()
         }
     }
-    @Published var ignoreTaxOverride: Bool = false
+    @Published var ignoreTaxOverride: Bool = false {
+        didSet { scheduleDraftAutosaveIfNeeded() }
+    }
 
     @Published var isSubmitting: Bool = false
     @Published private(set) var isCreatingVendor: Bool = false
@@ -84,6 +113,7 @@ final class ReviewViewModel: ObservableObject {
     private var purchaseOrderLookupTask: Task<Void, Never>?
     private var todayMetricsTask: Task<Void, Never>?
     private var submissionActivityEndTask: Task<Void, Never>?
+    private var draftAutosaveTask: Task<Void, Never>?
     private var lastVendorLookupQuery: String?
     private var lastVendorLookupAt: Date?
     private var inFlightVendorLookupQuery: String?
@@ -94,6 +124,8 @@ final class ReviewViewModel: ObservableObject {
     private var lastSubmissionDate: Date?
     private var autoMatchedPurchaseOrderID: String?
     private var draftCreatedAt: Date?
+    private var lastDraftFingerprint: Int?
+    private var isRestoringDraftState: Bool = false
     private var shouldSkipDraftPersistence: Bool = false
 
     init(
@@ -140,6 +172,7 @@ final class ReviewViewModel: ObservableObject {
         }
 
         refreshUnknownKindRate()
+        vendorLookupCache = Self.sharedVendorLookupCache
 
         if !vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             scheduleVendorLookup(for: vendorName, debounce: false)
@@ -152,8 +185,10 @@ final class ReviewViewModel: ObservableObject {
             schedulePurchaseOrderLookup(for: poLookupSeed, debounce: false)
         }
 
+        var shouldApplyInitialSuggestions = true
         if let draftSnapshot {
             restore(from: draftSnapshot)
+            shouldApplyInitialSuggestions = false
             if trimmedOrNil(selectedVendorId) == nil, !vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 scheduleVendorLookup(for: vendorName, debounce: false)
             }
@@ -162,7 +197,9 @@ final class ReviewViewModel: ObservableObject {
             }
         }
 
-        applyLineItemSuggestions()
+        if shouldApplyInitialSuggestions {
+            applyLineItemSuggestions()
+        }
     }
 
     deinit {
@@ -172,6 +209,7 @@ final class ReviewViewModel: ObservableObject {
         purchaseOrderLookupTask?.cancel()
         todayMetricsTask?.cancel()
         submissionActivityEndTask?.cancel()
+        draftAutosaveTask?.cancel()
     }
 
     var submissionMode: SubmissionMode {
@@ -560,6 +598,7 @@ final class ReviewViewModel: ObservableObject {
     }
 
     func saveDraft() async {
+        draftAutosaveTask?.cancel()
         do {
             _ = try await persistDraft(
                 showStatusMessage: true,
@@ -572,10 +611,9 @@ final class ReviewViewModel: ObservableObject {
     }
 
     func persistDraftOnExitIfNeeded() async {
-        guard !shouldSkipDraftPersistence else { return }
-        guard hasMeaningfulDraftContent else { return }
-        _ = try? await persistDraft(
-            showStatusMessage: false,
+        draftAutosaveTask?.cancel()
+        draftAutosaveTask = nil
+        await persistDraftIfNeeded(
             workflowState: .reviewEdited,
             workflowDetail: "Review updates saved."
         )
@@ -588,6 +626,7 @@ final class ReviewViewModel: ObservableObject {
             activeDraftID = nil
             draftCreatedAt = nil
             lastDraftSavedAt = nil
+            lastDraftFingerprint = nil
             statusMessage = "Saved intake draft removed."
         } catch {
             errorMessage = "Could not remove intake draft."
@@ -650,7 +689,7 @@ final class ReviewViewModel: ObservableObject {
         showSuccessAlert = false
         publishSubmissionLiveActivity(
             isActive: true,
-            statusText: "Submitting PO • Step 3 of 3",
+            statusText: "Submitting PO • Step 4 of 4",
             detailText: "Posting reviewed draft to Shopmonkey.",
             progress: 0.96
         )
@@ -691,7 +730,7 @@ final class ReviewViewModel: ObservableObject {
             errorMessage = result.message ?? "Submission failed."
             publishSubmissionLiveActivity(
                 isActive: true,
-                statusText: "Submission failed • Step 3 of 3",
+                statusText: "Submission failed • Step 4 of 4",
                 detailText: result.message ?? "Review vendor and line item details.",
                 progress: 0.55
             )
@@ -976,7 +1015,7 @@ final class ReviewViewModel: ObservableObject {
 
         if lastVendorLookupQuery == normalizedQuery,
            let lastVendorLookupAt,
-           Date().timeIntervalSince(lastVendorLookupAt) < 1.5 {
+           Date().timeIntervalSince(lastVendorLookupAt) < 4.0 {
             return
         }
 
@@ -1012,6 +1051,7 @@ final class ReviewViewModel: ObservableObject {
 
                 let ranked = self.rankVendorSuggestions(remote, query: query)
                 self.vendorLookupCache[normalizedQuery] = remote
+                Self.sharedVendorLookupCache[normalizedQuery] = remote
                 self.lastVendorLookupQuery = normalizedQuery
                 self.lastVendorLookupAt = Date()
                 self.vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
@@ -1250,6 +1290,64 @@ final class ReviewViewModel: ObservableObject {
         return hasher.finalize()
     }
 
+    private var draftFingerprint: Int {
+        var hasher = Hasher()
+        hasher.combine(vendorName.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(vendorPhone.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(vendorEmail.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(vendorNotes.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(poReference.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(notes.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(trimmedOrNil(selectedVendorId))
+        hasher.combine(orderId.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(serviceId.trimmingCharacters(in: .whitespacesAndNewlines))
+        hasher.combine(modeUI.rawValue)
+        hasher.combine(ignoreTaxOverride)
+        hasher.combine(trimmedOrNil(selectedPOId))
+        hasher.combine(trimmedOrNil(selectedTicketId))
+        hasher.combine(items)
+        return hasher.finalize()
+    }
+
+    private func scheduleDraftAutosaveIfNeeded() {
+        guard !isRestoringDraftState else { return }
+        guard !shouldSkipDraftPersistence else { return }
+        guard !isSubmitting else { return }
+        guard hasMeaningfulDraftContent else { return }
+
+        let fingerprint = draftFingerprint
+        guard lastDraftFingerprint != fingerprint else { return }
+
+        draftAutosaveTask?.cancel()
+        draftAutosaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 850_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await self.persistDraftIfNeeded(
+                workflowState: .reviewEdited,
+                workflowDetail: "Review updates autosaved."
+            )
+        }
+    }
+
+    private func persistDraftIfNeeded(
+        workflowState: ReviewDraftSnapshot.WorkflowState,
+        workflowDetail: String?
+    ) async {
+        guard !isRestoringDraftState else { return }
+        guard !shouldSkipDraftPersistence else { return }
+        guard hasMeaningfulDraftContent else { return }
+
+        let fingerprint = draftFingerprint
+        guard lastDraftFingerprint != fingerprint else { return }
+
+        _ = try? await persistDraft(
+            showStatusMessage: false,
+            workflowState: workflowState,
+            workflowDetail: workflowDetail
+        )
+    }
+
     private var hasMeaningfulDraftContent: Bool {
         if !items.isEmpty {
             return true
@@ -1269,6 +1367,10 @@ final class ReviewViewModel: ObservableObject {
     }
 
     private func restore(from snapshot: ReviewDraftSnapshot) {
+        draftAutosaveTask?.cancel()
+        isRestoringDraftState = true
+        defer { isRestoringDraftState = false }
+
         let state = snapshot.state
         vendorName = state.vendorName
         vendorPhone = state.vendorPhone
@@ -1290,6 +1392,7 @@ final class ReviewViewModel: ObservableObject {
         activeDraftID = snapshot.id
         draftCreatedAt = snapshot.createdAt
         lastDraftSavedAt = snapshot.updatedAt
+        lastDraftFingerprint = draftFingerprint
     }
 
     @discardableResult
@@ -1332,6 +1435,7 @@ final class ReviewViewModel: ObservableObject {
         activeDraftID = draftID
         draftCreatedAt = createdAt
         lastDraftSavedAt = now
+        lastDraftFingerprint = draftFingerprint
         if showStatusMessage {
             statusMessage = "Saved intake draft locally."
         }
@@ -1339,12 +1443,15 @@ final class ReviewViewModel: ObservableObject {
     }
 
     private func clearDraftAfterSuccessfulSubmission() async {
+        draftAutosaveTask?.cancel()
+        draftAutosaveTask = nil
         shouldSkipDraftPersistence = true
         guard let draftID = activeDraftID else { return }
         try? await environment.reviewDraftStore.delete(id: draftID)
         activeDraftID = nil
         draftCreatedAt = nil
         lastDraftSavedAt = nil
+        lastDraftFingerprint = nil
     }
 
     private func trimmedOrNil(_ value: String?) -> String? {

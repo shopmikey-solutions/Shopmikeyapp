@@ -23,6 +23,8 @@ struct ScanView: View {
     @State private var showProcessingDetails: Bool = true
     @State private var hasPerformedInitialLoad: Bool = false
     @State private var initialLoadTask: Task<Void, Never>?
+    @State private var draftStoreRefreshTask: Task<Void, Never>?
+    @State private var lastDashboardRefreshAt: Date?
     @StateObject private var viewModel: ScanViewModel
 
     init(environment: AppEnvironment) {
@@ -109,21 +111,13 @@ struct ScanView: View {
             )
         }
         .onAppear {
-            if !hasPerformedInitialLoad {
-                hasPerformedInitialLoad = true
-                initialLoadTask?.cancel()
-                initialLoadTask = Task { @MainActor in
-                    await Task.yield()
-                    try? await Task.sleep(nanoseconds: 180_000_000)
-                    guard hasPerformedInitialLoad else { return }
-                    viewModel.loadInProgressDrafts()
-                    viewModel.loadTodayMetrics()
-                }
-            }
+            scheduleInitialDashboardRefresh()
         }
         .onDisappear {
             initialLoadTask?.cancel()
             initialLoadTask = nil
+            draftStoreRefreshTask?.cancel()
+            draftStoreRefreshTask = nil
         }
         .onChange(of: viewModel.processingStage) { _, stage in
             guard stage != nil else { return }
@@ -164,8 +158,7 @@ struct ScanView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
-            viewModel.loadInProgressDrafts()
-            viewModel.loadTodayMetrics()
+            scheduleDraftStoreRefresh()
         }
         .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
     }
@@ -483,9 +476,9 @@ struct ScanView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 20) {
-                metricCell(title: "Scans Today", value: "\(viewModel.todayCount)")
-                metricCell(title: "POs Submitted", value: "\(viewModel.submittedCount)")
-                metricCell(title: "Needs Attention", value: "\(viewModel.needsAttentionCount)")
+                metricCell(title: "Drafts", value: "\(viewModel.draftCount)")
+                metricCell(title: "Needs Review", value: "\(viewModel.reviewQueueCount)")
+                metricCell(title: "Submitted", value: "\(viewModel.submittedCount)")
             }
 
             ProgressView(value: viewModel.syncSuccessRate) {
@@ -550,10 +543,23 @@ struct ScanView: View {
         let activeStages: Set<ScanViewModel.ProcessingStage> = [.parsing, .finalizing]
         if viewModel.isProcessing, let stage = viewModel.processingStage, activeStages.contains(stage) {
             let activeDraftID = viewModel.latestDraft?.id
+            let status: String
+            let detail: String
+            switch stage {
+            case .parsing:
+                status = "Drafting intake • Step 1 of 3"
+                detail = "Classifying parts, tires, and fees."
+            case .finalizing:
+                status = "Review ready • Step 2 of 3"
+                detail = "Open the draft to edit and submit."
+            case .extractingText, .preparingReview:
+                status = viewModel.processingStatusText
+                detail = viewModel.processingDetailText
+            }
             return (
                 true,
-                viewModel.processingStatusText,
-                viewModel.processingDetailText,
+                status,
+                detail,
                 viewModel.processingProgressEstimate,
                 activeDraftID.map { AppDeepLink.scanURL(draftID: $0) } ?? AppDeepLink.scanURL(openComposer: true)
             )
@@ -588,6 +594,49 @@ struct ScanView: View {
         } catch {
             viewModel.errorMessage = "Could not load the selected photo."
             AppHaptics.error()
+        }
+    }
+
+    @MainActor
+    private func scheduleInitialDashboardRefresh() {
+        initialLoadTask?.cancel()
+        initialLoadTask = Task { @MainActor in
+            await Task.yield()
+            if !hasPerformedInitialLoad {
+                hasPerformedInitialLoad = true
+                try? await Task.sleep(nanoseconds: 180_000_000)
+            }
+            refreshDashboard(forceMetricsReload: true)
+        }
+    }
+
+    @MainActor
+    private func scheduleDraftStoreRefresh() {
+        draftStoreRefreshTask?.cancel()
+        draftStoreRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard !Task.isCancelled else { return }
+            refreshDashboard(forceMetricsReload: false)
+        }
+    }
+
+    @MainActor
+    private func refreshDashboard(forceMetricsReload: Bool) {
+        viewModel.loadInProgressDrafts()
+
+        let now = Date()
+        let shouldReloadMetrics: Bool
+        if forceMetricsReload {
+            shouldReloadMetrics = true
+        } else if let lastDashboardRefreshAt {
+            shouldReloadMetrics = now.timeIntervalSince(lastDashboardRefreshAt) >= 1.25
+        } else {
+            shouldReloadMetrics = true
+        }
+
+        if shouldReloadMetrics {
+            lastDashboardRefreshAt = now
+            viewModel.loadTodayMetrics()
         }
     }
 }

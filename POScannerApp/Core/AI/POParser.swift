@@ -228,6 +228,8 @@ private extension POParser {
     }
 
     func isIgnorableLine(_ line: String) -> Bool {
+        if isTableHeaderLine(line) { return true }
+
         // Always ignore non-product summary lines (tax/subtotal/total). These must never become items.
         if InvoiceLineClassifier.isNonProductSummaryLine(line) { return true }
 
@@ -237,6 +239,34 @@ private extension POParser {
         if lower.localizedCaseInsensitiveHasPrefix("po #") { return true }
         if lower.localizedCaseInsensitiveHasPrefix("po no") { return true }
         return false
+    }
+
+    func isTableHeaderLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let lower = trimmed.lowercased()
+        let headerTokens = [
+            "qty",
+            "quantity",
+            "part",
+            "part #",
+            "description",
+            "desc",
+            "brand",
+            "unit",
+            "ext",
+            "amount",
+            "price"
+        ]
+        let matchCount = headerTokens.filter { lower.contains($0) }.count
+        if matchCount < 3 {
+            return false
+        }
+
+        // Typical table headers are mostly words/symbols and contain little to no numeric content.
+        let digitCount = trimmed.unicodeScalars.filter { CharacterSet.decimalDigits.contains($0) }.count
+        return digitCount <= 2
     }
 
     func vendorHeaderCandidateLines(from lines: [String]) -> [String] {

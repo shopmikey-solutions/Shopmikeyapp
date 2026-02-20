@@ -568,7 +568,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
         var didLoadFailureDerivedStatuses = false
         var index = 0
 
-        while index < statusesToTry.count {
+        statusLoop: while index < statusesToTry.count {
             let status = statusesToTry[index]
             index += 1
             let requestForStatus = request.withStatus(status)
@@ -589,6 +589,21 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
                         throw firstError
                     }
 
+                    // When status is invalid, skip cost/body compatibility retries and move to next status.
+                    if await isStatusValidationFailure(for: path) {
+                        lastValidationError = firstError
+                        if !didLoadFailureDerivedStatuses {
+                            didLoadFailureDerivedStatuses = true
+                            let additionalStatuses = await additionalStatusCandidates(for: path)
+                            appendStatusCandidates(
+                                additionalStatuses,
+                                to: &statusesToTry,
+                                queuedKeys: &queuedKeys
+                            )
+                        }
+                        continue statusLoop
+                    }
+
                     do {
                         // If cents-based cost keys are not accepted, retry same status with unit_cost-focused body.
                         let response = try await postPurchaseOrder(
@@ -606,14 +621,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
                         lastValidationError = secondError
 
-                        let isLastBodyMode = bodyMode == bodyModes.last
-
-                        // Try another body mode first; only evaluate status fallbacks when modes are exhausted.
-                        if !isLastBodyMode {
-                            continue
-                        }
-
-                        // Only cycle through additional statuses when server explicitly flags status as invalid.
+                        // Status validation errors should immediately rotate to another status candidate.
                         if await isStatusValidationFailure(for: path) {
                             if !didLoadFailureDerivedStatuses {
                                 didLoadFailureDerivedStatuses = true
@@ -624,6 +632,13 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
                                     queuedKeys: &queuedKeys
                                 )
                             }
+                            continue statusLoop
+                        }
+
+                        let isLastBodyMode = bodyMode == bodyModes.last
+
+                        // Try another body mode first; only evaluate status fallbacks when modes are exhausted.
+                        if !isLastBodyMode {
                             continue
                         }
                         throw secondError

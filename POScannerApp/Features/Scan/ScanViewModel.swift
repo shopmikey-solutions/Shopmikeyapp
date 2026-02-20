@@ -81,6 +81,8 @@ final class ScanViewModel: ObservableObject {
     @Published var pendingCount: Int = 0
     @Published var submittedCount: Int = 0
     @Published var failedCount: Int = 0
+    @Published var draftCount: Int = 0
+    @Published var reviewQueueCount: Int = 0
     @Published var mostRecentSummary: RecentSummary?
     @Published var inProgressDrafts: [ReviewDraftSnapshot] = []
 
@@ -288,6 +290,7 @@ final class ScanViewModel: ObservableObject {
                 return
             }
             inProgressDrafts = drafts
+            refreshDraftMetrics(from: drafts)
             Self.logger.debug("Loaded in-progress drafts count=\(drafts.count, privacy: .public).")
         }
     }
@@ -718,6 +721,7 @@ final class ScanViewModel: ObservableObject {
                 pendingCount = 0
                 submittedCount = 0
                 failedCount = 0
+                publishWidgetSnapshot()
                 mostRecentSummary = nil
                 return
             }
@@ -823,14 +827,33 @@ final class ScanViewModel: ObservableObject {
             Self.logger.debug(
                 "Loaded today metrics scans=\(metrics.count, privacy: .public) submitted=\(metrics.submitted, privacy: .public) pending=\(metrics.pending, privacy: .public) failed=\(metrics.failed, privacy: .public)."
             )
-            PartsIntakeWidgetBridge.publish(
-                scansToday: metrics.count,
-                submittedCount: metrics.submitted,
-                failedCount: metrics.failed,
-                pendingCount: metrics.pending,
-                totalValue: metrics.total
-            )
+            publishWidgetSnapshot()
         }
+    }
+
+    private func refreshDraftMetrics(from drafts: [ReviewDraftSnapshot]) {
+        draftCount = drafts.count
+        reviewQueueCount = drafts.filter {
+            switch $0.workflowState {
+            case .reviewReady, .reviewEdited, .failed:
+                return true
+            case .scanning, .ocrReview, .parsing, .submitting:
+                return false
+            }
+        }.count
+        publishWidgetSnapshot()
+    }
+
+    private func publishWidgetSnapshot() {
+        PartsIntakeWidgetBridge.publish(
+            scansToday: todayCount,
+            submittedCount: submittedCount,
+            failedCount: failedCount,
+            pendingCount: pendingCount,
+            draftCount: draftCount,
+            reviewCount: reviewQueueCount,
+            totalValue: todayTotal
+        )
     }
 
     var todayTotalFormatted: String {

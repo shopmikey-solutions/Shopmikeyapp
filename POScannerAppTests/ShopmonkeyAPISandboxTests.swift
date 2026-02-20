@@ -61,6 +61,7 @@ private final class RetryOnceURLProtocol: URLProtocol {
 
 private final class PurchaseOrderURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    static var requestCount: Int = 0
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -71,6 +72,7 @@ private final class PurchaseOrderURLProtocol: URLProtocol {
     }
 
     override func startLoading() {
+        Self.requestCount += 1
         guard let handler = Self.requestHandler else {
             client?.urlProtocol(self, didFailWithError: URLError(.unknown))
             return
@@ -337,6 +339,7 @@ struct ShopmonkeyAPISandboxTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PurchaseOrderURLProtocol.self]
         let session = URLSession(configuration: configuration)
+        PurchaseOrderURLProtocol.requestCount = 0
 
         PurchaseOrderURLProtocol.requestHandler = { request in
             guard let url = request.url else { throw URLError(.badURL) }
@@ -417,5 +420,92 @@ struct ShopmonkeyAPISandboxTests {
 
         let response = try await api.createPurchaseOrder(request)
         #expect(response.id == "po_1")
+    }
+
+    @Test func createPurchaseOrderSkipsBodyAndCostFallbackWhenStatusIsInvalid() async throws {
+        UserDefaults.standard.removeObject(forKey: "shopmonkey.preferred_po_status")
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PurchaseOrderURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        PurchaseOrderURLProtocol.requestCount = 0
+
+        var postBodies: [String] = []
+        PurchaseOrderURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            #expect(url.path == "/v3/purchase_order")
+
+            switch request.httpMethod {
+            case "GET":
+                let listBody = Data(#"{"data":[]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, listBody)
+
+            case "POST":
+                let bodyString = requestBodyString(request)
+                postBodies.append(bodyString)
+
+                if bodyString.contains(#""status":"draft""#) {
+                    let errorBody = Data(#"{"success":false,"message":"body/status must be equal to one of the allowed values"}"#.utf8)
+                    guard let response = HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil) else {
+                        throw URLError(.badServerResponse)
+                    }
+                    return (response, errorBody)
+                }
+
+                let responseBody = Data(#"{"success":true,"data":{"id":"po_fast","status":"open","calculatedItemsCount":0}}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, responseBody)
+
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyAPI.baseURL,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+        let api = ShopmonkeyAPI(client: client)
+
+        let request = CreatePurchaseOrderRequest(
+            vendorId: "v_1",
+            invoiceNumber: "INV-FAST",
+            status: "draft",
+            lineItems: [
+                CreatePurchaseOrderLineItemRequest(
+                    description: "Brake Pads",
+                    quantity: 1,
+                    unitCostCents: 1200,
+                    name: "Brake Pads",
+                    partNumber: "BP-1",
+                    costCents: 1200,
+                    unitCost: 12
+                )
+            ],
+            parts: [
+                CreatePurchaseOrderPartRequest(
+                    name: "Brake Pads",
+                    quantity: 1,
+                    costCents: 1200,
+                    number: "BP-1",
+                    description: "Brake Pads",
+                    partNumber: "BP-1"
+                )
+            ],
+            fees: [],
+            tires: []
+        )
+
+        let response = try await api.createPurchaseOrder(request)
+        #expect(response.id == "po_fast")
+        #expect(postBodies.count == 2)
+        #expect(postBodies.first?.contains(#""status":"draft""#) == true)
+        #expect(postBodies.last?.contains(#""status":"draft""#) == false)
     }
 }

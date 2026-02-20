@@ -14,7 +14,41 @@ struct PartsIntakeWidgetSnapshot: Codable {
     let submittedCount: Int
     let failedCount: Int
     let pendingCount: Int
+    let draftCount: Int
+    let reviewCount: Int
     let totalValueCents: Int
+
+    init(
+        generatedAt: Date,
+        scansToday: Int,
+        submittedCount: Int,
+        failedCount: Int,
+        pendingCount: Int,
+        draftCount: Int,
+        reviewCount: Int,
+        totalValueCents: Int
+    ) {
+        self.generatedAt = generatedAt
+        self.scansToday = scansToday
+        self.submittedCount = submittedCount
+        self.failedCount = failedCount
+        self.pendingCount = pendingCount
+        self.draftCount = draftCount
+        self.reviewCount = reviewCount
+        self.totalValueCents = totalValueCents
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = try container.decode(Date.self, forKey: .generatedAt)
+        scansToday = try container.decode(Int.self, forKey: .scansToday)
+        submittedCount = try container.decode(Int.self, forKey: .submittedCount)
+        failedCount = try container.decode(Int.self, forKey: .failedCount)
+        pendingCount = try container.decode(Int.self, forKey: .pendingCount)
+        draftCount = try container.decodeIfPresent(Int.self, forKey: .draftCount) ?? 0
+        reviewCount = try container.decodeIfPresent(Int.self, forKey: .reviewCount) ?? 0
+        totalValueCents = try container.decode(Int.self, forKey: .totalValueCents)
+    }
 }
 
 struct PartsIntakeWidgetProvider: TimelineProvider {
@@ -27,6 +61,8 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
             submittedCount: 0,
             failedCount: 0,
             pendingCount: 0,
+            draftCount: 0,
+            reviewCount: 0,
             totalValueCents: 0
         )
     }
@@ -51,6 +87,8 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
                 submittedCount: 0,
                 failedCount: 0,
                 pendingCount: 0,
+                draftCount: 0,
+                reviewCount: 0,
                 totalValueCents: 0
             )
         }
@@ -63,6 +101,8 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
                 submittedCount: 0,
                 failedCount: 0,
                 pendingCount: 0,
+                draftCount: 0,
+                reviewCount: 0,
                 totalValueCents: 0
             )
         }
@@ -73,6 +113,8 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
             submittedCount: snapshot.submittedCount,
             failedCount: snapshot.failedCount,
             pendingCount: snapshot.pendingCount,
+            draftCount: snapshot.draftCount,
+            reviewCount: snapshot.reviewCount,
             totalValueCents: snapshot.totalValueCents
         )
     }
@@ -91,6 +133,8 @@ struct PartsIntakeWidgetEntry: TimelineEntry {
     let submittedCount: Int
     let failedCount: Int
     let pendingCount: Int
+    let draftCount: Int
+    let reviewCount: Int
     let totalValueCents: Int
 }
 
@@ -121,9 +165,9 @@ struct ShopMikeyScannerEntryView: View {
             }
 
             HStack(spacing: 12) {
-                metric(title: "Scans", value: entry.scansToday)
+                metric(title: "Drafts", value: entry.draftCount)
+                metric(title: "Review", value: entry.reviewCount)
                 metric(title: "Submitted", value: entry.submittedCount)
-                metric(title: "Attention", value: entry.pendingCount + entry.failedCount)
             }
 
             ProgressView(value: progress)
@@ -137,7 +181,7 @@ struct ShopMikeyScannerEntryView: View {
     }
 
     private var inlineAccessoryView: some View {
-        Text("Intake \(entry.submittedCount)/\(max(1, entry.scansToday))")
+        Text("D\(entry.draftCount) R\(entry.reviewCount) S\(entry.submittedCount)")
             .font(.caption.weight(.semibold))
     }
 
@@ -157,9 +201,9 @@ struct ShopMikeyScannerEntryView: View {
                 .tint(.accentColor)
 
             HStack(spacing: 12) {
-                Label("\(entry.scansToday)", systemImage: "doc.text.viewfinder")
+                Label("\(entry.draftCount)", systemImage: "doc.badge.plus")
+                Label("\(entry.reviewCount)", systemImage: "slider.horizontal.3")
                 Label("\(entry.submittedCount)", systemImage: "checkmark.circle")
-                Label("\(entry.pendingCount + entry.failedCount)", systemImage: "exclamationmark.triangle")
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -168,8 +212,9 @@ struct ShopMikeyScannerEntryView: View {
     }
 
     private var progress: Double {
-        guard entry.scansToday > 0 else { return 0 }
-        let rate = Double(entry.submittedCount) / Double(entry.scansToday)
+        let denominator = entry.submittedCount + entry.reviewCount + entry.draftCount
+        guard denominator > 0 else { return 0 }
+        let rate = Double(entry.submittedCount) / Double(denominator)
         guard rate.isFinite else { return 0 }
         return min(1, max(0, rate))
     }
@@ -215,6 +260,8 @@ struct ShopMikeyScannerWidget: Widget {
         submittedCount: 14,
         failedCount: 2,
         pendingCount: 2,
+        draftCount: 3,
+        reviewCount: 1,
         totalValueCents: 9088003
     )
 }

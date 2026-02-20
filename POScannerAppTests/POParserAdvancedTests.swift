@@ -157,4 +157,26 @@ struct POParserAdvancedTests {
         #expect(parsed.items.contains(where: { $0.name.localizedCaseInsensitiveContains("Disposal") }))
         #expect(!parsed.items.contains(where: { $0.name.localizedCaseInsensitiveContains("Alignment Service Labor") }))
     }
+
+    @Test func filtersWheelAlignmentServiceLine() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        Advance Auto Parts
+        4-Wheel Alignment Service $119.99
+        BRAKEPAD-FR-887 Front Ceramic Brake Pad Set Qty: 1 $112.45
+        """)
+
+        #expect(parsed.items.count == 1)
+        #expect(parsed.items.first?.partNumber == "BRAKEPAD-FR-887")
+        #expect(!parsed.items.contains(where: { $0.name.localizedCaseInsensitiveContains("Alignment") }))
+    }
+
+    @Test func ignoresTableHeaderRowsWithoutItems() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        Qty  Part #  Description  Brand  Unit ($)  Ext ($)
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.items.isEmpty)
+    }
 }

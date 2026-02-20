@@ -63,6 +63,7 @@ actor PartsIntakeLiveActivityManager {
         }
 
         guard isActive else {
+            guard activity != nil else { return }
             Self.logger.debug("Live Activity sync ending because workflow is inactive.")
             await endCurrent(dismissalPolicy: .immediate)
             return
@@ -141,12 +142,19 @@ actor PartsIntakeLiveActivityManager {
 
     private func endCurrent(dismissalPolicy: ActivityUIDismissalPolicy) async {
         guard let activity else { return }
-        let finalStatus = lastSignature?.statusText ?? "Parts intake complete"
-        let finalDetail = lastSignature?.detailText ?? "Tap to open ShopMikey."
+        let priorStatus = lastSignature?.statusText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let priorDetail = lastSignature?.detailText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let finalProgress: Double = {
             guard let bucket = lastSignature?.progressBucket else { return 1 }
             return min(1, max(0, Double(bucket) / 100))
         }()
+        let terminalCompletion = isTerminalCompletionStatus(priorStatus, progress: finalProgress)
+        let finalStatus = terminalCompletion
+            ? (priorStatus.isEmpty ? "Submitted" : priorStatus)
+            : "Intake paused"
+        let finalDetail = terminalCompletion
+            ? (priorDetail.isEmpty ? "Parts intake submitted successfully." : priorDetail)
+            : "Open ShopMikey to continue."
         let state = PartsIntakeActivityAttributes.ContentState(
             statusText: finalStatus,
             detailText: finalDetail,
@@ -163,6 +171,15 @@ actor PartsIntakeLiveActivityManager {
         self.activity = nil
         self.lastSignature = nil
         self.lastUpdateAt = nil
+    }
+
+    private func isTerminalCompletionStatus(_ statusText: String, progress: Double) -> Bool {
+        guard progress >= 0.99 else { return false }
+        let normalized = statusText.lowercased()
+        return normalized.contains("submit")
+            || normalized.contains("complete")
+            || normalized.contains("success")
+            || normalized.contains("failed")
     }
 
     private func normalizedProgress(_ value: Double) -> Double {
@@ -196,6 +213,7 @@ enum PartsIntakeLiveActivityBridge {
     private static var firstForegroundSyncAt: Date?
     private static var hasLoggedGatePassForForegroundSession: Bool = false
     private static var hasLoggedInactiveBlockForForegroundSession: Bool = false
+    private static var hasLoggedStartupGateBlockForForegroundSession: Bool = false
     private static var deferredSyncTask: Task<Void, Never>?
     private static var pendingSyncPayload: PendingSyncPayload?
     private static let startupGateInterval: TimeInterval = 0.6
@@ -214,7 +232,10 @@ enum PartsIntakeLiveActivityBridge {
         }
 
         if isActive && !readyForForegroundSync() {
-            logger.debug("Live Activity bridge blocked by startup foreground gate.")
+            if !hasLoggedStartupGateBlockForForegroundSession {
+                logger.debug("Live Activity bridge blocked by startup foreground gate.")
+                hasLoggedStartupGateBlockForForegroundSession = true
+            }
             queueDeferredSync(
                 PendingSyncPayload(
                     isActive: isActive,
@@ -247,6 +268,7 @@ enum PartsIntakeLiveActivityBridge {
             }
             firstForegroundSyncAt = nil
             hasLoggedGatePassForForegroundSession = false
+            hasLoggedStartupGateBlockForForegroundSession = false
             return false
         }
         hasLoggedInactiveBlockForForegroundSession = false
@@ -258,11 +280,15 @@ enum PartsIntakeLiveActivityBridge {
                 logger.debug("Live Activity gate passed after startup delay.")
                 hasLoggedGatePassForForegroundSession = true
             }
+            if isReady {
+                hasLoggedStartupGateBlockForForegroundSession = false
+            }
             return isReady
         }
 
         firstForegroundSyncAt = now
         hasLoggedGatePassForForegroundSession = false
+        hasLoggedStartupGateBlockForForegroundSession = false
         logger.debug("Live Activity foreground gate started.")
         return false
         #else
@@ -274,7 +300,7 @@ enum PartsIntakeLiveActivityBridge {
     private static func queueDeferredSync(_ payload: PendingSyncPayload) {
         #if canImport(UIKit)
         guard UIApplication.shared.applicationState == .active else {
-            pendingSyncPayload = payload
+            pendingSyncPayload = nil
             deferredSyncTask?.cancel()
             deferredSyncTask = nil
             return

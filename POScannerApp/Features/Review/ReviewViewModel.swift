@@ -86,6 +86,7 @@ final class ReviewViewModel: ObservableObject {
     private var submissionActivityEndTask: Task<Void, Never>?
     private var lastVendorLookupQuery: String?
     private var lastVendorLookupAt: Date?
+    private var inFlightVendorLookupQuery: String?
     private var vendorLookupCache: [String: [VendorSummary]] = [:]
     private var vendorAutoSelectAttempts: Int = 0
     private var vendorAutoSelectSuccesses: Int = 0
@@ -500,6 +501,9 @@ final class ReviewViewModel: ObservableObject {
     }
 
     func setVendorName(_ value: String) {
+        let trimmedCurrent = vendorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIncoming = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedCurrent != trimmedIncoming else { return }
         vendorName = value
         selectedVendorId = nil
         scheduleVendorLookup(for: value, debounce: true)
@@ -646,8 +650,8 @@ final class ReviewViewModel: ObservableObject {
         showSuccessAlert = false
         publishSubmissionLiveActivity(
             isActive: true,
-            statusText: "Submitting purchase order",
-            detailText: "Posting parts intake to Shopmonkey.",
+            statusText: "Submitting PO • Step 3 of 3",
+            detailText: "Posting reviewed draft to Shopmonkey.",
             progress: 0.96
         )
 
@@ -671,8 +675,8 @@ final class ReviewViewModel: ObservableObject {
             showSuccessAlert = true
             publishSubmissionLiveActivity(
                 isActive: true,
-                statusText: "PO submitted",
-                detailText: "Purchase order synced with Shopmonkey.",
+                statusText: "Submitted",
+                detailText: "Draft moved to submitted successfully.",
                 progress: 1.0
             )
             scheduleLiveActivityEnd(after: 1.4)
@@ -687,7 +691,7 @@ final class ReviewViewModel: ObservableObject {
             errorMessage = result.message ?? "Submission failed."
             publishSubmissionLiveActivity(
                 isActive: true,
-                statusText: "Submission failed",
+                statusText: "Submission failed • Step 3 of 3",
                 detailText: result.message ?? "Review vendor and line item details.",
                 progress: 0.55
             )
@@ -928,16 +932,24 @@ final class ReviewViewModel: ObservableObject {
     }
 
     private func scheduleVendorLookup(for rawValue: String, debounce: Bool) {
-        vendorLookupTask?.cancel()
-
         let query = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let minimumLength = debounce ? 3 : 2
         guard query.count >= minimumLength else {
+            vendorLookupTask?.cancel()
+            inFlightVendorLookupQuery = nil
             vendorSuggestions = []
             selectedVendorId = nil
             return
         }
+
         let normalizedQuery = query.normalizedVendorName
+        if inFlightVendorLookupQuery == normalizedQuery {
+            return
+        }
+
+        vendorLookupTask?.cancel()
+        inFlightVendorLookupQuery = nil
+
         if let cachedVendors = vendorLookupCache[normalizedQuery] {
             let ranked = rankVendorSuggestions(cachedVendors, query: query)
             vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
@@ -946,6 +958,22 @@ final class ReviewViewModel: ObservableObject {
             lastVendorLookupAt = Date()
             return
         }
+
+        if debounce,
+           let previousQuery = lastVendorLookupQuery,
+           previousQuery.count >= 4,
+           normalizedQuery.hasPrefix(previousQuery),
+           let lastVendorLookupAt,
+           Date().timeIntervalSince(lastVendorLookupAt) < 2.0,
+           let previousResults = vendorLookupCache[previousQuery] {
+            let ranked = rankVendorSuggestions(previousResults, query: query)
+            vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
+            applyVendorAutoSelectionIfNeeded(ranked, query: query)
+            lastVendorLookupQuery = normalizedQuery
+            self.lastVendorLookupAt = Date()
+            return
+        }
+
         if lastVendorLookupQuery == normalizedQuery,
            let lastVendorLookupAt,
            Date().timeIntervalSince(lastVendorLookupAt) < 1.5 {
@@ -953,8 +981,14 @@ final class ReviewViewModel: ObservableObject {
         }
 
         vendorLookupTask = Task { [weak self] in
+            self?.inFlightVendorLookupQuery = normalizedQuery
+            defer {
+                if self?.inFlightVendorLookupQuery == normalizedQuery {
+                    self?.inFlightVendorLookupQuery = nil
+                }
+            }
             if debounce {
-                try? await Task.sleep(nanoseconds: 300_000_000)
+                try? await Task.sleep(nanoseconds: 420_000_000)
             }
             guard !Task.isCancelled, let self else { return }
 

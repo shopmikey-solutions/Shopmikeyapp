@@ -81,23 +81,6 @@ enum InvoiceLineClassifier {
             return false
         }
 
-        // If the row still looks like a concrete purchasable part/tire line, keep it.
-        if containsPartNumberLikeToken(trimmed) {
-            return false
-        }
-        if lower.range(
-            of: #"\b\d{3}/\d{2,3}(?:/\d{2}|(?:zr|r|-)?\d{2})\b"#,
-            options: [.regularExpression]
-        ) != nil {
-            return false
-        }
-        if lower.range(
-            of: #"\b(part|battery|filter|rotor|pad|sensor|hub|bearing|wiper|coil|coolant|gasket|fluid)\b"#,
-            options: [.regularExpression]
-        ) != nil {
-            return false
-        }
-
         if lower.range(of: #"\b(labor|labour|technician|mechanic)\b"#, options: [.regularExpression]) != nil {
             return true
         }
@@ -119,6 +102,32 @@ enum InvoiceLineClassifier {
         let hasDollarAmount = lower.range(of: #"\$\s*\d"#, options: [.regularExpression]) != nil
         if hasServiceKeyword && hasRateSignal && hasDollarAmount {
             return true
+        }
+
+        // Catch common labor rows even if "service" is omitted.
+        if lower.range(
+            of: #"\b(alignment|diagnostic|diagnostics|install(?:ation)?|program(?:ming)?|calibration|inspection|repair)\b"#,
+            options: [.regularExpression]
+        ) != nil,
+           lower.range(of: #"\$\s*\d"#, options: [.regularExpression]) != nil {
+            return true
+        }
+
+        // If the row still looks like a concrete purchasable part/tire line, keep it.
+        if containsPartNumberLikeToken(trimmed) {
+            return false
+        }
+        if lower.range(
+            of: #"\b\d{3}/\d{2,3}(?:/\d{2}|(?:zr|r|-)?\d{2})\b"#,
+            options: [.regularExpression]
+        ) != nil {
+            return false
+        }
+        if lower.range(
+            of: #"\b(part|battery|filter|rotor|pad|sensor|hub|bearing|wiper|coil|coolant|gasket|fluid)\b"#,
+            options: [.regularExpression]
+        ) != nil {
+            return false
         }
 
         return false
@@ -233,6 +242,9 @@ enum InvoiceLineClassifier {
             let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
             let token = rawString.trimmingCharacters(in: allowed.inverted)
             guard token.count >= 4 else { continue }
+            if token.range(of: #"(?i)^\d+-?(wheel|wheels|hour|hours|hr|hrs)$"#, options: [.regularExpression]) != nil {
+                continue
+            }
             guard token.rangeOfCharacter(from: .letters) != nil else { continue }
             guard token.rangeOfCharacter(from: .decimalDigits) != nil else { continue }
             return true

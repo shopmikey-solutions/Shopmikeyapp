@@ -11,6 +11,8 @@ struct PartsIntakeWidgetSnapshot: Codable {
     let submittedCount: Int
     let failedCount: Int
     let pendingCount: Int
+    let draftCount: Int
+    let reviewCount: Int
     let totalValueCents: Int
 }
 
@@ -25,6 +27,8 @@ enum PartsIntakeWidgetBridge {
         submittedCount: Int,
         failedCount: Int,
         pendingCount: Int,
+        draftCount: Int,
+        reviewCount: Int,
         totalValue: Decimal
     ) {
         guard isEnabled else { return }
@@ -35,6 +39,8 @@ enum PartsIntakeWidgetBridge {
             submittedCount: submittedCount,
             failedCount: failedCount,
             pendingCount: pendingCount,
+            draftCount: draftCount,
+            reviewCount: reviewCount,
             totalValueCents: Self.cents(from: totalValue)
         )
 

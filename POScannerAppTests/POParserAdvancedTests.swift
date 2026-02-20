@@ -179,4 +179,47 @@ struct POParserAdvancedTests {
 
         #expect(parsed.items.isEmpty)
     }
+
+    @Test func ignoresPickupLocationHeaderNoiseInTabularOCR() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        Advance Auto Parts - Online Cart
+        Qty Part # Description Unit ($) Pickup Location: Raleigh #1423 Ext ($)
+        BRAKEPAD-FR-887 Front Ceramic Brake Pad Set CarQuest 1 $112.45
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.items.count == 1)
+        guard let item = parsed.items.first else { return }
+        #expect(item.partNumber == "BRAKEPAD-FR-887")
+        #expect(item.costCents == 11245)
+    }
+
+    @Test func classifiesShopAndEnvironmentalFeeTokensAsFee() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        Advance Auto Parts
+        SHOP-FEE 1 Shop Supplies Fee $18.50
+        ENV-FEE 1 Environmental Charge Fee $4.25
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.items.count == 2)
+        #expect(parsed.items.allSatisfy { $0.kind == .fee })
+    }
+
+    @Test func classifiesBatteryLineAsPartWhenTireSignalsExistNearby() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        Advance Auto Parts
+        BAT-H7-AGM AGM Battery H7 850CCA DieHard Gold Qty: 1 $219.95
+        225/65R17 Tire Falken Qty: 4 $164.00
+        """, ignoreTaxAndTotals: true)
+
+        guard let battery = parsed.items.first(where: { ($0.partNumber ?? "").contains("BAT-H7-AGM") }) else {
+            Issue.record("Missing battery row")
+            return
+        }
+
+        #expect(battery.kind == .part || battery.kind == .unknown)
+        #expect(battery.kind != .tire)
+    }
 }

@@ -55,6 +55,10 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
                 return
             }
 
+            Task { @MainActor in
+                AppHaptics.success()
+            }
+
             DispatchQueue.global(qos: .userInitiated).async { [onScan] in
                 // Use first page for now.
                 let image = scan.imageOfPage(at: 0)

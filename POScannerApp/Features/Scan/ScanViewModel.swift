@@ -10,6 +10,7 @@ import CoreData
 import ImageIO
 import UIKit
 import os
+@preconcurrency import Vision
 
 @MainActor
 final class ScanViewModel: ObservableObject {
@@ -379,6 +380,7 @@ final class ScanViewModel: ObservableObject {
         orientation: CGImagePropertyOrientation,
         ignoreTaxAndTotals: Bool
     ) async {
+        _ = orientation
         activeWorkflowDraftID = UUID()
         isProcessing = true
         errorMessage = nil
@@ -393,8 +395,9 @@ final class ScanViewModel: ObservableObject {
         )
 
         do {
-            let previewImage = await Self.makePreviewImage(from: image)
-            guard let cgImage = await Self.makeCGImage(from: image) else {
+            let preparedImage = await Self.prepareCaptureImageForOCR(image)
+            let previewImage = await Self.makePreviewImage(from: preparedImage)
+            guard let cgImage = await Self.makeCGImage(from: preparedImage) else {
                 errorMessage = "Could not process the invoice scan."
                 await environment.localNotificationService.notify(.scanFailed)
                 await upsertWorkflowDraft(
@@ -408,7 +411,11 @@ final class ScanViewModel: ObservableObject {
                 processingStartedAt = nil
                 return
             }
-            let extraction = try await environment.ocrService.extractDocument(from: cgImage, orientation: orientation)
+            let effectiveOrientation = preparedImage.imageOrientation.cgImagePropertyOrientation
+            let extraction = try await environment.ocrService.extractDocument(
+                from: cgImage,
+                orientation: effectiveOrientation
+            )
             processingStage = .preparingReview
             await upsertWorkflowDraft(
                 stage: .ocrReview,
@@ -460,6 +467,87 @@ final class ScanViewModel: ObservableObject {
                 continuation.resume(returning: rendered.cgImage)
             }
         }
+    }
+
+    private nonisolated static func prepareCaptureImageForOCR(_ image: UIImage) async -> UIImage {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let normalized = normalizedUprightImage(from: image)
+                let cropped = cropToLikelyDocument(from: normalized) ?? normalized
+                continuation.resume(returning: cropped)
+            }
+        }
+    }
+
+    private nonisolated static func normalizedUprightImage(from image: UIImage) -> UIImage {
+        guard image.size.width.isFinite,
+              image.size.height.isFinite,
+              image.size.width > 0,
+              image.size.height > 0 else {
+            return image
+        }
+        guard image.imageOrientation != .up || image.cgImage == nil else {
+            return image
+        }
+
+        let size = CGSize(width: image.size.width, height: image.size.height)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = true
+        format.scale = image.scale > 0 ? image.scale : 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private nonisolated static func cropToLikelyDocument(from image: UIImage) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        guard width.isFinite, height.isFinite, width > 10, height > 10 else { return nil }
+
+        let request = VNDetectRectanglesRequest()
+        request.maximumObservations = 1
+        request.minimumConfidence = 0.6
+        request.minimumAspectRatio = 0.25
+        request.minimumSize = 0.45
+        request.quadratureTolerance = 35
+        request.regionOfInterest = CGRect(x: 0.04, y: 0.04, width: 0.92, height: 0.92)
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            return nil
+        }
+
+        guard let observation = request.results?.first else { return nil }
+        let normalized = observation.boundingBox.standardized
+        guard normalized.width.isFinite,
+              normalized.height.isFinite,
+              normalized.width > 0,
+              normalized.height > 0 else {
+            return nil
+        }
+
+        let imageBounds = CGRect(x: 0, y: 0, width: width, height: height)
+        let cropRect = CGRect(
+            x: normalized.minX * width,
+            y: (1 - normalized.maxY) * height,
+            width: normalized.width * width,
+            height: normalized.height * height
+        )
+        .integral
+        .intersection(imageBounds)
+
+        guard cropRect.width.isFinite,
+              cropRect.height.isFinite,
+              cropRect.width > (width * 0.55),
+              cropRect.height > (height * 0.55) else {
+            return nil
+        }
+
+        guard let cropped = cgImage.cropping(to: cropRect) else { return nil }
+        return UIImage(cgImage: cropped, scale: image.scale > 0 ? image.scale : 1, orientation: .up)
     }
 
     private nonisolated static func makePreviewImage(from image: UIImage, maxDimension: CGFloat = 1800) async -> UIImage {

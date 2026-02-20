@@ -35,12 +35,12 @@ actor PartsIntakeLiveActivityManager {
     private var activity: Activity<PartsIntakeActivityAttributes>?
     private var lastSignature: Signature?
     private var lastUpdateAt: Date?
+    private var lastDeepLinkRawValue: String?
 
     private struct Signature: Equatable {
         let statusText: String
         let detailText: String
         let progressBucket: Int
-        let deepLinkURL: String?
     }
 
     func sync(
@@ -82,10 +82,12 @@ actor PartsIntakeLiveActivityManager {
         let normalizedStatusText = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedDetailText = detailText.trimmingCharacters(in: .whitespacesAndNewlines)
         let deepLinkRawValue = deepLinkURL?.absoluteString
+        if let deepLinkRawValue, !deepLinkRawValue.isEmpty {
+            lastDeepLinkRawValue = deepLinkRawValue
+        }
         var progressBucket = Int((normalizedProgress(progress) * 100).rounded())
 
         if let lastSignature,
-           lastSignature.deepLinkURL == deepLinkRawValue,
            !shouldAllowProgressRegression(statusText: normalizedStatusText),
            progressBucket < lastSignature.progressBucket {
             progressBucket = lastSignature.progressBucket
@@ -95,8 +97,7 @@ actor PartsIntakeLiveActivityManager {
         let signature = Signature(
             statusText: normalizedStatusText,
             detailText: normalizedDetailText,
-            progressBucket: progressBucket,
-            deepLinkURL: deepLinkRawValue
+            progressBucket: progressBucket
         )
 
         // Avoid churn when app re-enters foreground and repeatedly emits equivalent updates.
@@ -122,6 +123,7 @@ actor PartsIntakeLiveActivityManager {
             await activity.update(content)
             self.lastSignature = signature
             self.lastUpdateAt = Date()
+            self.lastDeepLinkRawValue = deepLinkRawValue ?? self.lastDeepLinkRawValue
             return
         }
 
@@ -134,11 +136,13 @@ actor PartsIntakeLiveActivityManager {
             Self.logger.info("Live Activity created. progress=\(clampedProgress, privacy: .public)")
             self.lastSignature = signature
             self.lastUpdateAt = Date()
+            self.lastDeepLinkRawValue = deepLinkRawValue ?? self.lastDeepLinkRawValue
         } catch {
             Self.logger.error("Live Activity creation failed: \(String(describing: error), privacy: .public)")
             self.activity = nil
             self.lastSignature = nil
             self.lastUpdateAt = nil
+            self.lastDeepLinkRawValue = nil
         }
     }
 
@@ -182,11 +186,13 @@ actor PartsIntakeLiveActivityManager {
             self.activity = nil
             self.lastSignature = nil
             self.lastUpdateAt = nil
+            self.lastDeepLinkRawValue = nil
             return
         }
 
         let fallbackStatus = targets.first?.content.state.statusText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let fallbackDetail = targets.first?.content.state.detailText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallbackDeepLink = targets.first?.content.state.deepLinkURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         let priorStatus = {
             let fromSignature = lastSignature?.statusText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return fromSignature.isEmpty ? fallbackStatus : fromSignature
@@ -206,12 +212,18 @@ actor PartsIntakeLiveActivityManager {
         let finalDetail = terminalCompletion
             ? (priorDetail.isEmpty ? "Parts intake submitted successfully." : priorDetail)
             : "Open ShopMikey to continue."
+        let finalDeepLink: String? = {
+            let stored = lastDeepLinkRawValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let stored, !stored.isEmpty { return stored }
+            if let fallbackDeepLink, !fallbackDeepLink.isEmpty { return fallbackDeepLink }
+            return nil
+        }()
         let state = PartsIntakeActivityAttributes.ContentState(
             statusText: finalStatus,
             detailText: finalDetail,
             progress: finalProgress,
             updatedAt: Date(),
-            deepLinkURL: lastSignature?.deepLinkURL
+            deepLinkURL: finalDeepLink
         )
         let content = ActivityContent(
             state: state,
@@ -224,6 +236,7 @@ actor PartsIntakeLiveActivityManager {
         self.activity = nil
         self.lastSignature = nil
         self.lastUpdateAt = nil
+        self.lastDeepLinkRawValue = nil
     }
 
     private func isTerminalCompletionStatus(_ statusText: String, progress: Double) -> Bool {
@@ -274,8 +287,8 @@ enum PartsIntakeLiveActivityBridge {
     private static var hasLoggedStartupGateBlockForForegroundSession: Bool = false
     private static var deferredSyncTask: Task<Void, Never>?
     private static var pendingSyncPayload: PendingSyncPayload?
-    private static let startupGateInterval: TimeInterval = 0.6
-    private static let minimumDeferredSyncDelay: TimeInterval = 0.15
+    private static let startupGateInterval: TimeInterval = 0.25
+    private static let minimumDeferredSyncDelay: TimeInterval = 0.08
 
     @MainActor
     static func sync(

@@ -347,8 +347,7 @@ private struct OCROverlayPreview: View {
 
                     if showTextHighlights {
                         ForEach(lines) { line in
-                            let rect = boundedRectInView(for: line.boundingBox, in: containerSize)
-                            if rect.width > 0, rect.height > 0 {
+                            if let rect = overlayRectInView(for: line.boundingBox, in: containerSize) {
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                                     .stroke(
                                         selectedLineID == line.id ? AppSurfaceStyle.info : AppSurfaceStyle.warning,
@@ -366,8 +365,7 @@ private struct OCROverlayPreview: View {
 
                     if showBarcodeHighlights {
                         ForEach(barcodes) { barcode in
-                            let rect = boundedRectInView(for: barcode.boundingBox, in: containerSize)
-                            if rect.width > 0, rect.height > 0 {
+                            if let rect = overlayRectInView(for: barcode.boundingBox, in: containerSize) {
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                                     .stroke(selectedBarcodeID == barcode.id ? AppSurfaceStyle.success : Color.teal, lineWidth: selectedBarcodeID == barcode.id ? 2 : 1)
                                     .background(
@@ -512,6 +510,24 @@ private struct OCROverlayPreview: View {
             return .zero
         }
         return bounded
+    }
+
+    private func overlayRectInView(for normalized: CGRect, in containerSize: CGSize) -> CGRect? {
+        let rect = boundedRectInView(for: normalized, in: containerSize)
+        guard rect.minX.isFinite,
+              rect.minY.isFinite,
+              rect.midX.isFinite,
+              rect.midY.isFinite,
+              rect.width.isFinite,
+              rect.height.isFinite else {
+            return nil
+        }
+
+        let width = max(1, rect.width)
+        let height = max(1, rect.height)
+        let safeRect = CGRect(x: rect.minX, y: rect.minY, width: width, height: height)
+        guard safeRect.midX.isFinite, safeRect.midY.isFinite else { return nil }
+        return safeRect
     }
 
     private func isValidContainerSize(_ size: CGSize) -> Bool {

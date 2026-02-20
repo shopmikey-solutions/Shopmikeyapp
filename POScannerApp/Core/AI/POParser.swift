@@ -234,6 +234,9 @@ private extension POParser {
         if InvoiceLineClassifier.isNonProductSummaryLine(line) { return true }
 
         let lower = line.lowercased()
+        if lower.contains("pickup location") { return true }
+        if lower.contains("unit ($)") && lower.contains("ext ($)") { return true }
+        if lower.contains("unit price") && lower.contains("extended") { return true }
         if lower.contains("purchase order") { return true }
         if lower.localizedCaseInsensitiveHasPrefix("po:") { return true }
         if lower.localizedCaseInsensitiveHasPrefix("po #") { return true }
@@ -254,6 +257,8 @@ private extension POParser {
             "description",
             "desc",
             "brand",
+            "location",
+            "pickup location",
             "unit",
             "ext",
             "amount",

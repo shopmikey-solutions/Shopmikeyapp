@@ -50,6 +50,10 @@ final class LineItemSuggestionService {
         let joinedContext = [loweredDescription, loweredContext, loweredPart]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+        let hasBatterySignal = joinedContext.range(
+            of: #"\b(battery|agm|cca|diehard)\b"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
 
         var scores: [POItemKind: Double] = [
             .part: 0.0,
@@ -72,10 +76,17 @@ final class LineItemSuggestionService {
         }
 
         if loweredDescription.range(
-            of: #"^\s*(shipping|freight|shop supplies|environmental|env fee|hazmat|disposal|surcharge|tax)\b"#,
+            of: #"^\s*(shipping|freight|shop[-\s]?fee|shop supplies|environmental|environmental charge|env[-\s]?fee|hazmat|disposal|surcharge|tax|core charge)\b"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil {
             addScore(.fee, amount: 0.35, reason: "starts with fee term")
+        }
+
+        if joinedContext.range(
+            of: #"(?i)\b(shop[-\s]?fee|env[-\s]?fee|disposal fee|core charge|environmental charge)\b"#,
+            options: .regularExpression
+        ) != nil {
+            addScore(.fee, amount: 0.35, reason: "matches structured fee token")
         }
 
         if joinedContext.range(of: #"(?i)\b(tax|vat|gst|hst)\b"#, options: .regularExpression) != nil {
@@ -87,7 +98,8 @@ final class LineItemSuggestionService {
         }
 
         if let size = firstTireSize(in: joinedContext) {
-            addScore(.tire, amount: 0.65, reason: "matches tire size '\(size)'")
+            let tireSizeWeight = hasBatterySignal ? 0.18 : 0.65
+            addScore(.tire, amount: tireSizeWeight, reason: "matches tire size '\(size)'")
         }
 
         for brand in tireBrands where joinedContext.contains(brand) {
@@ -96,6 +108,10 @@ final class LineItemSuggestionService {
 
         for term in partSignals where joinedContext.contains(term) {
             addScore(.part, amount: 0.16, reason: "contains part term '\(term)'")
+        }
+
+        if hasBatterySignal {
+            addScore(.part, amount: 0.30, reason: "contains battery term")
         }
 
         let suggestedPartNumber = suggestedPartNumber(from: normalizedDescription, explicitPartNumber: partNumber)
@@ -292,12 +308,18 @@ private extension LineItemSuggestionService {
     static let feeSignals: [String] = [
         "shipping",
         "freight",
+        "shop-fee",
+        "shop fee",
+        "env-fee",
+        "env fee",
         "core",
+        "core charge",
         "hazmat",
         "disposal",
+        "disposal fee",
         "shop supplies",
         "environmental",
-        "env fee",
+        "environmental charge",
         "surcharge",
         "labor",
         "alignment",
@@ -338,13 +360,24 @@ private extension LineItemSuggestionService {
 
     static let partSignals: [String] = [
         "part",
+        "battery",
         "filter",
         "pad",
         "rotor",
+        "brake",
         "compressor",
         "assembly",
         "kit",
         "sensor",
+        "ignition",
+        "coil",
+        "fluid",
+        "coolant",
+        "wiper",
+        "blade",
+        "gasket",
+        "hub",
+        "bearing",
         "alternator",
         "starter"
     ]

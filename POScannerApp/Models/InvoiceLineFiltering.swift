@@ -66,13 +66,20 @@ enum InvoiceLineClassifier {
         // Keep explicit fee-like rows; these are valid for PO intake.
         let feeSignals = [
             "fee",
+            "shop-fee",
+            "shop fee",
+            "env-fee",
+            "env fee",
             "disposal",
+            "disposal fee",
             "hazmat",
             "environmental",
+            "environmental charge",
             "shop supplies",
             "shipping",
             "freight",
             "core",
+            "core charge",
             "surcharge",
             "mount",
             "balance"

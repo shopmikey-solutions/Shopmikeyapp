@@ -721,7 +721,7 @@ final class ReviewViewModel: ObservableObject {
                 detailText: "Draft moved to submitted successfully.",
                 progress: 1.0
             )
-            scheduleLiveActivityEnd(after: 1.4)
+            scheduleLiveActivityEnd(after: 6.0)
             await environment.localNotificationService.notify(
                 .submissionSucceeded(
                     vendor: trimmedOrNil(vendorName),
@@ -737,7 +737,7 @@ final class ReviewViewModel: ObservableObject {
                 detailText: result.message ?? "Review vendor and line item details.",
                 progress: 0.55
             )
-            scheduleLiveActivityEnd(after: 2.0)
+            scheduleLiveActivityEnd(after: 8.0)
             _ = try? await persistDraft(
                 showStatusMessage: false,
                 workflowState: .failed,

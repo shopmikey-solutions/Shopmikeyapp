@@ -55,43 +55,44 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             .widgetURL(deepLinkURL(for: context))
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading, priority: 2) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "doc.text.viewfinder")
-                            .foregroundStyle(Color.accentColor)
-                        Text("Parts Intake")
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                    }
+                DynamicIslandExpandedRegion(.leading, priority: 1) {
+                    Text(stageLabel(for: context.state.statusText))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                         .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
-                DynamicIslandExpandedRegion(.trailing, priority: 2) {
-                    HStack(spacing: 6) {
-                        Text("\(Int((clampedProgress(context.state.progress) * 100).rounded()))%")
-                            .font(.caption.monospacedDigit())
-                        Text(context.state.updatedAt, style: .time)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                DynamicIslandExpandedRegion(.trailing, priority: 1) {
+                    Text("\(progressPercent(clampedProgress(context.state.progress)))%")
+                        .font(.caption2.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
-                DynamicIslandExpandedRegion(.bottom, priority: 2) {
+                DynamicIslandExpandedRegion(.center, priority: 2) {
+                    Text(context.state.statusText)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                        .multilineTextAlignment(.leading)
+                        .minimumScaleFactor(0.8)
+                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(context.state.statusText)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
                         ProgressView(value: clampedProgress(context.state.progress))
                             .tint(.accentColor)
                         Text(context.state.detailText)
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                            .lineLimit(1)
                     }
                 }
             } compactLeading: {
                 Image(systemName: "doc.text.viewfinder")
             } compactTrailing: {
-                Text("\(Int((clampedProgress(context.state.progress) * 100).rounded()))%")
+                Text("\(progressPercent(clampedProgress(context.state.progress)))%")
                     .font(.caption2.monospacedDigit())
             } minimal: {
                 Image(systemName: "doc.text.viewfinder")
@@ -104,6 +105,30 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
     private func clampedProgress(_ progress: Double) -> Double {
         guard progress.isFinite else { return 0.02 }
         return min(1, max(0.02, progress))
+    }
+
+    private func progressPercent(_ progress: Double) -> Int {
+        Int((progress * 100).rounded())
+    }
+
+    private func stageLabel(for statusText: String) -> String {
+        let normalized = statusText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.contains("step 1") || normalized.contains("capture") {
+            return "Capture"
+        }
+        if normalized.contains("step 2") || normalized.contains("ocr") || normalized.contains("parsing") {
+            return "Review"
+        }
+        if normalized.contains("step 3") || normalized.contains("draft") {
+            return "Draft"
+        }
+        if normalized.contains("step 4") || normalized.contains("submit") {
+            return "Submit"
+        }
+        if normalized.contains("fail") {
+            return "Attention"
+        }
+        return "Parts Intake"
     }
 
     private func deepLinkURL(for context: ActivityViewContext<PartsIntakeActivityAttributes>) -> URL? {

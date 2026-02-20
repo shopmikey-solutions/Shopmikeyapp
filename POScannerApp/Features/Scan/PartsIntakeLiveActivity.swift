@@ -51,13 +51,11 @@ actor PartsIntakeLiveActivityManager {
         deepLinkURL: URL?
     ) async {
         guard isEnabled else {
-            Self.logger.debug("Live Activity sync skipped: disabled by user setting.")
             await endCurrent(dismissalPolicy: .immediate)
             return
         }
 
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-            Self.logger.debug("Live Activity sync skipped: activities disabled on device.")
             await endCurrent(dismissalPolicy: .immediate)
             return
         }
@@ -92,12 +90,6 @@ actor PartsIntakeLiveActivityManager {
         // Avoid churn when app re-enters foreground and repeatedly emits equivalent updates.
         if let lastSignature,
            lastSignature == signature {
-            if let lastUpdateAt,
-               Date().timeIntervalSince(lastUpdateAt) < 1.2 {
-                Self.logger.debug("Live Activity sync skipped due to churn guard.")
-            } else {
-                Self.logger.debug("Live Activity sync skipped: duplicate state.")
-            }
             return
         }
 

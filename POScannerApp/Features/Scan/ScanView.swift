@@ -209,7 +209,7 @@ struct ScanView: View {
         .onChange(of: viewModel.inProgressDrafts) { _, _ in
             guard isTabActive || lastLiveActivitySignature != nil else { return }
             guard !isReviewFlowPresented || viewModel.isProcessing else { return }
-            if viewModel.isProcessing || liveActivitySubmittingCandidate() != nil || (lastLiveActivitySignature?.isActive == true) {
+            if viewModel.isProcessing || liveActivityDraftCandidate() != nil || (lastLiveActivitySignature?.isActive == true) {
                 syncLiveActivity()
             }
         }
@@ -576,9 +576,8 @@ struct ScanView: View {
     }
 
     private func syncLiveActivity() {
-        guard isTabActive || viewModel.isProcessing || lastLiveActivitySignature != nil else { return }
-
         let payload = liveActivityPayload()
+        guard isTabActive || viewModel.isProcessing || payload.isActive || lastLiveActivitySignature != nil else { return }
         let signature = liveActivitySignature(for: payload)
         if signature == lastLiveActivitySignature {
             return
@@ -619,21 +618,23 @@ struct ScanView: View {
         progress: Double,
         deepLinkURL: URL?
     ) {
-        let activeStages: Set<ScanViewModel.ProcessingStage> = [.parsing, .finalizing]
-        if viewModel.isProcessing, let stage = viewModel.processingStage, activeStages.contains(stage) {
+        if viewModel.isProcessing, let stage = viewModel.processingStage {
             let activeDraftID = viewModel.latestDraft?.id
             let status: String
             let detail: String
             switch stage {
+            case .extractingText:
+                status = "Capture in progress • Step 1 of 4"
+                detail = "Reading invoice text from the scan."
+            case .preparingReview:
+                status = "OCR review • Step 2 of 4"
+                detail = "Preparing highlighted lines and barcode hints."
             case .parsing:
                 status = "Parsing line items • Step 2 of 4"
                 detail = "Classifying parts, tires, and fees."
             case .finalizing:
                 status = "Review draft • Step 3 of 4"
                 detail = "Open the draft to verify before submitting."
-            case .extractingText, .preparingReview:
-                status = viewModel.processingStatusText
-                detail = viewModel.processingDetailText
             }
             return (
                 true,
@@ -644,17 +645,63 @@ struct ScanView: View {
             )
         }
 
-        if let draft = liveActivitySubmittingCandidate() {
-            return (
-                true,
-                "Submitting PO • Step 4 of 4",
-                "Posting the reviewed draft to Shopmonkey.",
-                max(0.96, draft.workflowProgressEstimate),
-                AppDeepLink.scanURL(draftID: draft.id)
-            )
+        if let draft = liveActivityDraftCandidate(),
+           let payload = liveActivityPayload(for: draft) {
+            return payload
         }
 
         return (false, "", "", 0, nil)
+    }
+
+    private func liveActivityPayload(for draft: ReviewDraftSnapshot) -> (
+        isActive: Bool,
+        status: String,
+        detail: String,
+        progress: Double,
+        deepLinkURL: URL?
+    )? {
+        let workflowDetail = draft.state.workflowDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultDetail: String
+        let status: String
+        let progress: Double
+
+        switch draft.workflowState {
+        case .scanning:
+            status = "Capture in progress • Step 1 of 4"
+            defaultDetail = "Capturing and reading invoice text."
+            progress = max(0.20, draft.workflowProgressEstimate)
+        case .ocrReview:
+            status = "OCR review • Step 2 of 4"
+            defaultDetail = "Review recognized text before parsing."
+            progress = max(0.42, draft.workflowProgressEstimate)
+        case .parsing:
+            status = "Parsing line items • Step 2 of 4"
+            defaultDetail = "Classifying parts, tires, and fees."
+            progress = max(0.64, draft.workflowProgressEstimate)
+        case .reviewReady:
+            status = "Draft ready • Step 3 of 4"
+            defaultDetail = "Open the draft to verify before submitting."
+            progress = max(0.86, draft.workflowProgressEstimate)
+        case .reviewEdited:
+            status = "Draft edited • Step 3 of 4"
+            defaultDetail = "Review complete. Ready to submit."
+            progress = max(0.92, draft.workflowProgressEstimate)
+        case .submitting:
+            status = "Submitting PO • Step 4 of 4"
+            defaultDetail = "Posting the reviewed draft to Shopmonkey."
+            progress = max(0.96, draft.workflowProgressEstimate)
+        case .failed:
+            return nil
+        }
+
+        let detail = workflowDetail.flatMap { $0.isEmpty ? nil : $0 } ?? defaultDetail
+        return (
+            true,
+            status,
+            detail,
+            min(1, max(0.02, progress)),
+            AppDeepLink.scanURL(draftID: draft.id)
+        )
     }
 
     private func liveActivitySignature(
@@ -676,17 +723,31 @@ struct ScanView: View {
         )
     }
 
-    private func liveActivitySubmittingCandidate() -> ReviewDraftSnapshot? {
+    private func liveActivityDraftCandidate() -> ReviewDraftSnapshot? {
         let drafts = viewModel.inProgressDrafts
         guard !drafts.isEmpty else { return nil }
 
         let now = Date()
-        return drafts.first(where: {
-            let detail = ($0.state.workflowDetail ?? "").lowercased()
-            return $0.workflowState == .submitting
-                && detail.contains("submit")
-                && now.timeIntervalSince($0.updatedAt) <= (3 * 60)
-        })
+        return drafts
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .first { draft in
+                guard draft.isLiveIntakeSession else { return false }
+                let maxAge = liveActivityRecencyWindow(for: draft.workflowState)
+                return now.timeIntervalSince(draft.updatedAt) <= maxAge
+            }
+    }
+
+    private func liveActivityRecencyWindow(for state: ReviewDraftSnapshot.WorkflowState) -> TimeInterval {
+        switch state {
+        case .scanning, .ocrReview, .parsing:
+            return 30 * 60
+        case .reviewReady, .reviewEdited:
+            return 20 * 60
+        case .submitting:
+            return 8 * 60
+        case .failed:
+            return 0
+        }
     }
 
     private var isReviewFlowPresented: Bool {
@@ -772,7 +833,7 @@ struct ScanView: View {
             return
         }
         lastDraftReloadAt = now
-        viewModel.loadInProgressDrafts()
+        viewModel.loadInProgressDrafts(force: force)
     }
 }
 

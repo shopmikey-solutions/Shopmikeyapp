@@ -55,17 +55,25 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             .widgetURL(deepLinkURL(for: context))
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading, priority: 1) {
-                    Label("Intake", systemImage: "doc.text.viewfinder")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(Color.accentColor)
+                DynamicIslandExpandedRegion(.leading, priority: 2) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text.viewfinder")
+                            .foregroundStyle(Color.accentColor)
+                        Text("Parts Intake")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                    }
                         .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.trailing, priority: 1) {
-                    Text("\(Int((clampedProgress(context.state.progress) * 100).rounded()))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                    HStack(spacing: 6) {
+                        Text("\(Int((clampedProgress(context.state.progress) * 100).rounded()))%")
+                            .font(.caption.monospacedDigit())
+                        Text(context.state.updatedAt, style: .time)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.bottom, priority: 2) {
                     VStack(alignment: .leading, spacing: 6) {

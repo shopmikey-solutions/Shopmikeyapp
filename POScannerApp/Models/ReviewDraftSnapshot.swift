@@ -261,9 +261,9 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         case .parsing:
             return 0.66
         case .reviewReady:
-            return 0.78
+            return reviewLiveProgress(for: .reviewReady)
         case .reviewEdited:
-            return 0.82
+            return reviewLiveProgress(for: .reviewEdited)
         case .submitting:
             return 0.92
         case .failed:
@@ -324,13 +324,13 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
             )
         case .reviewReady:
             return (
-                status: "Draft ready",
+                status: reviewLiveStatus(for: .reviewReady),
                 detail: "Step 3 of 4 • Verify lines before submit.",
                 progress: max(0.78, workflowProgressEstimate)
             )
         case .reviewEdited:
             return (
-                status: "Draft updated",
+                status: reviewLiveStatus(for: .reviewEdited),
                 detail: "Step 3 of 4 • Ready for Shopmonkey submission.",
                 progress: max(0.82, workflowProgressEstimate)
             )
@@ -360,5 +360,93 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         case .failed:
             return "fail"
         }
+    }
+
+    private var trimmedWorkflowDetail: String? {
+        let trimmed = state.workflowDetail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var reviewReadinessScoreEstimate: Double {
+        let vendor = state.vendorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasSelectedVendor = !(state.selectedVendorId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let vendorReady = (!vendor.isEmpty && hasSelectedVendor) ? 1.0 : 0.0
+
+        let itemReadiness: Double
+        if state.items.isEmpty {
+            itemReadiness = 0
+        } else {
+            let unknownPenalty = Double(state.items.filter { $0.kind == .unknown }.count)
+            let suggestedPenalty = Double(state.items.filter { $0.isKindConfidenceMedium }.count) * 0.5
+            let penalty = (unknownPenalty + suggestedPenalty) / Double(state.items.count)
+            itemReadiness = max(0, min(1, 1 - penalty))
+        }
+
+        let modeRawValue = state.modeUIRawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasOrderContext = !state.orderId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasServiceContext =
+            !state.serviceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(state.selectedTicketId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+
+        let contextReady: Double
+        switch modeRawValue {
+        case "quickadd":
+            contextReady = (hasOrderContext && hasServiceContext) ? 1.0 : 0.0
+        case "attach", "restock":
+            contextReady = 1.0
+        default:
+            contextReady = hasOrderContext || hasServiceContext ? 1.0 : 0.0
+        }
+
+        let score = (vendorReady + itemReadiness + contextReady) / 3.0
+        guard score.isFinite else { return 0 }
+        return max(0, min(1, score))
+    }
+
+    private func reviewLiveProgress(for workflowState: WorkflowState) -> Double {
+        let readiness = reviewReadinessScoreEstimate
+
+        switch workflowState {
+        case .reviewReady:
+            // Keep review-ready below edited/submitting while still reflecting readiness gains.
+            return min(0.86, max(0.74, 0.72 + (readiness * 0.14)))
+        case .reviewEdited:
+            // Edited stage should visibly progress as vendor and line-item readiness improves.
+            return min(0.90, max(0.78, 0.78 + (readiness * 0.12)))
+        case .scanning:
+            return 0.20
+        case .ocrReview:
+            return 0.45
+        case .parsing:
+            return 0.66
+        case .submitting:
+            return 0.92
+        case .failed:
+            return 0.55
+        }
+    }
+
+    private func reviewLiveStatus(for workflowState: WorkflowState) -> String {
+        guard let detail = trimmedWorkflowDetail?.lowercased() else {
+            return workflowState == .reviewReady ? "Draft ready" : "Draft updated"
+        }
+
+        if detail.contains("vendor") {
+            return "Vendor ready"
+        }
+        if detail.contains("suggestion") {
+            return "Suggestions applied"
+        }
+        if detail.contains("line items reordered") || detail.contains("reordered") {
+            return "Line order updated"
+        }
+        if detail.contains("line type") || detail.contains("classification") || detail.contains("reclassified") {
+            return "Line types updated"
+        }
+        if detail.contains("removed") {
+            return "Items removed"
+        }
+
+        return workflowState == .reviewReady ? "Draft ready" : "Draft updated"
     }
 }

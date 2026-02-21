@@ -137,6 +137,7 @@ final class ReviewViewModel: ObservableObject {
     private var autoMatchedPurchaseOrderID: String?
     private var draftCreatedAt: Date?
     private var lastDraftFingerprint: Int?
+    private var pendingDraftWorkflowDetail: String?
     private var isRestoringDraftState: Bool = false
     private var shouldSkipDraftPersistence: Bool = false
     private var isApplyingItemReorder: Bool = false
@@ -453,6 +454,9 @@ final class ReviewViewModel: ObservableObject {
         guard oldKind != newKind else { return }
         items[index].kind = newKind
         recordTypeOverride(from: oldKind, to: newKind)
+        trackReviewAction(
+            "Line type updated (\(oldKind.displayName) → \(newKind.displayName))."
+        )
     }
 
     func moveItems(from source: IndexSet, to destination: Int) {
@@ -474,14 +478,21 @@ final class ReviewViewModel: ObservableObject {
         isApplyingItemReorder = true
         items = reordered
         isApplyingItemReorder = false
-        scheduleDraftAutosaveIfNeeded(trigger: .itemReorder)
+        trackReviewAction(
+            "Line items reordered.",
+            trigger: .itemReorder
+        )
     }
 
     func removeItems(at offsets: IndexSet) {
+        let removedCount = offsets.count
         for index in offsets.sorted(by: >) {
             guard items.indices.contains(index) else { continue }
             items.remove(at: index)
         }
+        guard removedCount > 0 else { return }
+        let noun = removedCount == 1 ? "line item" : "line items"
+        trackReviewAction("Removed \(removedCount) \(noun).")
     }
 
     func removeItem(id: UUID) {
@@ -492,6 +503,7 @@ final class ReviewViewModel: ObservableObject {
         selectedOrder = order
         orderId = order.id
         modeUI = .quickAdd
+        trackReviewAction("Work order selected (\(order.id)).")
 
         selectedService = nil
         selectedTicketId = nil
@@ -541,6 +553,8 @@ final class ReviewViewModel: ObservableObject {
             } else {
                 purchaseOrderMatchMessage = nil
             }
+            let poLabel = purchaseOrder.number ?? purchaseOrder.id
+            trackReviewAction("Draft PO linked (\(poLabel)).")
         } else {
             errorMessage = "Selected purchase order is \(purchaseOrder.status). Only Draft purchase orders can be updated."
             purchaseOrderMatchMessage = "Matched Shopmonkey PO \(purchaseOrder.number ?? purchaseOrder.id) is \(purchaseOrder.status)."
@@ -551,6 +565,7 @@ final class ReviewViewModel: ObservableObject {
         selectedService = service
         selectedTicketId = service.id
         serviceId = service.id
+        trackReviewAction("Service linked (\(service.id)).")
 
         if modeUI == .attach, selectedPOId == nil, trimmedOrNil(orderId) == nil {
             modeUI = .quickAdd
@@ -633,6 +648,7 @@ final class ReviewViewModel: ObservableObject {
 
     func saveDraft() async {
         draftAutosaveTask?.cancel()
+        pendingDraftWorkflowDetail = nil
         do {
             _ = try await persistDraft(
                 showStatusMessage: true,
@@ -647,6 +663,7 @@ final class ReviewViewModel: ObservableObject {
     func persistDraftOnExitIfNeeded() async {
         draftAutosaveTask?.cancel()
         draftAutosaveTask = nil
+        pendingDraftWorkflowDetail = nil
         await persistDraftIfNeeded(
             workflowState: .reviewEdited,
             workflowDetail: "Review updates saved."
@@ -661,6 +678,7 @@ final class ReviewViewModel: ObservableObject {
             draftCreatedAt = nil
             lastDraftSavedAt = nil
             lastDraftFingerprint = nil
+            pendingDraftWorkflowDetail = nil
             statusMessage = "Saved intake draft removed."
         } catch {
             errorMessage = "Could not remove intake draft."
@@ -669,7 +687,12 @@ final class ReviewViewModel: ObservableObject {
 
     func selectVendorSuggestion(_ vendor: VendorSummary) {
         vendorLookupTask?.cancel()
-        selectVendor(vendor, adoptVendorName: true, replaceContactDetails: true)
+        selectVendor(
+            vendor,
+            adoptVendorName: true,
+            replaceContactDetails: true,
+            trackActivity: true
+        )
     }
 
     func createVendorFromCurrentInput() async {
@@ -698,7 +721,12 @@ final class ReviewViewModel: ObservableObject {
                 email: request.email,
                 notes: request.notes
             )
-            selectVendor(createdVendor, adoptVendorName: true, replaceContactDetails: true)
+            selectVendor(
+                createdVendor,
+                adoptVendorName: true,
+                replaceContactDetails: true,
+                trackActivity: true
+            )
             statusMessage = "Vendor created and selected."
             errorMessage = nil
         } catch {
@@ -713,6 +741,25 @@ final class ReviewViewModel: ObservableObject {
         print("[ScanDiag][Override] from=\(oldKind.rawValue) to=\(newKind.rawValue) overrideCount=\(typeOverrideCount)")
         #endif
         refreshUnknownKindRate()
+    }
+
+    private func trackReviewAction(
+        _ workflowDetail: String,
+        trigger: DraftAutosaveTrigger = .regularChange
+    ) {
+        let trimmed = workflowDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let draftID = activeDraftID {
+            publishDraftReviewLiveActivity(
+                workflowState: .reviewEdited,
+                workflowDetail: trimmed,
+                draftID: draftID
+            )
+        }
+        scheduleDraftAutosaveIfNeeded(
+            trigger: trigger,
+            workflowDetail: trimmed
+        )
     }
 
     func submitToShopmonkey(saveHistoryEnabled: Bool, ignoreTaxAndTotals: Bool) async {
@@ -988,8 +1035,13 @@ final class ReviewViewModel: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             // Do not clobber user edits that happened while suggestions were computing.
             guard self.items == baselineItems else { return }
+            let kindChanges = zip(baselineItems, suggested).filter { $0.kind != $1.kind }.count
             self.logSuggestionDiagnostics(before: baselineItems, after: suggested)
             self.items = suggested
+            if kindChanges > 0 {
+                let noun = kindChanges == 1 ? "suggestion" : "suggestions"
+                self.trackReviewAction("Applied \(kindChanges) line-item \(noun).")
+            }
         }
     }
 
@@ -1231,7 +1283,8 @@ final class ReviewViewModel: ObservableObject {
     private func selectVendor(
         _ vendor: VendorSummary,
         adoptVendorName: Bool,
-        replaceContactDetails: Bool
+        replaceContactDetails: Bool,
+        trackActivity: Bool = false
     ) {
         selectedVendorId = vendor.id
         if adoptVendorName {
@@ -1239,6 +1292,9 @@ final class ReviewViewModel: ObservableObject {
         }
         applyVendorContactDetails(from: vendor, replaceExistingValues: replaceContactDetails)
         vendorSuggestions = []
+        if trackActivity {
+            trackReviewAction("Vendor selected (\(vendor.name)).")
+        }
     }
 
     private func applyVendorContactDetails(from vendor: VendorSummary, replaceExistingValues: Bool) {
@@ -1365,11 +1421,21 @@ final class ReviewViewModel: ObservableObject {
         return hasher.finalize()
     }
 
-    private func scheduleDraftAutosaveIfNeeded(trigger: DraftAutosaveTrigger = .regularChange) {
+    private func scheduleDraftAutosaveIfNeeded(
+        trigger: DraftAutosaveTrigger = .regularChange,
+        workflowDetail: String? = nil
+    ) {
         guard !isRestoringDraftState else { return }
         guard !shouldSkipDraftPersistence else { return }
         guard !isSubmitting else { return }
         guard hasMeaningfulDraftContent else { return }
+
+        if let workflowDetail {
+            let trimmed = workflowDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                pendingDraftWorkflowDetail = trimmed
+            }
+        }
 
         if trigger == .regularChange {
             let fingerprint = draftFingerprint
@@ -1388,9 +1454,17 @@ final class ReviewViewModel: ObservableObject {
             }
             try? await Task.sleep(nanoseconds: delayNanos)
             guard !Task.isCancelled, let self else { return }
+            let fallbackWorkflowDetail: String
+            switch trigger {
+            case .regularChange:
+                fallbackWorkflowDetail = "Review updates autosaved."
+            case .itemReorder:
+                fallbackWorkflowDetail = "Line items reordered."
+            }
+            let resolvedDetail = self.pendingDraftWorkflowDetail ?? fallbackWorkflowDetail
             await self.persistDraftIfNeeded(
                 workflowState: .reviewEdited,
-                workflowDetail: "Review updates autosaved."
+                workflowDetail: resolvedDetail
             )
         }
     }
@@ -1404,13 +1478,23 @@ final class ReviewViewModel: ObservableObject {
         guard hasMeaningfulDraftContent else { return }
 
         let fingerprint = draftFingerprint
-        guard lastDraftFingerprint != fingerprint else { return }
+        guard lastDraftFingerprint != fingerprint else {
+            if let workflowDetail,
+               pendingDraftWorkflowDetail == workflowDetail {
+                pendingDraftWorkflowDetail = nil
+            }
+            return
+        }
 
-        _ = try? await persistDraft(
+        let resolvedWorkflowDetail = pendingDraftWorkflowDetail ?? workflowDetail
+        let persistedSnapshot = try? await persistDraft(
             showStatusMessage: false,
             workflowState: workflowState,
-            workflowDetail: workflowDetail
+            workflowDetail: resolvedWorkflowDetail
         )
+        if persistedSnapshot != nil {
+            pendingDraftWorkflowDetail = nil
+        }
     }
 
     private var hasMeaningfulDraftContent: Bool {
@@ -1459,6 +1543,7 @@ final class ReviewViewModel: ObservableObject {
         draftCreatedAt = snapshot.createdAt
         lastDraftSavedAt = snapshot.updatedAt
         lastDraftFingerprint = draftFingerprint
+        pendingDraftWorkflowDetail = nil
         applyGlobalIgnoreTaxPolicy(forceOverrideFromGlobalSetting: true)
         publishDraftReviewLiveActivity(
             workflowState: snapshot.workflowState,
@@ -1522,6 +1607,7 @@ final class ReviewViewModel: ObservableObject {
         draftCreatedAt = createdAt
         lastDraftSavedAt = now
         lastDraftFingerprint = draftFingerprint
+        pendingDraftWorkflowDetail = nil
         if showStatusMessage {
             statusMessage = "Saved intake draft locally."
         }
@@ -1543,6 +1629,7 @@ final class ReviewViewModel: ObservableObject {
         draftCreatedAt = nil
         lastDraftSavedAt = nil
         lastDraftFingerprint = nil
+        pendingDraftWorkflowDetail = nil
     }
 
     private func publishDraftReviewLiveActivity(
@@ -1550,7 +1637,7 @@ final class ReviewViewModel: ObservableObject {
         workflowDetail: String?,
         draftID: UUID
     ) {
-        let detail = workflowDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = trimmedOrNil(workflowDetail)
         let fallbackDetail: String
         let status: String
         let progress: Double
@@ -1558,14 +1645,14 @@ final class ReviewViewModel: ObservableObject {
 
         switch workflowState {
         case .reviewReady:
-            status = "Draft ready"
+            status = reviewLiveActivityStatus(for: .reviewReady, detail: detail)
             fallbackDetail = "Step 3 of 4 • Review lines, vendor details, and submit."
-            progress = 0.78
+            progress = reviewLiveActivityProgress(for: .reviewReady)
             stageToken = "draft"
         case .reviewEdited:
-            status = "Draft updated"
+            status = reviewLiveActivityStatus(for: .reviewEdited, detail: detail)
             fallbackDetail = "Step 3 of 4 • Review complete and ready to submit."
-            progress = 0.82
+            progress = reviewLiveActivityProgress(for: .reviewEdited)
             stageToken = "draft"
         case .submitting:
             status = "Submitting to Shopmonkey"
@@ -1581,7 +1668,7 @@ final class ReviewViewModel: ObservableObject {
             return
         }
 
-        let resolvedDetail = detail.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackDetail
+        let resolvedDetail = detail ?? fallbackDetail
 
         PartsIntakeLiveActivityBridge.sync(
             isActive: true,
@@ -1591,6 +1678,57 @@ final class ReviewViewModel: ObservableObject {
             deepLinkURL: AppDeepLink.scanURL(draftID: draftID),
             stageToken: stageToken
         )
+    }
+
+    private func reviewLiveActivityProgress(
+        for workflowState: ReviewDraftSnapshot.WorkflowState
+    ) -> Double {
+        let readiness = max(0, min(1, reviewReadinessScore))
+        switch workflowState {
+        case .reviewReady:
+            return min(0.86, max(0.74, 0.72 + (readiness * 0.14)))
+        case .reviewEdited:
+            return min(0.90, max(0.82, 0.78 + (readiness * 0.12)))
+        case .scanning:
+            return 0.20
+        case .ocrReview:
+            return 0.45
+        case .parsing:
+            return 0.66
+        case .submitting:
+            return 0.92
+        case .failed:
+            return 0.55
+        }
+    }
+
+    private func reviewLiveActivityStatus(
+        for workflowState: ReviewDraftSnapshot.WorkflowState,
+        detail: String?
+    ) -> String {
+        guard let normalizedDetail = detail?.lowercased() else {
+            return workflowState == .reviewReady ? "Draft ready" : "Draft updated"
+        }
+
+        if normalizedDetail.contains("vendor") {
+            return "Vendor ready"
+        }
+        if normalizedDetail.contains("suggestion") {
+            return "Suggestions applied"
+        }
+        if normalizedDetail.contains("line items reordered") || normalizedDetail.contains("reordered") {
+            return "Line order updated"
+        }
+        if normalizedDetail.contains("line type")
+            || normalizedDetail.contains("classification")
+            || normalizedDetail.contains("reclassified") {
+            return "Line types updated"
+        }
+        if normalizedDetail.contains("removed") {
+            return "Items removed"
+        }
+
+        return workflowState == .reviewReady ? "Draft ready" : "Draft updated"
     }
 
     private func setPreferredLiveActivityDraftID(_ draftID: UUID) {

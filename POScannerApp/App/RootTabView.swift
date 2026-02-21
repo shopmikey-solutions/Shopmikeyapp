@@ -266,11 +266,14 @@ struct RootTabView: View {
             return
         }
 
+        let detailOverride = draft.state.workflowDetail?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedDetail = detailOverride.flatMap { $0.isEmpty ? nil : $0 } ?? payload.detail
         let progressBucket = Int((min(1, max(0, payload.progress)) * 100).rounded())
         let signature = [
             draft.id.uuidString,
             payload.status.trimmingCharacters(in: .whitespacesAndNewlines),
-            payload.detail.trimmingCharacters(in: .whitespacesAndNewlines),
+            resolvedDetail.trimmingCharacters(in: .whitespacesAndNewlines),
             String(progressBucket),
             draft.liveActivityStageToken
         ].joined(separator: "|")
@@ -280,7 +283,7 @@ struct RootTabView: View {
         PartsIntakeLiveActivityBridge.sync(
             isActive: true,
             statusText: payload.status,
-            detailText: payload.detail,
+            detailText: resolvedDetail,
             progress: payload.progress,
             deepLinkURL: AppDeepLink.scanURL(draftID: draft.id),
             stageToken: draft.liveActivityStageToken

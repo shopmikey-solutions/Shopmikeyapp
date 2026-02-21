@@ -30,7 +30,7 @@ struct ReviewDraftWorkflowTests {
         let draftID = UUID()
 
         try await store.upsert(
-            makeSnapshot(
+            makeWorkflowSnapshot(
                 id: draftID,
                 workflowState: .submitting,
                 vendorName: "Original Vendor",
@@ -39,7 +39,7 @@ struct ReviewDraftWorkflowTests {
         )
 
         try await store.upsert(
-            makeSnapshot(
+            makeWorkflowSnapshot(
                 id: draftID,
                 workflowState: .reviewEdited,
                 vendorName: "Regressed Vendor",
@@ -59,7 +59,7 @@ struct ReviewDraftWorkflowTests {
         let draftID = UUID()
 
         try await store.upsert(
-            makeSnapshot(
+            makeWorkflowSnapshot(
                 id: draftID,
                 workflowState: .failed,
                 vendorName: "Needs Attention",
@@ -68,7 +68,7 @@ struct ReviewDraftWorkflowTests {
         )
 
         try await store.upsert(
-            makeSnapshot(
+            makeWorkflowSnapshot(
                 id: draftID,
                 workflowState: .reviewEdited,
                 vendorName: "Recovered Draft",
@@ -80,13 +80,80 @@ struct ReviewDraftWorkflowTests {
         #expect(loaded?.workflowState == .reviewEdited)
         #expect(loaded?.state.vendorName == "Recovered Draft")
     }
+
+    @Test func reviewEditedProgressRespondsToReadinessSignals() {
+        let now = Date()
+        let lowReadinessItem = POItem(
+            description: "Unknown line",
+            quantity: 1,
+            unitCost: 10,
+            partNumber: nil,
+            confidence: 0.3,
+            kind: .unknown,
+            kindConfidence: 0.2,
+            kindReasons: []
+        )
+        let highReadinessItem = POItem(
+            description: "Brake pad",
+            quantity: 1,
+            unitCost: 100,
+            partNumber: "BP-1",
+            confidence: 0.95,
+            kind: .part,
+            kindConfidence: 0.95,
+            kindReasons: []
+        )
+
+        let lowReadiness = makeWorkflowSnapshot(
+            id: UUID(),
+            workflowState: .reviewEdited,
+            vendorName: "",
+            updatedAt: now,
+            orderId: "",
+            serviceId: "",
+            items: [lowReadinessItem],
+            modeUIRawValue: "quickAdd"
+        )
+        let highReadiness = makeWorkflowSnapshot(
+            id: UUID(),
+            workflowState: .reviewEdited,
+            vendorName: "Advance Auto Parts",
+            updatedAt: now,
+            selectedVendorId: "vendor-1",
+            orderId: "WO-100",
+            serviceId: "SVC-100",
+            items: [highReadinessItem],
+            modeUIRawValue: "quickAdd"
+        )
+
+        #expect(highReadiness.workflowProgressEstimate > lowReadiness.workflowProgressEstimate)
+        #expect(highReadiness.workflowProgressEstimate >= 0.88)
+    }
+
+    @Test func reviewLiveStatusUsesWorkflowDetailSignals() {
+        let snapshot = makeWorkflowSnapshot(
+            id: UUID(),
+            workflowState: .reviewEdited,
+            vendorName: "Vendor",
+            updatedAt: Date(),
+            workflowDetail: "Line items reordered."
+        )
+
+        #expect(snapshot.liveActivityPayload?.status == "Line order updated")
+    }
 }
 
-private func makeSnapshot(
+private func makeWorkflowSnapshot(
     id: UUID,
     workflowState: ReviewDraftSnapshot.WorkflowState,
     vendorName: String,
-    updatedAt: Date
+    updatedAt: Date,
+    selectedVendorId: String? = nil,
+    orderId: String = "",
+    serviceId: String = "",
+    items: [POItem] = [],
+    modeUIRawValue: String = "quickAdd",
+    workflowDetail: String? = nil
 ) -> ReviewDraftSnapshot {
     let parsedInvoice = ParsedInvoice(
         vendorName: vendorName,
@@ -108,16 +175,16 @@ private func makeSnapshot(
             vendorInvoiceNumber: "",
             poReference: "",
             notes: "",
-            selectedVendorId: nil,
-            orderId: "",
-            serviceId: "",
-            items: [],
-            modeUIRawValue: "quickAdd",
+            selectedVendorId: selectedVendorId,
+            orderId: orderId,
+            serviceId: serviceId,
+            items: items,
+            modeUIRawValue: modeUIRawValue,
             ignoreTaxOverride: true,
             selectedPOId: nil,
             selectedTicketId: nil,
             workflowStateRawValue: workflowState.rawValue,
-            workflowDetail: workflowState.statusLabel
+            workflowDetail: workflowDetail ?? workflowState.statusLabel
         )
     )
 }

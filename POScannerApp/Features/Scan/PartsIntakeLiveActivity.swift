@@ -106,6 +106,7 @@ final class PartsIntakeLiveActivityManager {
         }
 
         let clampedProgress = min(1, max(0, Double(progressBucket) / 100))
+        let previousSignature = self.lastSignature
         let signature = Signature(
             statusText: normalizedStatusText,
             detailText: normalizedDetailText,
@@ -134,7 +135,12 @@ final class PartsIntakeLiveActivityManager {
 
         if let activity {
             Self.logger.debug("Live Activity updated. progress=\(clampedProgress, privacy: .public)")
-            await activity.update(content)
+            if shouldRequestProminentUpdate(previous: previousSignature, next: signature),
+               let alertConfiguration = alertConfiguration(for: signature) {
+                await activity.update(content, alertConfiguration: alertConfiguration)
+            } else {
+                await activity.update(content)
+            }
             self.lastSignature = signature
             self.lastUpdateAt = Date()
             self.lastDeepLinkRawValue = deepLinkRawValue ?? self.lastDeepLinkRawValue
@@ -349,6 +355,41 @@ final class PartsIntakeLiveActivityManager {
     private func shouldAllowProgressRegression(statusText: String) -> Bool {
         let normalized = statusText.lowercased()
         return normalized.contains("step 1 of 4") || normalized.contains("capture in progress")
+    }
+
+    private func shouldRequestProminentUpdate(previous: Signature?, next: Signature) -> Bool {
+        guard previous?.stageToken != next.stageToken else { return false }
+        switch next.stageToken {
+        case "submit", "success", "fail":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func alertConfiguration(for signature: Signature) -> AlertConfiguration? {
+        switch signature.stageToken {
+        case "submit":
+            return AlertConfiguration(
+                title: "Submitting to Shopmonkey",
+                body: "Posting purchase order...",
+                sound: .default
+            )
+        case "success":
+            return AlertConfiguration(
+                title: "Submitted",
+                body: "Purchase order posted successfully.",
+                sound: .default
+            )
+        case "fail":
+            return AlertConfiguration(
+                title: "Submission needs attention",
+                body: "Open ShopMikey to review and retry.",
+                sound: .default
+            )
+        default:
+            return nil
+        }
     }
 
     private func isMeaningfulActiveState(

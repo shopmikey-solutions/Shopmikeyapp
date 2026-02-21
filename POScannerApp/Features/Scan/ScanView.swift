@@ -39,6 +39,7 @@ struct ScanView: View {
     @State private var lastDashboardRefreshAt: Date?
     @State private var lastDraftReloadAt: Date?
     @State private var lastDraftStoreChangeAt: Date?
+    @State private var lastInitialRefreshRequestAt: Date?
     @StateObject private var viewModel: ScanViewModel
     @Environment(\.scenePhase) private var scenePhase
 
@@ -127,9 +128,8 @@ struct ScanView: View {
             )
         }
         .onAppear {
-            if self.isTabActive {
-                self.scheduleInitialDashboardRefresh()
-            }
+            guard self.isTabActive else { return }
+            self.scheduleInitialDashboardRefresh(force: true)
         }
         .onDisappear {
             self.initialLoadTask?.cancel()
@@ -231,7 +231,6 @@ struct ScanView: View {
                 self.syncLiveActivity()
             }
         }
-        .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
     }
 
     private var scanList: some View {
@@ -664,6 +663,7 @@ struct ScanView: View {
 
         self.liveActivityEndTask?.cancel()
         self.liveActivityEndTask = Task { @MainActor in
+            defer { self.liveActivityEndTask = nil }
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !Task.isCancelled else { return }
             let latestPayload = self.liveActivityPayload()
@@ -866,9 +866,17 @@ struct ScanView: View {
     }
 
     @MainActor
-    private func scheduleInitialDashboardRefresh() {
-        self.initialLoadTask?.cancel()
+    private func scheduleInitialDashboardRefresh(force: Bool = false) {
+        let now = Date()
+        if !force,
+           let lastInitialRefreshRequestAt = self.lastInitialRefreshRequestAt,
+           now.timeIntervalSince(lastInitialRefreshRequestAt) < 0.9 {
+            return
+        }
+        self.lastInitialRefreshRequestAt = now
+        guard self.initialLoadTask == nil else { return }
         self.initialLoadTask = Task { @MainActor in
+            defer { self.initialLoadTask = nil }
             await Task.yield()
             let shouldForceMetricsReload = !self.hasPerformedInitialLoad
             if shouldForceMetricsReload {
@@ -881,8 +889,9 @@ struct ScanView: View {
 
     @MainActor
     private func scheduleDraftStoreRefresh() {
-        self.draftStoreRefreshTask?.cancel()
+        guard self.draftStoreRefreshTask == nil else { return }
         self.draftStoreRefreshTask = Task { @MainActor in
+            defer { self.draftStoreRefreshTask = nil }
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             self.triggerDraftReloadIfNeeded(minimumInterval: 2.4)

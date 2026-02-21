@@ -89,18 +89,21 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 10) {
-                            ProgressView(value: self.clampedProgress(context.state.progress))
-                                .tint(stage.tint)
-                            Text(context.state.updatedAt, style: .relative)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(islandDetailText)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
+                            Spacer(minLength: 8)
+                            Text(context.state.updatedAt, style: .timer)
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
-                        Text(islandDetailText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
+                        ProgressView(value: self.clampedProgress(context.state.progress))
+                            .progressViewStyle(.linear)
+                            .tint(stage.tint)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }

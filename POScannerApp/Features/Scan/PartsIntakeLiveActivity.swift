@@ -11,7 +11,7 @@ import UIKit
 #endif
 
 #if canImport(ActivityKit)
-import ActivityKit
+@preconcurrency import ActivityKit
 
 @available(iOS 16.1, *)
 struct PartsIntakeActivityAttributes: ActivityAttributes {
@@ -28,7 +28,8 @@ struct PartsIntakeActivityAttributes: ActivityAttributes {
 }
 
 @available(iOS 16.1, *)
-actor PartsIntakeLiveActivityManager {
+@MainActor
+final class PartsIntakeLiveActivityManager {
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.LiveActivity")
 
     static let shared = PartsIntakeLiveActivityManager()
@@ -354,6 +355,7 @@ actor PartsIntakeLiveActivityManager {
 }
 #endif
 
+@MainActor
 enum PartsIntakeLiveActivityBridge {
     private struct PendingSyncPayload {
         let isActive: Bool

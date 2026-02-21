@@ -461,7 +461,7 @@ final class POSubmissionService {
 
         let all = try await shopmonkey.getPurchaseOrders()
         guard let matchedPO = all.first(where: { candidate in
-            normalizePurchaseOrderReference(candidate.number) == normalizedReference
+            self.normalizePurchaseOrderReference(candidate.number) == normalizedReference
         }) else {
             return nil
         }
@@ -508,7 +508,7 @@ final class POSubmissionService {
     }
 
     private func mergePurchaseOrderItems(existingItems: [POItem], scannedItems: [POItem]) -> [POItem] {
-        var signatures = Set(existingItems.map(itemSignature))
+        var signatures = Set(existingItems.map(self.itemSignature))
         var merged = existingItems
 
         for item in scannedItems {
@@ -540,7 +540,7 @@ final class POSubmissionService {
 
     private func quickAddInventoryValidationError(for items: [POItem]) -> String? {
         let missingInventoryIdentifiers = items.filter { item in
-            let lineType = classify(item)
+            let lineType = self.classify(item)
             guard lineType == .part || lineType == .tire else { return false }
             let identifier = (item.partNumber ?? item.sku).trimmingCharacters(in: .whitespacesAndNewlines)
             return identifier.isEmpty
@@ -574,13 +574,13 @@ final class POSubmissionService {
         }
 
         let parts = items.compactMap { item -> CreatePurchaseOrderPartRequest? in
-            guard classify(item) == .part else { return nil }
+            guard self.classify(item) == .part else { return nil }
 
             let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let safeSKU = item.sku.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             let safePartNumber = item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 ?? safeSKU
-                ?? fallbackPartNumber(for: safeName, itemID: item.id)
+                ?? self.fallbackPartNumber(for: safeName, itemID: item.id)
             return CreatePurchaseOrderPartRequest(
                 name: safeName,
                 quantity: item.quantityForSubmission,
@@ -592,7 +592,7 @@ final class POSubmissionService {
         }
 
         let fees = items.compactMap { item -> CreatePurchaseOrderFeeRequest? in
-            guard classify(item) == .fee else { return nil }
+            guard self.classify(item) == .fee else { return nil }
 
             let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let amountCents = max(item.costCents * item.quantityForSubmission, item.costCents)
@@ -604,13 +604,13 @@ final class POSubmissionService {
         }
 
         let tires = items.compactMap { item -> CreatePurchaseOrderTireRequest? in
-            guard classify(item) == .tire else { return nil }
+            guard self.classify(item) == .tire else { return nil }
 
             let safeName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let safeSKU = item.sku.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             let safePartNumber = item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                 ?? safeSKU
-                ?? fallbackPartNumber(for: safeName, itemID: item.id)
+                ?? self.fallbackPartNumber(for: safeName, itemID: item.id)
             return CreatePurchaseOrderTireRequest(
                 name: safeName,
                 quantity: item.quantityForSubmission,
@@ -800,7 +800,7 @@ final class POSubmissionService {
 
         if let normalizedCreatedID = normalizePurchaseOrderReference(createdPurchaseOrderID),
            let matchedByNumber = knownPurchaseOrders.first(where: { candidate in
-               normalizePurchaseOrderReference(candidate.number) == normalizedCreatedID
+               self.normalizePurchaseOrderReference(candidate.number) == normalizedCreatedID
            }) {
             return matchedByNumber.number?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         }

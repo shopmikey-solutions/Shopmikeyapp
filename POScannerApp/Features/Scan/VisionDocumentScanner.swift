@@ -27,7 +27,7 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {}
 
-    final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
+    final class Coordinator: NSObject, @preconcurrency VNDocumentCameraViewControllerDelegate {
         let onScan: (UIImage, CGImagePropertyOrientation) -> Void
         let onCancel: () -> Void
         private var didComplete = false
@@ -40,6 +40,7 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
             self.onCancel = onCancel
         }
 
+        @MainActor
         func documentCameraViewController(
             _ controller: VNDocumentCameraViewController,
             didFinishWith scan: VNDocumentCameraScan
@@ -53,20 +54,15 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
                 return
             }
 
-            Task { @MainActor in
-                AppHaptics.success()
-            }
+            AppHaptics.success()
 
-            Task.detached(priority: .userInitiated) { [onScan] in
-                // Use first page for now.
-                let image = scan.imageOfPage(at: 0)
-                let orientation = image.imageOrientation.cgImagePropertyOrientation
-                await MainActor.run {
-                    onScan(image, orientation)
-                }
-            }
+            // Use first page for now.
+            let image = scan.imageOfPage(at: 0)
+            let orientation = image.imageOrientation.cgImagePropertyOrientation
+            self.onScan(image, orientation)
         }
 
+        @MainActor
         func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
             _ = controller
             guard !didComplete else { return }
@@ -74,13 +70,12 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
             onCancel()
         }
 
+        @MainActor
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
             _ = controller
             guard !didComplete else { return }
             didComplete = true
-            Task { @MainActor in
-                AppHaptics.warning()
-            }
+            AppHaptics.warning()
             #if DEBUG
             print("VisionDocumentScanner failed: \(error.localizedDescription)")
             #endif

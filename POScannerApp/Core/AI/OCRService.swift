@@ -93,13 +93,16 @@ final class OCRService {
     }
 
     func extractDocument(from cgImage: CGImage, orientation: CGImagePropertyOrientation) async throws -> DocumentExtraction {
-        try await withCheckedThrowingContinuation { continuation in
+        let recognitionLanguages = self.recognitionLanguages
+        let maxRecognizedLines = self.maxRecognizedLines
+        let maxExtractedCharacters = self.maxExtractedCharacters
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<DocumentExtraction, Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let textRequest = VNRecognizeTextRequest()
                     textRequest.recognitionLevel = .accurate
                     textRequest.usesLanguageCorrection = true
-                    textRequest.recognitionLanguages = self.recognitionLanguages
+                    textRequest.recognitionLanguages = recognitionLanguages
 
                     let barcodeRequest = VNDetectBarcodesRequest()
 
@@ -141,7 +144,7 @@ final class OCRService {
                             boundingBox: OCRService.unionBoundingBox(for: sortedRow)
                         )
                     }
-                    .prefix(self.maxRecognizedLines)
+                    .prefix(maxRecognizedLines)
                     .map { $0 }
 
                     let fullText = normalizedLines
@@ -157,8 +160,8 @@ final class OCRService {
                         .map { "[BARCODE \($0.symbology)] \($0.payload)" }
                         .joined(separator: "\n")
                     let assembledText = fullText.isEmpty ? barcodeText : fullText
-                    let boundedText = assembledText.count > self.maxExtractedCharacters
-                        ? String(assembledText.prefix(self.maxExtractedCharacters))
+                    let boundedText = assembledText.count > maxExtractedCharacters
+                        ? String(assembledText.prefix(maxExtractedCharacters))
                         : assembledText
 
                     guard !boundedText.isEmpty else {

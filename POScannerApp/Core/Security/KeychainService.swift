@@ -7,7 +7,7 @@ import Foundation
 import Security
 
 /// Minimal Keychain wrapper for storing the Shopmonkey sandbox API token.
-final class KeychainService {
+final class KeychainService: @unchecked Sendable {
     enum KeychainServiceError: Error {
         case invalidToken
         case itemNotFound

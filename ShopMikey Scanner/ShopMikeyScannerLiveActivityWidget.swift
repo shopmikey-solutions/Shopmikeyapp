@@ -25,7 +25,7 @@ struct PartsIntakeActivityAttributes: ActivityAttributes {
 struct ShopMikeyScannerLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: PartsIntakeActivityAttributes.self) { context in
-            let stage = resolvedStage(for: context.state)
+            let stage = self.resolvedStage(for: context.state)
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Label(context.attributes.title, systemImage: "doc.text.viewfinder")
@@ -42,7 +42,7 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                     .font(.headline)
                     .lineLimit(1)
 
-                ProgressView(value: clampedProgress(context.state.progress))
+                ProgressView(value: self.clampedProgress(context.state.progress))
                     .tint(stage.tint)
 
                 Text(context.state.detailText)
@@ -54,9 +54,9 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             .padding(.vertical, 12)
             .activityBackgroundTint(stage.tint.opacity(0.14))
             .activitySystemActionForegroundColor(.primary)
-            .widgetURL(deepLinkURL(for: context))
+            .widgetURL(self.deepLinkURL(for: context))
         } dynamicIsland: { context in
-            let stage = resolvedStage(for: context.state)
+            let stage = self.resolvedStage(for: context.state)
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading, priority: 3) {
                     Label(stage.label, systemImage: stage.iconName)
@@ -67,7 +67,7 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                         .minimumScaleFactor(0.82)
                 }
                 DynamicIslandExpandedRegion(.trailing, priority: 2) {
-                    Text("\(progressPercent(clampedProgress(context.state.progress)))%")
+                    Text("\(self.progressPercent(self.clampedProgress(context.state.progress)))%")
                         .font(.caption2.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -79,12 +79,12 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                    .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 10) {
-                            ProgressView(value: clampedProgress(context.state.progress))
+                            ProgressView(value: self.clampedProgress(context.state.progress))
                                 .tint(stage.tint)
                             Text(context.state.updatedAt, style: .relative)
                                 .font(.caption2.monospacedDigit())
@@ -100,13 +100,13 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             } compactLeading: {
                 Image(systemName: stage.iconName)
             } compactTrailing: {
-                Text("\(progressPercent(clampedProgress(context.state.progress)))%")
+                Text("\(self.progressPercent(self.clampedProgress(context.state.progress)))%")
                     .font(.caption2.monospacedDigit())
                     .contentTransition(.numericText())
             } minimal: {
                 Image(systemName: stage.iconName)
             }
-            .widgetURL(deepLinkURL(for: context))
+            .widgetURL(self.deepLinkURL(for: context))
             .keylineTint(stage.tint)
         }
     }

@@ -12,6 +12,6 @@ import AppIntents
 public struct ConfigurationAppIntent: WidgetConfigurationIntent {
     public init() {}
 
-    public static var title: LocalizedStringResource = "Widget Configuration"
-    public static var description = IntentDescription("Configure the ShopMikey parts intake widget.")
+    public static let title: LocalizedStringResource = "Widget Configuration"
+    public static let description = IntentDescription("Configure the ShopMikey parts intake widget.")
 }

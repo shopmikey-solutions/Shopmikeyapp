@@ -71,7 +71,7 @@ enum PartsIntakeWidgetBridge {
 
     private static func resolvedCurrencyCode() -> String {
         let fallback = "USD"
-        let configured = Locale.current.currencyCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let configured = Locale.current.currency?.identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let configured, !configured.isEmpty else { return fallback }
         return configured.uppercased()
     }

@@ -8,7 +8,7 @@ import Foundation
 import os
 
 /// Core Data stack owner.
-final class DataController {
+final class DataController: @unchecked Sendable {
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.CoreData")
 
     let container: NSPersistentContainer
@@ -55,7 +55,7 @@ final class DataController {
         scheduleLoadTimeoutFallback()
 
         container.viewContext.automaticallyMergesChangesFromParent = true
-        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        container.viewContext.mergePolicy = NSMergePolicy(merge: .mergeByPropertyObjectTrumpMergePolicyType)
     }
 
     private static func resolveModel() throws -> NSManagedObjectModel {
@@ -84,29 +84,34 @@ final class DataController {
         container.viewContext
     }
 
+    private func withLoadLock<T>(_ body: () -> T) -> T {
+        loadLock.lock()
+        defer { loadLock.unlock() }
+        return body()
+    }
+
     /// Await the persistent store load completion. Useful for tests.
     func waitUntilLoaded(timeout: TimeInterval = 5.0) async {
-        loadLock.lock()
-        if isLoaded {
-            loadLock.unlock()
-            return
-        }
-        loadLock.unlock()
+        guard !withLoadLock({ isLoaded }) else { return }
 
         let token = UUID()
         await withCheckedContinuation { cont in
-            loadLock.lock()
-            if isLoaded {
-                loadLock.unlock()
+            let shouldResumeImmediately = withLoadLock { () -> Bool in
+                if isLoaded {
+                    return true
+                }
+                loadContinuations[token] = cont
+                return false
+            }
+            if shouldResumeImmediately {
                 cont.resume()
                 return
             }
-            loadContinuations[token] = cont
-            loadLock.unlock()
             Self.logger.debug("Registered persistent store wait continuation. token=\(token.uuidString, privacy: .public)")
 
             guard timeout > 0 else { return }
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 self?.resumeLoadContinuationIfPending(token: token)
             }
         }
@@ -159,11 +164,10 @@ final class DataController {
     private func scheduleLoadTimeoutFallback() {
         let timeout = loadWaitTimeout
         guard timeout > 0 else { return }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             guard let self else { return }
-            self.loadLock.lock()
-            let shouldTriggerFallback = !self.isLoaded
-            self.loadLock.unlock()
+            let shouldTriggerFallback = self.withLoadLock { !self.isLoaded }
             guard shouldTriggerFallback else { return }
 
             Self.logger.error("Persistent store load timeout fallback triggered at \(Int(timeout), privacy: .public)s")

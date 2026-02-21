@@ -97,7 +97,7 @@ final class HistoryViewModel: ObservableObject {
                 return
             }
             let backgroundContext = container.newBackgroundContext()
-            backgroundContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+            backgroundContext.mergePolicy = NSMergePolicy(merge: .mergeByPropertyObjectTrumpMergePolicyType)
 
             let mapped: [HistoryRow] = await backgroundContext.perform {
                 guard NSEntityDescription.entity(forEntityName: "PurchaseOrder", in: backgroundContext) != nil else {

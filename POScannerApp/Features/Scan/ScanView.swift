@@ -52,7 +52,7 @@ struct ScanView: View {
         .listStyle(.insetGrouped)
         .nativeListSurface()
         .refreshable {
-            viewModel.loadTodayMetrics()
+            self.viewModel.loadTodayMetrics()
         }
         .sensoryFeedback(.selection, trigger: ignoreTaxAndTotals)
         .navigationTitle("ShopMikey")
@@ -62,10 +62,10 @@ struct ScanView: View {
                 toolbarCaptureButton
             }
         }
-        .sheet(isPresented: $showSourceSheet, onDismiss: handleCaptureSourceSheetDismissed) {
+        .sheet(isPresented: $showSourceSheet, onDismiss: self.handleCaptureSourceSheetDismissed) {
             ScanSourceSheet(
-                onScanWithCamera: { pendingCaptureSource = .camera },
-                onChooseFromPhotos: { pendingCaptureSource = .photos }
+                onScanWithCamera: { self.pendingCaptureSource = .camera },
+                onChooseFromPhotos: { self.pendingCaptureSource = .photos }
             )
         }
         .photosPicker(
@@ -81,15 +81,15 @@ struct ScanView: View {
                 if VNDocumentCameraViewController.isSupported {
                     VisionDocumentScanner(
                         onScan: { image, orientation in
-                            showScanner = false
-                            viewModel.handleScannedImage(
+                            self.showScanner = false
+                            self.viewModel.handleScannedImage(
                                 image,
                                 orientation: orientation,
-                                ignoreTaxAndTotals: ignoreTaxAndTotals
+                                ignoreTaxAndTotals: self.ignoreTaxAndTotals
                             )
                         },
                         onCancel: {
-                            showScanner = false
+                            self.showScanner = false
                         }
                     )
                 } else {
@@ -108,10 +108,10 @@ struct ScanView: View {
                 OCRReviewView(
                     draft: draft,
                     onCancel: {
-                        viewModel.cancelOCRReview()
+                        self.viewModel.cancelOCRReview()
                     },
                     onContinue: { reviewedText, includeDetectedBarcodes in
-                        viewModel.continueFromOCRReview(
+                        self.viewModel.continueFromOCRReview(
                             editedText: reviewedText,
                             includeDetectedBarcodes: includeDetectedBarcodes
                         )
@@ -121,49 +121,49 @@ struct ScanView: View {
         }
         .navigationDestination(item: $viewModel.parsedInvoiceRoute) { route in
             ReviewView(
-                environment: viewModel.environment,
+                environment: self.viewModel.environment,
                 parsedInvoice: route.invoice,
                 draftSnapshot: route.draftSnapshot
             )
         }
         .onAppear {
-            if isTabActive {
-                scheduleInitialDashboardRefresh()
+            if self.isTabActive {
+                self.scheduleInitialDashboardRefresh()
             }
         }
         .onDisappear {
-            initialLoadTask?.cancel()
-            initialLoadTask = nil
-            draftStoreRefreshTask?.cancel()
-            draftStoreRefreshTask = nil
-            liveActivityEndTask?.cancel()
-            liveActivityEndTask = nil
+            self.initialLoadTask?.cancel()
+            self.initialLoadTask = nil
+            self.draftStoreRefreshTask?.cancel()
+            self.draftStoreRefreshTask = nil
+            self.liveActivityEndTask?.cancel()
+            self.liveActivityEndTask = nil
         }
         .onChange(of: isTabActive) { _, active in
             if active {
-                scheduleInitialDashboardRefresh()
-                scheduleDraftStoreRefresh()
-                syncLiveActivity()
+                self.scheduleInitialDashboardRefresh()
+                self.scheduleDraftStoreRefresh()
+                self.syncLiveActivity()
             } else {
-                initialLoadTask?.cancel()
-                initialLoadTask = nil
-                draftStoreRefreshTask?.cancel()
-                draftStoreRefreshTask = nil
-                if !viewModel.isProcessing {
-                    syncLiveActivity()
+                self.initialLoadTask?.cancel()
+                self.initialLoadTask = nil
+                self.draftStoreRefreshTask?.cancel()
+                self.draftStoreRefreshTask = nil
+                if !self.viewModel.isProcessing {
+                    self.syncLiveActivity()
                 }
             }
         }
         .onChange(of: viewModel.processingStage) { _, stage in
             guard stage != nil else { return }
             AppHaptics.selection()
-            if isTabActive || viewModel.isProcessing || lastLiveActivitySignature != nil {
-                syncLiveActivity()
+            if self.isTabActive || self.viewModel.isProcessing || self.lastLiveActivitySignature != nil {
+                self.syncLiveActivity()
             }
         }
         .onChange(of: viewModel.isProcessing) { oldValue, newValue in
-            if isTabActive || oldValue || newValue || lastLiveActivitySignature != nil {
-                syncLiveActivity()
+            if self.isTabActive || oldValue || newValue || self.lastLiveActivitySignature != nil {
+                self.syncLiveActivity()
             }
         }
         .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
@@ -179,56 +179,56 @@ struct ScanView: View {
         }
         .onChange(of: selectedPhotoItem) { _, item in
             guard let item else { return }
-            Task { await importPhoto(item) }
+            Task { await self.importPhoto(item) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
-            presentCaptureFlow()
+            self.presentCaptureFlow()
         }
         .onReceive(NotificationCenter.default.publisher(for: .appResumeScanDraft)) { notification in
             guard let draftID = notification.object as? UUID else { return }
-            guard !viewModel.isProcessing else { return }
+            guard !self.viewModel.isProcessing else { return }
             Task {
-                let resumed = await viewModel.resumeDraft(id: draftID)
+                let resumed = await self.viewModel.resumeDraft(id: draftID)
                 if !resumed {
                     await MainActor.run {
-                        presentCaptureSourcePicker()
+                        self.presentCaptureSourcePicker()
                     }
                 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
-            guard !viewModel.isProcessing else { return }
+            guard !self.viewModel.isProcessing else { return }
             // While actively reviewing a draft, avoid high-frequency store reload churn from autosave.
-            if isReviewFlowPresented {
+            if self.isReviewFlowPresented {
                 return
             }
             let now = Date()
-            if let lastDraftStoreChangeAt,
+            if let lastDraftStoreChangeAt = self.lastDraftStoreChangeAt,
                now.timeIntervalSince(lastDraftStoreChangeAt) < 0.75 {
                 return
             }
             self.lastDraftStoreChangeAt = now
 
             let hasActiveLiveSession =
-                (lastLiveActivitySignature?.isActive == true)
-                || viewModel.activeWorkflowDraftIDForLiveActivity != nil
-            guard isTabActive || hasActiveLiveSession else {
+                (self.lastLiveActivitySignature?.isActive == true)
+                || self.viewModel.activeWorkflowDraftIDForLiveActivity != nil
+            guard self.isTabActive || hasActiveLiveSession else {
                 return
             }
-            scheduleDraftStoreRefresh()
+            self.scheduleDraftStoreRefresh()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            if isTabActive || lastLiveActivitySignature?.isActive == true {
-                scheduleDraftStoreRefresh()
+            if self.isTabActive || self.lastLiveActivitySignature?.isActive == true {
+                self.scheduleDraftStoreRefresh()
             }
-            if isTabActive || lastLiveActivitySignature != nil || !viewModel.inProgressDrafts.isEmpty {
-                syncLiveActivity()
+            if self.isTabActive || self.lastLiveActivitySignature != nil || !self.viewModel.inProgressDrafts.isEmpty {
+                self.syncLiveActivity()
             }
         }
         .onChange(of: viewModel.inProgressDrafts) { _, _ in
-            if viewModel.isProcessing || liveActivityDraftCandidate() != nil || (lastLiveActivitySignature?.isActive == true) {
-                syncLiveActivity()
+            if self.viewModel.isProcessing || self.liveActivityDraftCandidate() != nil || (self.lastLiveActivitySignature?.isActive == true) {
+                self.syncLiveActivity()
             }
         }
         .animation(.snappy(duration: 0.22), value: viewModel.inProgressDrafts)
@@ -317,7 +317,7 @@ struct ScanView: View {
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button("Delete", role: .destructive) {
                                 AppHaptics.warning()
-                                viewModel.deleteDraft(draft)
+                                self.viewModel.deleteDraft(draft)
                             }
                         }
                 }
@@ -330,7 +330,7 @@ struct ScanView: View {
         Section("Recent Purchase Order Posts") {
             if let recent = viewModel.mostRecentSummary {
                 NavigationLink {
-                    HistoryView(environment: viewModel.environment)
+                    HistoryView(environment: self.viewModel.environment)
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(recent.vendor)
@@ -349,12 +349,12 @@ struct ScanView: View {
     private var toolsSection: some View {
         Section("App Tools") {
             NavigationLink("Purchase Order History") {
-                HistoryView(environment: viewModel.environment)
+                HistoryView(environment: self.viewModel.environment)
             }
             .accessibilityIdentifier("scan.quickHistory")
 
             NavigationLink("Settings") {
-                SettingsView(environment: viewModel.environment)
+                SettingsView(environment: self.viewModel.environment)
             }
             .accessibilityIdentifier("scan.quickSettings")
         }
@@ -365,7 +365,7 @@ struct ScanView: View {
         if viewModel.uiTestReviewFixtureEnabled {
             Section {
                 Button("Open Review Fixture") {
-                    viewModel.openUITestReviewFixture()
+                    self.viewModel.openUITestReviewFixture()
                 }
                 .accessibilityIdentifier("scan.openReviewFixture")
             }
@@ -384,10 +384,10 @@ struct ScanView: View {
 
     private var toolbarCaptureButton: some View {
         Button {
-            presentCaptureFlow()
+            self.presentCaptureFlow()
         } label: {
             Label(
-                viewModel.latestDraft == nil ? "Scan Parts Invoice" : "New Capture",
+                self.viewModel.latestDraft == nil ? "Scan Parts Invoice" : "New Capture",
                 systemImage: "doc.viewfinder"
             )
         }
@@ -400,7 +400,7 @@ struct ScanView: View {
             isImportingPhoto
         )
         .accessibilityIdentifier("scan.scanButton")
-        .accessibilityLabel(viewModel.latestDraft == nil ? "Scan parts invoice" : "Start new parts invoice capture")
+        .accessibilityLabel(self.viewModel.latestDraft == nil ? "Scan parts invoice" : "Start new parts invoice capture")
         .accessibilityHint("Opens capture source options for camera or photos.")
     }
 
@@ -409,7 +409,7 @@ struct ScanView: View {
         if draft.canResumeInReview {
             Button {
                 AppHaptics.selection()
-                viewModel.resumeDraft(draft)
+                self.viewModel.resumeDraft(draft)
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(draft.displayVendorName)
@@ -503,21 +503,21 @@ struct ScanView: View {
         if viewModel.canResumeOCRReview(draft) {
             Button {
                 AppHaptics.selection()
-                viewModel.resumeOCRReview(draft)
+                self.viewModel.resumeOCRReview(draft)
             } label: {
                 Label("Review OCR Draft", systemImage: "text.viewfinder")
             }
         } else if draft.canResumeInReview {
             Button {
                 AppHaptics.selection()
-                viewModel.resumeDraft(draft)
+                self.viewModel.resumeDraft(draft)
             } label: {
                 Label("Resume Intake Review", systemImage: "arrow.clockwise.circle")
             }
         } else {
             Button {
                 AppHaptics.selection()
-                presentCaptureSourcePicker()
+                self.presentCaptureSourcePicker()
             } label: {
                 Label("Start New Capture", systemImage: "camera.viewfinder")
             }
@@ -526,7 +526,7 @@ struct ScanView: View {
         if canResume {
             Button {
                 AppHaptics.selection()
-                presentCaptureSourcePicker()
+                self.presentCaptureSourcePicker()
             } label: {
                 Label("Start New Capture", systemImage: "camera.viewfinder")
             }
@@ -534,7 +534,7 @@ struct ScanView: View {
 
         Button(role: .destructive) {
             AppHaptics.warning()
-            viewModel.deleteDraft(draft)
+            self.viewModel.deleteDraft(draft)
         } label: {
             Label("Remove Saved Session", systemImage: "trash")
         }
@@ -634,23 +634,23 @@ struct ScanView: View {
     }
 
     private func syncLiveActivity() {
-        let payload = liveActivityPayload()
-        guard isTabActive || viewModel.isProcessing || payload.isActive || lastLiveActivitySignature != nil else { return }
+        let payload = self.liveActivityPayload()
+        guard self.isTabActive || self.viewModel.isProcessing || payload.isActive || self.lastLiveActivitySignature != nil else { return }
         // Draft loads can briefly return empty and cause false inactive transitions.
         if !payload.isActive,
-           viewModel.isLoadingInProgressDrafts,
-           lastLiveActivitySignature?.isActive == true {
+           self.viewModel.isLoadingInProgressDrafts,
+           self.lastLiveActivitySignature?.isActive == true {
             return
         }
-        let signature = liveActivitySignature(for: payload)
-        if signature == lastLiveActivitySignature {
+        let signature = self.liveActivitySignature(for: payload)
+        if signature == self.lastLiveActivitySignature {
             return
         }
-        lastLiveActivitySignature = signature
+        self.lastLiveActivitySignature = signature
 
         if payload.isActive {
-            liveActivityEndTask?.cancel()
-            liveActivityEndTask = nil
+            self.liveActivityEndTask?.cancel()
+            self.liveActivityEndTask = nil
             PartsIntakeLiveActivityBridge.sync(
                 isActive: true,
                 statusText: payload.status,
@@ -662,17 +662,17 @@ struct ScanView: View {
             return
         }
 
-        liveActivityEndTask?.cancel()
-        liveActivityEndTask = Task { @MainActor in
+        self.liveActivityEndTask?.cancel()
+        self.liveActivityEndTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard !Task.isCancelled else { return }
-            let latestPayload = liveActivityPayload()
+            let latestPayload = self.liveActivityPayload()
             if latestPayload.isActive {
-                syncLiveActivity()
+                self.syncLiveActivity()
                 return
             }
-            let latestSignature = liveActivitySignature(for: latestPayload)
-            guard latestSignature == lastLiveActivitySignature else { return }
+            let latestSignature = self.liveActivitySignature(for: latestPayload)
+            guard latestSignature == self.lastLiveActivitySignature else { return }
             PartsIntakeLiveActivityBridge.sync(
                 isActive: false,
                 statusText: "",
@@ -692,8 +692,8 @@ struct ScanView: View {
         deepLinkURL: URL?,
         stageToken: String?
     ) {
-        if viewModel.isProcessing, let stage = viewModel.processingStage {
-            let activeDraftID = viewModel.activeWorkflowDraftIDForLiveActivity ?? viewModel.latestDraft?.id
+        if self.viewModel.isProcessing, let stage = self.viewModel.processingStage {
+            let activeDraftID = self.viewModel.activeWorkflowDraftIDForLiveActivity ?? self.viewModel.latestDraft?.id
             let status: String
             let detail: String
             let stageToken: String
@@ -719,14 +719,14 @@ struct ScanView: View {
                 true,
                 status,
                 detail,
-                viewModel.processingProgressEstimate,
+                self.viewModel.processingProgressEstimate,
                 activeDraftID.map { AppDeepLink.scanURL(draftID: $0) } ?? AppDeepLink.scanURL(openComposer: true),
                 stageToken
             )
         }
 
-        if let draft = liveActivityDraftCandidate(),
-           let payload = liveActivityPayload(for: draft) {
+        if let draft = self.liveActivityDraftCandidate(),
+           let payload = self.liveActivityPayload(for: draft) {
             return payload
         }
 
@@ -777,19 +777,19 @@ struct ScanView: View {
     }
 
     private func liveActivityDraftCandidate() -> ReviewDraftSnapshot? {
-        let drafts = viewModel.inProgressDrafts
+        let drafts = self.viewModel.inProgressDrafts
         guard !drafts.isEmpty else { return nil }
         let now = Date()
 
         return drafts
             .filter { draft in
                 guard draft.isLiveIntakeSession else { return false }
-                return isDraftEligibleForLiveActivity(draft, now: now)
+                return self.isDraftEligibleForLiveActivity(draft, now: now)
             }
             .sorted {
                 if $0.updatedAt == $1.updatedAt {
-                    let lhsPriority = liveActivityDraftPriority($0.workflowState)
-                    let rhsPriority = liveActivityDraftPriority($1.workflowState)
+                    let lhsPriority = self.liveActivityDraftPriority($0.workflowState)
+                    let rhsPriority = self.liveActivityDraftPriority($1.workflowState)
                     return lhsPriority > rhsPriority
                 }
                 return $0.updatedAt > $1.updatedAt
@@ -798,14 +798,14 @@ struct ScanView: View {
     }
 
     private func isDraftEligibleForLiveActivity(_ draft: ReviewDraftSnapshot, now: Date) -> Bool {
-        if viewModel.activeWorkflowDraftIDForLiveActivity == draft.id {
+        if self.viewModel.activeWorkflowDraftIDForLiveActivity == draft.id {
             return true
         }
-        if let reviewDraftID = viewModel.parsedInvoiceRoute?.draftSnapshot?.id,
+        if let reviewDraftID = self.viewModel.parsedInvoiceRoute?.draftSnapshot?.id,
            reviewDraftID == draft.id {
             return true
         }
-        if let ocrDraftID = viewModel.ocrReviewDraft?.draftID,
+        if let ocrDraftID = self.viewModel.ocrReviewDraft?.draftID,
            ocrDraftID == draft.id {
             return true
         }
@@ -867,25 +867,25 @@ struct ScanView: View {
 
     @MainActor
     private func scheduleInitialDashboardRefresh() {
-        initialLoadTask?.cancel()
-        initialLoadTask = Task { @MainActor in
+        self.initialLoadTask?.cancel()
+        self.initialLoadTask = Task { @MainActor in
             await Task.yield()
-            let shouldForceMetricsReload = !hasPerformedInitialLoad
+            let shouldForceMetricsReload = !self.hasPerformedInitialLoad
             if shouldForceMetricsReload {
-                hasPerformedInitialLoad = true
+                self.hasPerformedInitialLoad = true
                 try? await Task.sleep(nanoseconds: 180_000_000)
             }
-            refreshDashboard(forceMetricsReload: shouldForceMetricsReload)
+            self.refreshDashboard(forceMetricsReload: shouldForceMetricsReload)
         }
     }
 
     @MainActor
     private func scheduleDraftStoreRefresh() {
-        draftStoreRefreshTask?.cancel()
-        draftStoreRefreshTask = Task { @MainActor in
+        self.draftStoreRefreshTask?.cancel()
+        self.draftStoreRefreshTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            triggerDraftReloadIfNeeded(minimumInterval: 2.4)
+            self.triggerDraftReloadIfNeeded(minimumInterval: 2.4)
         }
     }
 
@@ -938,16 +938,16 @@ private struct ScanSourceSheet: View {
                 Section("Capture Source") {
                     Button {
                         AppHaptics.selection()
-                        onScanWithCamera()
-                        dismiss()
+                        self.onScanWithCamera()
+                        self.dismiss()
                     } label: {
                         Label("Scan with Camera", systemImage: "camera.viewfinder")
                     }
 
                     Button {
                         AppHaptics.selection()
-                        onChooseFromPhotos()
-                        dismiss()
+                        self.onChooseFromPhotos()
+                        self.dismiss()
                     } label: {
                         Label("Choose from Photos", systemImage: "photo.on.rectangle")
                     }
@@ -963,7 +963,7 @@ private struct ScanSourceSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("Done") { self.dismiss() }
                 }
             }
         }
@@ -981,28 +981,28 @@ private struct ScanProcessingWidget: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(startedAt))
-            let normalizedProgress = clampedProgress(progress)
+            let elapsed = max(0, context.date.timeIntervalSince(self.startedAt))
+            let normalizedProgress = self.clampedProgress(self.progress)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "waveform.path.ecg")
                         .foregroundStyle(AppSurfaceStyle.info)
                         .symbolEffect(.pulse.byLayer, options: .repeating, value: normalizedProgress)
-                    Text(statusText)
+                    Text(self.statusText)
                         .font(.headline.weight(.semibold))
                     Spacer()
-                    Text(elapsedString(elapsed))
+                    Text(self.elapsedString(elapsed))
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
 
-                if showsDetail {
+                if self.showsDetail {
                     ProgressView(value: normalizedProgress)
                         .progressViewStyle(.linear)
                         .tint(AppSurfaceStyle.info)
 
-                    Text(detailText)
+                    Text(self.detailText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -1011,7 +1011,7 @@ private struct ScanProcessingWidget: View {
             .onTapGesture {
                 AppHaptics.selection()
                 withAnimation(.snappy(duration: 0.24)) {
-                    showsDetail.toggle()
+                    self.showsDetail.toggle()
                 }
             }
             .accessibilityElement(children: .combine)

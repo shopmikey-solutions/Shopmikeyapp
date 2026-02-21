@@ -93,6 +93,7 @@ final class ScanViewModel: ObservableObject {
 
     private let minimumOCRFlowDuration: TimeInterval = 1.20
     private let minimumParseFlowDuration: TimeInterval = 1.80
+    private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
     private var activeWorkflowDraftID: UUID?
     private var cachedOCRReviewDrafts: [UUID: OCRReviewDraft] = [:]
     private var todayMetricsTask: Task<Void, Never>?
@@ -154,6 +155,7 @@ final class ScanViewModel: ObservableObject {
         guard !isProcessing else { return }
         guard let draft = ocrReviewDraft else { return }
         activeWorkflowDraftID = draft.draftID
+        setPreferredLiveActivityDraftID(draft.draftID)
         cachedOCRReviewDrafts[draft.draftID] = nil
         ocrReviewDraft = nil
 
@@ -351,20 +353,34 @@ final class ScanViewModel: ObservableObject {
     func resumeOCRReview(_ draft: ReviewDraftSnapshot) {
         guard let cached = cachedOCRReviewDrafts[draft.id] else { return }
         activeWorkflowDraftID = draft.id
+        setPreferredLiveActivityDraftID(draft.id)
         parsedInvoiceRoute = nil
         ocrReviewDraft = cached
     }
 
     func resumeDraft(_ draft: ReviewDraftSnapshot) {
         activeWorkflowDraftID = draft.id
+        setPreferredLiveActivityDraftID(draft.id)
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: draft.state.parsedInvoice.parsedInvoice, draftSnapshot: draft)
     }
 
     @discardableResult
     func resumeDraft(id: UUID) async -> Bool {
+        if parsedInvoiceRoute?.draftSnapshot?.id == id || ocrReviewDraft?.draftID == id {
+            activeWorkflowDraftID = id
+            setPreferredLiveActivityDraftID(id)
+            return true
+        }
         guard let draft = await environment.reviewDraftStore.load(id: id) else { return false }
         if canResumeOCRReview(draft) {
             resumeOCRReview(draft)
+            return true
+        }
+        if draft.workflowState == .scanning || draft.workflowState == .ocrReview || draft.workflowState == .parsing {
+            activeWorkflowDraftID = id
+            setPreferredLiveActivityDraftID(id)
+            parsedInvoiceRoute = nil
+            ocrReviewDraft = nil
             return true
         }
         guard draft.canResumeInReview else { return false }
@@ -398,6 +414,9 @@ final class ScanViewModel: ObservableObject {
     ) async {
         _ = orientation
         activeWorkflowDraftID = UUID()
+        if let activeWorkflowDraftID {
+            setPreferredLiveActivityDraftID(activeWorkflowDraftID)
+        }
         isProcessing = true
         errorMessage = nil
         let flowStart = Date()
@@ -1074,6 +1093,29 @@ final class ScanViewModel: ObservableObject {
     }
 
     private func reconcileActiveWorkflowDraft(with drafts: [ReviewDraftSnapshot]) {
+        if activeWorkflowDraftID == nil, !isProcessing {
+            if let preferredDraftID = preferredLiveActivityDraftID(),
+               let preferredDraft = drafts.first(where: { $0.id == preferredDraftID }),
+               isStoredDraftEligibleForLiveActivity(preferredDraft) {
+                activeWorkflowDraftID = preferredDraftID
+                return
+            }
+
+            if let newestInFlightDraft = drafts
+                .filter({ isStoredDraftEligibleForLiveActivity($0) })
+                .sorted(by: { lhs, rhs in
+                    if lhs.updatedAt == rhs.updatedAt {
+                        return workflowLiveActivityPriority(lhs.workflowState) > workflowLiveActivityPriority(rhs.workflowState)
+                    }
+                    return lhs.updatedAt > rhs.updatedAt
+                })
+                .first {
+                activeWorkflowDraftID = newestInFlightDraft.id
+                setPreferredLiveActivityDraftID(newestInFlightDraft.id)
+                return
+            }
+        }
+
         guard let activeWorkflowDraftID else { return }
         if drafts.contains(where: { $0.id == activeWorkflowDraftID }) {
             return
@@ -1087,6 +1129,37 @@ final class ScanViewModel: ObservableObject {
         guard !isProcessing else { return }
         self.activeWorkflowDraftID = nil
         cachedOCRReviewDrafts[activeWorkflowDraftID] = nil
+    }
+
+    private func isStoredDraftEligibleForLiveActivity(_ draft: ReviewDraftSnapshot) -> Bool {
+        guard draft.isLiveIntakeSession else { return false }
+        return Date().timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+    }
+
+    private func preferredLiveActivityDraftID() -> UUID? {
+        guard let raw = UserDefaults.standard.string(forKey: preferredDraftDefaultsKey) else {
+            return nil
+        }
+        return UUID(uuidString: raw)
+    }
+
+    private func workflowLiveActivityPriority(_ state: ReviewDraftSnapshot.WorkflowState) -> Int {
+        switch state {
+        case .submitting:
+            return 5
+        case .reviewEdited:
+            return 4
+        case .reviewReady:
+            return 3
+        case .parsing:
+            return 2
+        case .ocrReview:
+            return 1
+        case .scanning:
+            return 0
+        case .failed:
+            return -1
+        }
     }
 
     var todayTotalFormatted: String {
@@ -1112,6 +1185,10 @@ final class ScanViewModel: ObservableObject {
 
     private var ignoreTaxAndTotalsSetting: Bool {
         UserDefaults.standard.bool(forKey: "ignoreTaxAndTotals")
+    }
+
+    private func setPreferredLiveActivityDraftID(_ id: UUID) {
+        UserDefaults.standard.set(id.uuidString, forKey: preferredDraftDefaultsKey)
     }
 
     private static let uiTestReviewInvoice: ParsedInvoice = {

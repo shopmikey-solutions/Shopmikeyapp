@@ -133,6 +133,7 @@ final class ReviewViewModel: ObservableObject {
     private var lastDraftFingerprint: Int?
     private var isRestoringDraftState: Bool = false
     private var shouldSkipDraftPersistence: Bool = false
+    private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
 
     init(
         environment: AppEnvironment,
@@ -1433,10 +1434,16 @@ final class ReviewViewModel: ObservableObject {
         selectedPOId = nil
         selectedTicketId = trimmedOrNil(state.selectedTicketId)
         activeDraftID = snapshot.id
+        setPreferredLiveActivityDraftID(snapshot.id)
         draftCreatedAt = snapshot.createdAt
         lastDraftSavedAt = snapshot.updatedAt
         lastDraftFingerprint = draftFingerprint
         applyGlobalIgnoreTaxPolicy(forceOverrideFromGlobalSetting: true)
+        publishDraftReviewLiveActivity(
+            workflowState: snapshot.workflowState,
+            workflowDetail: snapshot.state.workflowDetail,
+            draftID: snapshot.id
+        )
     }
 
     @discardableResult
@@ -1477,6 +1484,7 @@ final class ReviewViewModel: ObservableObject {
 
         try await environment.reviewDraftStore.upsert(snapshot)
         activeDraftID = draftID
+        setPreferredLiveActivityDraftID(draftID)
         draftCreatedAt = createdAt
         lastDraftSavedAt = now
         lastDraftFingerprint = draftFingerprint
@@ -1549,6 +1557,10 @@ final class ReviewViewModel: ObservableObject {
             deepLinkURL: AppDeepLink.scanURL(draftID: draftID),
             stageToken: stageToken
         )
+    }
+
+    private func setPreferredLiveActivityDraftID(_ draftID: UUID) {
+        UserDefaults.standard.set(draftID.uuidString, forKey: preferredDraftDefaultsKey)
     }
 
     private func trimmedOrNil(_ value: String?) -> String? {

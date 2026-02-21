@@ -23,8 +23,13 @@ struct RootTabView: View {
     @State private var liveActivitySyncTask: Task<Void, Never>?
     @State private var lastLiveActivitySyncAt: Date?
     @State private var lastLiveActivitySignature: String?
+    @State private var lastDeepLinkSignature: String?
+    @State private var lastDeepLinkHandledAt: Date?
     private let minimumLiveActivitySyncInterval: TimeInterval = 0.9
+    private let deepLinkDedupInterval: TimeInterval = 8.0
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
+    private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
+    private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -114,12 +119,38 @@ struct RootTabView: View {
     }
 
     private func handleDeepLink(_ url: URL) {
-        guard let route = AppDeepLink.parse(url) else { return }
+        guard let parsedRoute = AppDeepLink.parse(url) else { return }
+        let now = self.environment.dateProvider.now
+        guard let route = self.normalizedDeepLinkRoute(from: parsedRoute, now: now) else { return }
+        if case let .scan(_, draftID) = route,
+           let draftID {
+            UserDefaults.standard.set(draftID.uuidString, forKey: self.preferredDraftDefaultsKey)
+        }
+        let signature = self.deepLinkSignature(for: route)
+        if self.pendingDeepLinkTask != nil,
+           self.lastDeepLinkSignature == signature {
+            return
+        }
+        if let lastDeepLinkSignature,
+           let lastDeepLinkHandledAt,
+           lastDeepLinkSignature == signature,
+           now.timeIntervalSince(lastDeepLinkHandledAt) < deepLinkDedupInterval {
+            return
+        }
+        self.lastDeepLinkSignature = signature
+        self.lastDeepLinkHandledAt = now
         Self.deepLinkLogger.debug("Handling deep link: \(url.absoluteString, privacy: .public)")
 
         switch route {
         case let .scan(openComposer, draftID):
             selectedTab = .scan
+            if let draftID {
+                UserDefaults.standard.set(draftID.uuidString, forKey: self.pendingResumeDraftDefaultsKey)
+                UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+            } else if openComposer {
+                UserDefaults.standard.set(true, forKey: self.pendingOpenComposerDefaultsKey)
+                UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+            }
             pendingDeepLinkTask?.cancel()
             pendingDeepLinkTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 220_000_000)
@@ -139,6 +170,40 @@ struct RootTabView: View {
             selectedTab = .settings
             pendingDeepLinkTask?.cancel()
             pendingDeepLinkTask = nil
+        }
+    }
+
+    private func normalizedDeepLinkRoute(from route: AppDeepLink.Route, now: Date) -> AppDeepLink.Route? {
+        _ = now
+        switch route {
+        case let .scan(openComposer, draftID):
+            if let draftID {
+                return .scan(openComposer: openComposer, draftID: draftID)
+            }
+            if let pendingResumeDraftID = self.pendingResumeDraftID() {
+                return .scan(openComposer: false, draftID: pendingResumeDraftID)
+            }
+            return .scan(openComposer: true, draftID: nil)
+        case .history, .settings:
+            return route
+        }
+    }
+
+    private func pendingResumeDraftID() -> UUID? {
+        guard let raw = UserDefaults.standard.string(forKey: self.pendingResumeDraftDefaultsKey) else {
+            return nil
+        }
+        return UUID(uuidString: raw)
+    }
+
+    private func deepLinkSignature(for route: AppDeepLink.Route) -> String {
+        switch route {
+        case let .scan(openComposer, draftID):
+            return "scan|\(openComposer ? "1" : "0")|\(draftID?.uuidString ?? "")"
+        case .history:
+            return "history"
+        case .settings:
+            return "settings"
         }
     }
 
@@ -171,6 +236,7 @@ struct RootTabView: View {
               let payload = draft.liveActivityPayload else {
             guard lastLiveActivitySignature != nil else { return }
             lastLiveActivitySignature = nil
+            UserDefaults.standard.removeObject(forKey: self.preferredDraftDefaultsKey)
             PartsIntakeLiveActivityBridge.sync(
                 isActive: false,
                 statusText: "",
@@ -208,35 +274,48 @@ struct RootTabView: View {
     ) -> ReviewDraftSnapshot? {
         let eligibleDrafts = drafts
             .filter { draft in
-                guard draft.isLiveIntakeSession else { return false }
-                return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+                self.isDraftEligibleForGlobalLiveActivity(draft, now: now)
             }
         guard !eligibleDrafts.isEmpty else { return nil }
 
-        if let preferredDraftID = self.preferredLiveActivityDraftID(),
-           let preferredDraft = eligibleDrafts.first(where: { $0.id == preferredDraftID }) {
-            return preferredDraft
-        }
-
-        let inFlightDrafts = eligibleDrafts.filter { self.isInFlightLiveActivityState($0.workflowState) }
-        if !inFlightDrafts.isEmpty {
-            return inFlightDrafts.sorted {
-                if $0.updatedAt == $1.updatedAt {
-                    return self.liveActivityPriority(for: $0.workflowState) > self.liveActivityPriority(for: $1.workflowState)
-                }
-                return $0.updatedAt > $1.updatedAt
-            }
-            .first
-        }
-
-        return eligibleDrafts
+        let sortedDrafts = eligibleDrafts
             .sorted {
                 if $0.updatedAt == $1.updatedAt {
                     return self.liveActivityPriority(for: $0.workflowState) > self.liveActivityPriority(for: $1.workflowState)
                 }
                 return $0.updatedAt > $1.updatedAt
             }
-            .first
+
+        if let preferredDraftID = self.preferredLiveActivityDraftID(),
+           let preferredDraft = eligibleDrafts.first(where: { $0.id == preferredDraftID }),
+           self.shouldPreferDraftForGlobalLiveActivity(
+            preferredDraft,
+            over: sortedDrafts.first
+           ) {
+            return preferredDraft
+        }
+
+        return sortedDrafts.first
+    }
+
+    private func shouldPreferDraftForGlobalLiveActivity(
+        _ preferredDraft: ReviewDraftSnapshot,
+        over newestDraft: ReviewDraftSnapshot?
+    ) -> Bool {
+        guard let newestDraft else { return true }
+        if preferredDraft.id == newestDraft.id { return true }
+        return preferredDraft.updatedAt >= newestDraft.updatedAt
+    }
+
+    private func isDraftEligibleForGlobalLiveActivity(_ draft: ReviewDraftSnapshot, now: Date) -> Bool {
+        switch draft.workflowState {
+        case .scanning, .ocrReview, .parsing:
+            return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+        case .reviewReady, .reviewEdited, .submitting:
+            return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+        case .failed:
+            return false
+        }
     }
 
     private func preferredLiveActivityDraftID() -> UUID? {
@@ -249,30 +328,22 @@ struct RootTabView: View {
     private func liveActivityPriority(for state: ReviewDraftSnapshot.WorkflowState) -> Int {
         switch state {
         case .submitting:
-            return 4
-        case .parsing:
-            return 3
-        case .ocrReview:
-            return 2
-        case .scanning:
-            return 1
+            return 5
         case .reviewEdited:
-            return 0
+            return 4
         case .reviewReady:
-            return -1
+            return 3
+        case .parsing:
+            return 2
+        case .ocrReview:
+            return 1
+        case .scanning:
+            return 0
         case .failed:
             return -1
         }
     }
 
-    private func isInFlightLiveActivityState(_ state: ReviewDraftSnapshot.WorkflowState) -> Bool {
-        switch state {
-        case .scanning, .ocrReview, .parsing, .submitting:
-            return true
-        case .reviewReady, .reviewEdited, .failed:
-            return false
-        }
-    }
 }
 
 #if DEBUG

@@ -41,8 +41,16 @@ struct ScanView: View {
     @State private var lastDraftReloadAt: Date?
     @State private var lastDraftStoreChangeAt: Date?
     @State private var lastInitialRefreshRequestAt: Date?
+    @State private var lastResumeDraftRequestID: UUID?
+    @State private var lastResumeDraftRequestAt: Date?
+    @State private var activeResumeDraftID: UUID?
+    @State private var deepLinkResumeTask: Task<Void, Never>?
     @StateObject private var viewModel: ScanViewModel
     @Environment(\.scenePhase) private var scenePhase
+    private let resumeDraftRequestDedupInterval: TimeInterval = 8.0
+    private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
+    private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
+    private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
 
     init(environment: AppEnvironment, isTabActive: Bool = true) {
         self.isTabActive = isTabActive
@@ -131,6 +139,7 @@ struct ScanView: View {
         .onAppear {
             guard self.isTabActive else { return }
             self.scheduleInitialDashboardRefresh(force: true)
+            self.consumePendingDeepLinkRequests()
         }
         .onDisappear {
             self.initialLoadTask?.cancel()
@@ -139,12 +148,16 @@ struct ScanView: View {
             self.draftStoreRefreshTask = nil
             self.liveActivityEndTask?.cancel()
             self.liveActivityEndTask = nil
+            self.deepLinkResumeTask?.cancel()
+            self.deepLinkResumeTask = nil
+            self.activeResumeDraftID = nil
         }
         .onChange(of: isTabActive) { _, active in
             if active {
                 self.scheduleInitialDashboardRefresh()
                 self.scheduleDraftStoreRefresh()
                 self.syncLiveActivity()
+                self.consumePendingDeepLinkRequests()
             } else {
                 self.initialLoadTask?.cancel()
                 self.initialLoadTask = nil
@@ -166,6 +179,9 @@ struct ScanView: View {
             if self.isTabActive || oldValue || newValue || self.lastLiveActivitySignature != nil {
                 self.syncLiveActivity()
             }
+            if oldValue && !newValue {
+                self.consumePendingDeepLinkRequests()
+            }
         }
         .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
             guard route != nil else { return }
@@ -183,19 +199,17 @@ struct ScanView: View {
             Task { await self.importPhoto(item) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
-            self.presentCaptureFlow()
+            if self.canPresentCaptureFlow {
+                UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+                UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+                self.presentCaptureFlow()
+            } else {
+                UserDefaults.standard.set(true, forKey: self.pendingOpenComposerDefaultsKey)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appResumeScanDraft)) { notification in
             guard let draftID = notification.object as? UUID else { return }
-            guard !self.viewModel.isProcessing else { return }
-            Task {
-                let resumed = await self.viewModel.resumeDraft(id: draftID)
-                if !resumed {
-                    await MainActor.run {
-                        self.presentCaptureSourcePicker()
-                    }
-                }
-            }
+            self.requestResumeDraftFromDeepLink(draftID)
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
             guard !self.viewModel.isProcessing else { return }
@@ -230,6 +244,12 @@ struct ScanView: View {
         .onChange(of: viewModel.inProgressDrafts) { _, _ in
             if self.viewModel.isProcessing || self.liveActivityDraftCandidate() != nil || (self.lastLiveActivitySignature?.isActive == true) {
                 self.syncLiveActivity()
+            }
+            self.consumePendingDeepLinkRequests()
+        }
+        .onChange(of: isReviewFlowPresented) { _, presented in
+            if !presented {
+                self.consumePendingDeepLinkRequests()
             }
         }
     }
@@ -397,7 +417,8 @@ struct ScanView: View {
             showSourceSheet ||
             showPhotoPicker ||
             viewModel.isProcessing ||
-            isImportingPhoto
+            isImportingPhoto ||
+            isReviewFlowPresented
         )
         .accessibilityIdentifier("scan.scanButton")
         .accessibilityLabel(self.viewModel.latestDraft == nil ? "Scan parts invoice" : "Start new parts invoice capture")
@@ -432,20 +453,21 @@ struct ScanView: View {
     }
 
     private func presentCaptureFlow() {
-        guard !showScanner, !showSourceSheet, !showPhotoPicker, !viewModel.isProcessing, !isImportingPhoto else { return }
+        guard self.canPresentCaptureFlow else { return }
         AppHaptics.impact(.medium, intensity: 0.9)
-        presentCaptureSourcePicker()
+        self.presentCaptureSourcePicker()
     }
 
     private func presentCaptureSourcePicker() {
-        guard !showScanner, !showSourceSheet, !showPhotoPicker, !viewModel.isProcessing, !isImportingPhoto else { return }
-        pendingCaptureSource = nil
-        showSourceSheet = true
+        guard self.canPresentCaptureFlow else { return }
+        self.pendingCaptureSource = nil
+        self.showSourceSheet = true
     }
 
     private func handleCaptureSourceSheetDismissed() {
         guard let pendingCaptureSource else { return }
-        guard !showScanner, !showPhotoPicker, !viewModel.isProcessing, !isImportingPhoto else { return }
+        guard !self.showScanner, !self.showPhotoPicker, !self.viewModel.isProcessing, !self.isImportingPhoto else { return }
+        guard !self.isReviewFlowPresented else { return }
         self.pendingCaptureSource = nil
 
         switch pendingCaptureSource {
@@ -459,6 +481,107 @@ struct ScanView: View {
     private var additionalDrafts: [ReviewDraftSnapshot] {
         guard viewModel.inProgressDrafts.count > 1 else { return [] }
         return Array(viewModel.inProgressDrafts.dropFirst())
+    }
+
+    private var canPresentCaptureFlow: Bool {
+        !self.showScanner
+            && !self.showSourceSheet
+            && !self.showPhotoPicker
+            && !self.viewModel.isProcessing
+            && !self.isImportingPhoto
+            && !self.isReviewFlowPresented
+    }
+
+    @MainActor
+    private func resumeDraftFromDeepLink(id draftID: UUID) async -> Bool {
+        if await self.viewModel.resumeDraft(id: draftID) {
+            return true
+        }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        guard !Task.isCancelled else { return false }
+        return await self.viewModel.resumeDraft(id: draftID)
+    }
+
+    @MainActor
+    private func consumePendingDeepLinkRequests() {
+        guard !self.viewModel.isProcessing else { return }
+        guard !self.isReviewFlowPresented else { return }
+        guard !self.showSourceSheet, !self.showPhotoPicker, !self.showScanner else { return }
+
+        let defaults = UserDefaults.standard
+
+        if let rawDraftID = defaults.string(forKey: self.pendingResumeDraftDefaultsKey),
+           let draftID = UUID(uuidString: rawDraftID) {
+            self.requestResumeDraftFromDeepLink(draftID)
+            return
+        }
+
+        let shouldOpenComposer = defaults.bool(forKey: self.pendingOpenComposerDefaultsKey)
+        guard shouldOpenComposer else { return }
+        defaults.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+        if self.canPresentCaptureFlow {
+            self.presentCaptureFlow()
+        }
+    }
+
+    @MainActor
+    private func requestResumeDraftFromDeepLink(_ draftID: UUID) {
+        if self.viewModel.parsedInvoiceRoute?.draftSnapshot?.id == draftID
+            || self.viewModel.ocrReviewDraft?.draftID == draftID {
+            UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+            return
+        }
+
+        if self.viewModel.activeWorkflowDraftIDForLiveActivity == draftID,
+           self.viewModel.isProcessing {
+            UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+            return
+        }
+
+        if self.viewModel.isProcessing
+            || self.isReviewFlowPresented
+            || self.showSourceSheet
+            || self.showPhotoPicker
+            || self.showScanner {
+            UserDefaults.standard.set(draftID.uuidString, forKey: self.pendingResumeDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+            return
+        }
+
+        if self.activeResumeDraftID == draftID, self.deepLinkResumeTask != nil {
+            return
+        }
+
+        let now = Date()
+        if let lastResumeDraftRequestID = self.lastResumeDraftRequestID,
+           let lastResumeDraftRequestAt = self.lastResumeDraftRequestAt,
+           lastResumeDraftRequestID == draftID,
+           now.timeIntervalSince(lastResumeDraftRequestAt) < self.resumeDraftRequestDedupInterval {
+            return
+        }
+        self.lastResumeDraftRequestID = draftID
+        self.lastResumeDraftRequestAt = now
+        self.activeResumeDraftID = draftID
+
+        UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+
+        self.deepLinkResumeTask?.cancel()
+        self.deepLinkResumeTask = Task { @MainActor in
+            defer {
+                self.deepLinkResumeTask = nil
+                self.activeResumeDraftID = nil
+            }
+
+            let resumed = await self.resumeDraftFromDeepLink(id: draftID)
+            guard !resumed else { return }
+            UserDefaults.standard.removeObject(forKey: self.preferredDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+            self.viewModel.loadInProgressDrafts(force: true)
+        }
     }
 
     private func currentSessionSummary(_ draft: ReviewDraftSnapshot) -> some View {
@@ -662,6 +785,24 @@ struct ScanView: View {
             return
         }
 
+        if !self.viewModel.isProcessing,
+           !self.viewModel.isLoadingInProgressDrafts,
+           self.viewModel.inProgressDrafts.isEmpty,
+           !self.isReviewFlowPresented {
+            UserDefaults.standard.removeObject(forKey: self.preferredDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+            PartsIntakeLiveActivityBridge.sync(
+                isActive: false,
+                statusText: "",
+                detailText: "",
+                progress: 0,
+                deepLinkURL: nil,
+                stageToken: nil
+            )
+            return
+        }
+
         self.liveActivityEndTask?.cancel()
         self.liveActivityEndTask = Task { @MainActor in
             defer { self.liveActivityEndTask = nil }
@@ -726,6 +867,24 @@ struct ScanView: View {
             )
         }
 
+        if let ocrDraft = self.viewModel.ocrReviewDraft {
+            let lineCount = ocrDraft.extraction.lines.count
+            let lineLabel = lineCount == 1 ? "line" : "lines"
+            return (
+                true,
+                "Reviewing OCR",
+                "\(lineCount) text \(lineLabel) detected.",
+                0.45,
+                AppDeepLink.scanURL(draftID: ocrDraft.draftID),
+                "ocr"
+            )
+        }
+
+        if let reviewDraft = self.viewModel.parsedInvoiceRoute?.draftSnapshot,
+           let payload = self.liveActivityPayload(for: reviewDraft) {
+            return payload
+        }
+
         if let draft = self.liveActivityDraftCandidate(),
            let payload = self.liveActivityPayload(for: draft) {
             return payload
@@ -786,38 +945,37 @@ struct ScanView: View {
         let now = Date()
         let eligibleDrafts = drafts.filter { draft in
             guard draft.isLiveIntakeSession else { return false }
-            return self.isDraftEligibleForLiveActivity(draft, now: now)
+            return self.isStoredDraftEligibleForLiveActivity(draft, now: now)
         }
         guard !eligibleDrafts.isEmpty else { return nil }
 
-        if let preferredID = self.preferredLiveActivityDraftID(),
-           let preferred = eligibleDrafts.first(where: { $0.id == preferredID }) {
-            return preferred
-        }
-
-        let inFlightDrafts = eligibleDrafts.filter { self.isInFlightLiveActivityState($0.workflowState) }
-        if !inFlightDrafts.isEmpty {
-            return inFlightDrafts
-                .sorted { lhs, rhs in
-                    if lhs.updatedAt == rhs.updatedAt {
-                        return self.liveActivityDraftPriority(lhs.workflowState) > self.liveActivityDraftPriority(rhs.workflowState)
-                    }
-                    return lhs.updatedAt > rhs.updatedAt
-                }
-                .first
-        }
-
-        return eligibleDrafts
+        let sortedDrafts = eligibleDrafts
             .sorted { lhs, rhs in
                 if lhs.updatedAt == rhs.updatedAt {
                     return self.liveActivityDraftPriority(lhs.workflowState) > self.liveActivityDraftPriority(rhs.workflowState)
                 }
                 return lhs.updatedAt > rhs.updatedAt
             }
-            .first
+
+        if let preferredID = self.preferredLiveActivityDraftID(),
+           let preferred = eligibleDrafts.first(where: { $0.id == preferredID }),
+           self.shouldPreferDraftForLiveActivity(preferred, over: sortedDrafts.first) {
+            return preferred
+        }
+
+        return sortedDrafts.first
     }
 
-    private func isDraftEligibleForLiveActivity(_ draft: ReviewDraftSnapshot, now: Date) -> Bool {
+    private func shouldPreferDraftForLiveActivity(
+        _ preferredDraft: ReviewDraftSnapshot,
+        over newestDraft: ReviewDraftSnapshot?
+    ) -> Bool {
+        guard let newestDraft else { return true }
+        if preferredDraft.id == newestDraft.id { return true }
+        return preferredDraft.updatedAt >= newestDraft.updatedAt
+    }
+
+    private func isStoredDraftEligibleForLiveActivity(_ draft: ReviewDraftSnapshot, now: Date) -> Bool {
         if self.viewModel.activeWorkflowDraftIDForLiveActivity == draft.id {
             return true
         }
@@ -829,24 +987,30 @@ struct ScanView: View {
            ocrDraftID == draft.id {
             return true
         }
-        let maxAge = draft.liveActivityRecencyWindow
-        return now.timeIntervalSince(draft.updatedAt) <= maxAge
+        switch draft.workflowState {
+        case .scanning, .ocrReview, .parsing:
+            return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+        case .reviewReady, .reviewEdited, .submitting:
+            return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+        case .failed:
+            return false
+        }
     }
 
     private func liveActivityDraftPriority(_ state: ReviewDraftSnapshot.WorkflowState) -> Int {
         switch state {
         case .submitting:
-            return 4
-        case .parsing:
-            return 3
-        case .ocrReview:
-            return 2
-        case .scanning:
-            return 1
+            return 5
         case .reviewEdited:
-            return 0
+            return 4
         case .reviewReady:
-            return -1
+            return 3
+        case .parsing:
+            return 2
+        case .ocrReview:
+            return 1
+        case .scanning:
+            return 0
         case .failed:
             return -1
         }
@@ -859,16 +1023,13 @@ struct ScanView: View {
         if let reviewDraftID = self.viewModel.parsedInvoiceRoute?.draftSnapshot?.id {
             return reviewDraftID
         }
-        return self.viewModel.ocrReviewDraft?.draftID
-    }
-
-    private func isInFlightLiveActivityState(_ state: ReviewDraftSnapshot.WorkflowState) -> Bool {
-        switch state {
-        case .scanning, .ocrReview, .parsing, .submitting:
-            return true
-        case .reviewReady, .reviewEdited, .failed:
-            return false
+        if let ocrDraftID = self.viewModel.ocrReviewDraft?.draftID {
+            return ocrDraftID
         }
+        guard let raw = UserDefaults.standard.string(forKey: self.preferredDraftDefaultsKey) else {
+            return nil
+        }
+        return UUID(uuidString: raw)
     }
 
     private var isReviewFlowPresented: Bool {

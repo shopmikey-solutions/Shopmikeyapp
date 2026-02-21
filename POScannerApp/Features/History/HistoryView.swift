@@ -87,7 +87,7 @@ struct HistoryView: View {
                                 } else {
                                     Button {
                                         AppHaptics.selection()
-                                        openURL(AppDeepLink.scanURL())
+                                        openURL(AppDeepLink.scanURL(draftID: draft.id))
                                     } label: {
                                         draftRow(draft)
                                     }

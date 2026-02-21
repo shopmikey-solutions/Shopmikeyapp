@@ -42,7 +42,7 @@ final class PartsIntakeLiveActivityManager {
     private var scheduledEndAt: Date?
     private let inactiveWorkflowEndDelay: TimeInterval = 45
     private let terminalCompletionEndDelay: TimeInterval = 12
-    private let crossDraftInFlightGuardWindow: TimeInterval = 90
+    private let crossDraftInFlightGuardWindow: TimeInterval = 12
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
 
     private struct Signature: Equatable {
@@ -104,13 +104,21 @@ final class PartsIntakeLiveActivityManager {
             return trimmed.isEmpty ? nil : trimmed
         }()
         let deepLinkDidChange = normalizedDeepLinkRawValue != previousDeepLinkRawValue
+        let previousDraftID = extractDraftID(from: previousDeepLinkRawValue)
+        let nextDraftID = extractDraftID(from: normalizedDeepLinkRawValue)
+        let preferredDraftCandidateID = preferredDraftID()
         let now = Date()
         if let lastSignature,
            let lastUpdateAt = self.lastUpdateAt,
            deepLinkDidChange,
            isInFlightStageToken(lastSignature.stageToken),
            !isInFlightStageToken(normalizedStageToken),
-           now.timeIntervalSince(lastUpdateAt) <= crossDraftInFlightGuardWindow {
+           now.timeIntervalSince(lastUpdateAt) <= crossDraftInFlightGuardWindow,
+           !shouldHonorDraftSelectionTransition(
+               previousDraftID: previousDraftID,
+               nextDraftID: nextDraftID,
+               preferredDraftID: preferredDraftCandidateID
+           ) {
             Self.logger.debug("Live Activity sync skipped: competing non in-flight draft update.")
             return
         }
@@ -379,6 +387,13 @@ final class PartsIntakeLiveActivityManager {
         UserDefaults.standard.set(draftID.uuidString, forKey: preferredDraftDefaultsKey)
     }
 
+    private func preferredDraftID() -> UUID? {
+        guard let raw = UserDefaults.standard.string(forKey: preferredDraftDefaultsKey) else {
+            return nil
+        }
+        return UUID(uuidString: raw)
+    }
+
     private func clearPreferredDraftID() {
         UserDefaults.standard.removeObject(forKey: preferredDraftDefaultsKey)
     }
@@ -393,6 +408,21 @@ final class PartsIntakeLiveActivityManager {
         case .history, .settings:
             return nil
         }
+    }
+
+    private func shouldHonorDraftSelectionTransition(
+        previousDraftID: UUID?,
+        nextDraftID: UUID?,
+        preferredDraftID: UUID?
+    ) -> Bool {
+        guard let nextDraftID else { return false }
+        if previousDraftID == nextDraftID {
+            return true
+        }
+        if let preferredDraftID, preferredDraftID == nextDraftID {
+            return true
+        }
+        return false
     }
 
     private func normalizedLiveActivityStageToken(_ token: String?) -> String {

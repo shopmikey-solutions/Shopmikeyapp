@@ -283,7 +283,7 @@ struct ShopMikeyScannerWidget: Widget {
         StaticConfiguration(kind: kind, provider: PartsIntakeWidgetProvider()) { entry in
             ShopMikeyScannerEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
-                .widgetURL(URL(string: "shopmikey://scan"))
+                .widgetURL(DeepLinks.scan(compose: true))
         }
         .configurationDisplayName("Parts Intake")
         .description("Snapshot of today’s Shopmikey parts intake pipeline.")

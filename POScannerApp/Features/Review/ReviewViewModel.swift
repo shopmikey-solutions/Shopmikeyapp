@@ -713,7 +713,7 @@ final class ReviewViewModel: ObservableObject {
             isActive: true,
             statusText: "Submitting to Shopmonkey",
             detailText: "Step 4 of 4 • Posting reviewed draft.",
-            progress: 0.96,
+            progress: 0.92,
             stageToken: "submit"
         )
 
@@ -1518,17 +1518,17 @@ final class ReviewViewModel: ObservableObject {
         case .reviewReady:
             status = "Draft ready"
             fallbackDetail = "Step 3 of 4 • Review lines, vendor details, and submit."
-            progress = 0.90
+            progress = 0.78
             stageToken = "draft"
         case .reviewEdited:
             status = "Draft updated"
             fallbackDetail = "Step 3 of 4 • Review complete and ready to submit."
-            progress = 0.94
+            progress = 0.82
             stageToken = "draft"
         case .submitting:
             status = "Submitting to Shopmonkey"
             fallbackDetail = "Step 4 of 4 • Posting reviewed draft."
-            progress = 0.96
+            progress = 0.92
             stageToken = "submit"
         case .failed:
             status = "Needs attention"

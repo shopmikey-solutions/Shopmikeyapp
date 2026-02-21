@@ -14,6 +14,7 @@ struct ScanView: View {
         let detail: String
         let progressBucket: Int
         let stageToken: String
+        let deepLinkSignature: String
     }
 
     private enum PendingCaptureSource {
@@ -767,12 +768,15 @@ struct ScanView: View {
         )
     ) -> LiveActivityPayloadSignature {
         let bucket = Int((min(1, max(0, payload.progress)) * 100).rounded())
+        let deepLinkSignature = payload.deepLinkURL?.absoluteString
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return LiveActivityPayloadSignature(
             isActive: payload.isActive,
             status: payload.status.trimmingCharacters(in: .whitespacesAndNewlines),
             detail: payload.detail.trimmingCharacters(in: .whitespacesAndNewlines),
             progressBucket: bucket,
-            stageToken: payload.stageToken?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            stageToken: payload.stageToken?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "",
+            deepLinkSignature: deepLinkSignature
         )
     }
 
@@ -780,19 +784,35 @@ struct ScanView: View {
         let drafts = self.viewModel.inProgressDrafts
         guard !drafts.isEmpty else { return nil }
         let now = Date()
+        let eligibleDrafts = drafts.filter { draft in
+            guard draft.isLiveIntakeSession else { return false }
+            return self.isDraftEligibleForLiveActivity(draft, now: now)
+        }
+        guard !eligibleDrafts.isEmpty else { return nil }
 
-        return drafts
-            .filter { draft in
-                guard draft.isLiveIntakeSession else { return false }
-                return self.isDraftEligibleForLiveActivity(draft, now: now)
-            }
-            .sorted {
-                if $0.updatedAt == $1.updatedAt {
-                    let lhsPriority = self.liveActivityDraftPriority($0.workflowState)
-                    let rhsPriority = self.liveActivityDraftPriority($1.workflowState)
-                    return lhsPriority > rhsPriority
+        if let preferredID = self.preferredLiveActivityDraftID(),
+           let preferred = eligibleDrafts.first(where: { $0.id == preferredID }) {
+            return preferred
+        }
+
+        let inFlightDrafts = eligibleDrafts.filter { self.isInFlightLiveActivityState($0.workflowState) }
+        if !inFlightDrafts.isEmpty {
+            return inFlightDrafts
+                .sorted { lhs, rhs in
+                    if lhs.updatedAt == rhs.updatedAt {
+                        return self.liveActivityDraftPriority(lhs.workflowState) > self.liveActivityDraftPriority(rhs.workflowState)
+                    }
+                    return lhs.updatedAt > rhs.updatedAt
                 }
-                return $0.updatedAt > $1.updatedAt
+                .first
+        }
+
+        return eligibleDrafts
+            .sorted { lhs, rhs in
+                if lhs.updatedAt == rhs.updatedAt {
+                    return self.liveActivityDraftPriority(lhs.workflowState) > self.liveActivityDraftPriority(rhs.workflowState)
+                }
+                return lhs.updatedAt > rhs.updatedAt
             }
             .first
     }
@@ -816,19 +836,38 @@ struct ScanView: View {
     private func liveActivityDraftPriority(_ state: ReviewDraftSnapshot.WorkflowState) -> Int {
         switch state {
         case .submitting:
-            return 5
-        case .reviewEdited:
             return 4
-        case .reviewReady:
-            return 3
         case .parsing:
-            return 2
+            return 3
         case .ocrReview:
-            return 1
+            return 2
         case .scanning:
+            return 1
+        case .reviewEdited:
             return 0
+        case .reviewReady:
+            return -1
         case .failed:
             return -1
+        }
+    }
+
+    private func preferredLiveActivityDraftID() -> UUID? {
+        if let active = self.viewModel.activeWorkflowDraftIDForLiveActivity {
+            return active
+        }
+        if let reviewDraftID = self.viewModel.parsedInvoiceRoute?.draftSnapshot?.id {
+            return reviewDraftID
+        }
+        return self.viewModel.ocrReviewDraft?.draftID
+    }
+
+    private func isInFlightLiveActivityState(_ state: ReviewDraftSnapshot.WorkflowState) -> Bool {
+        switch state {
+        case .scanning, .ocrReview, .parsing, .submitting:
+            return true
+        case .reviewReady, .reviewEdited, .failed:
+            return false
         }
     }
 

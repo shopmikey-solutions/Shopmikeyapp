@@ -42,4 +42,15 @@ final class AppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserNoti
             NotificationCenter.default.post(name: .appDeepLinkRequested, object: deepLinkURL)
         }
     }
+
+    func application(
+        _ app: UIApplication,
+        open url: URL,
+        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+    ) -> Bool {
+        guard AppDeepLink.parse(url) != nil else { return false }
+        Self.logger.debug("Posting deep link request from URL open.")
+        NotificationCenter.default.post(name: .appDeepLinkRequested, object: url)
+        return true
+    }
 }

@@ -217,11 +217,11 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         case .parsing:
             return 0.66
         case .reviewReady:
-            return 0.90
+            return 0.78
         case .reviewEdited:
-            return 0.94
+            return 0.82
         case .submitting:
-            return 0.98
+            return 0.92
         case .failed:
             return 0.55
         }
@@ -282,19 +282,19 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
             return (
                 status: "Draft ready",
                 detail: "Step 3 of 4 • Verify lines before submit.",
-                progress: max(0.90, workflowProgressEstimate)
+                progress: max(0.78, workflowProgressEstimate)
             )
         case .reviewEdited:
             return (
                 status: "Draft updated",
                 detail: "Step 3 of 4 • Ready for Shopmonkey submission.",
-                progress: max(0.94, workflowProgressEstimate)
+                progress: max(0.82, workflowProgressEstimate)
             )
         case .submitting:
             return (
                 status: "Submitting to Shopmonkey",
                 detail: "Step 4 of 4 • Posting purchase order now.",
-                progress: max(0.96, workflowProgressEstimate)
+                progress: max(0.92, workflowProgressEstimate)
             )
         case .failed:
             return nil

@@ -42,12 +42,15 @@ final class PartsIntakeLiveActivityManager {
     private var scheduledEndAt: Date?
     private let inactiveWorkflowEndDelay: TimeInterval = 45
     private let terminalCompletionEndDelay: TimeInterval = 12
+    private let crossDraftInFlightGuardWindow: TimeInterval = 90
+    private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
 
     private struct Signature: Equatable {
         let statusText: String
         let detailText: String
         let progressBucket: Int
         let stageToken: String
+        let deepLinkSignature: String
     }
 
     func sync(
@@ -93,14 +96,33 @@ final class PartsIntakeLiveActivityManager {
         let normalizedStatusText = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedDetailText = detailText.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedStageToken = normalizedLiveActivityStageToken(stageToken)
+        let previousDeepLinkRawValue = self.lastDeepLinkRawValue
         let deepLinkRawValue = deepLinkURL?.absoluteString
-        if let deepLinkRawValue, !deepLinkRawValue.isEmpty {
-            lastDeepLinkRawValue = deepLinkRawValue
+        let normalizedDeepLinkRawValue: String? = {
+            guard let deepLinkRawValue else { return nil }
+            let trimmed = deepLinkRawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
+        let deepLinkDidChange = normalizedDeepLinkRawValue != previousDeepLinkRawValue
+        let now = Date()
+        if let lastSignature,
+           let lastUpdateAt = self.lastUpdateAt,
+           deepLinkDidChange,
+           isInFlightStageToken(lastSignature.stageToken),
+           !isInFlightStageToken(normalizedStageToken),
+           now.timeIntervalSince(lastUpdateAt) <= crossDraftInFlightGuardWindow {
+            Self.logger.debug("Live Activity sync skipped: competing non in-flight draft update.")
+            return
         }
         var progressBucket = Int((normalizedProgress(progress) * 100).rounded())
 
         if let lastSignature,
-           !shouldAllowProgressRegression(statusText: normalizedStatusText),
+           !shouldAllowProgressRegression(
+                statusText: normalizedStatusText,
+                previousStageToken: lastSignature.stageToken,
+                stageToken: normalizedStageToken,
+                deepLinkDidChange: deepLinkDidChange
+            ),
            progressBucket < lastSignature.progressBucket {
             progressBucket = lastSignature.progressBucket
         }
@@ -111,7 +133,8 @@ final class PartsIntakeLiveActivityManager {
             statusText: normalizedStatusText,
             detailText: normalizedDetailText,
             progressBucket: progressBucket,
-            stageToken: normalizedStageToken
+            stageToken: normalizedStageToken,
+            deepLinkSignature: normalizedDeepLinkRawValue ?? ""
         )
 
         // Avoid churn when app re-enters foreground and repeatedly emits equivalent updates.
@@ -143,7 +166,8 @@ final class PartsIntakeLiveActivityManager {
             }
             self.lastSignature = signature
             self.lastUpdateAt = Date()
-            self.lastDeepLinkRawValue = deepLinkRawValue ?? self.lastDeepLinkRawValue
+            self.lastDeepLinkRawValue = normalizedDeepLinkRawValue ?? self.lastDeepLinkRawValue
+            self.updatePreferredDraftID(from: normalizedDeepLinkRawValue)
             return
         }
 
@@ -156,13 +180,15 @@ final class PartsIntakeLiveActivityManager {
             Self.logger.info("Live Activity created. progress=\(clampedProgress, privacy: .public)")
             self.lastSignature = signature
             self.lastUpdateAt = Date()
-            self.lastDeepLinkRawValue = deepLinkRawValue ?? self.lastDeepLinkRawValue
+            self.lastDeepLinkRawValue = normalizedDeepLinkRawValue ?? self.lastDeepLinkRawValue
+            self.updatePreferredDraftID(from: normalizedDeepLinkRawValue)
         } catch {
             Self.logger.error("Live Activity creation failed: \(String(describing: error), privacy: .public)")
             self.activity = nil
             self.lastSignature = nil
             self.lastUpdateAt = nil
             self.lastDeepLinkRawValue = nil
+            self.clearPreferredDraftID()
         }
     }
 
@@ -173,6 +199,7 @@ final class PartsIntakeLiveActivityManager {
             self.lastSignature = nil
             self.lastUpdateAt = nil
             self.lastDeepLinkRawValue = nil
+            self.clearPreferredDraftID()
             Self.logger.debug("Live Activity manager dismissed stale local terminal activity.")
         }
 
@@ -239,6 +266,7 @@ final class PartsIntakeLiveActivityManager {
             self.lastSignature = nil
             self.lastUpdateAt = nil
             self.lastDeepLinkRawValue = nil
+            self.clearPreferredDraftID()
             return
         }
 
@@ -291,6 +319,7 @@ final class PartsIntakeLiveActivityManager {
         self.lastSignature = nil
         self.lastUpdateAt = nil
         self.lastDeepLinkRawValue = nil
+        self.clearPreferredDraftID()
     }
 
     private func scheduleDeferredEnd() {
@@ -345,6 +374,27 @@ final class PartsIntakeLiveActivityManager {
         return min(1, max(0, value))
     }
 
+    private func updatePreferredDraftID(from deepLinkRawValue: String?) {
+        guard let draftID = extractDraftID(from: deepLinkRawValue) else { return }
+        UserDefaults.standard.set(draftID.uuidString, forKey: preferredDraftDefaultsKey)
+    }
+
+    private func clearPreferredDraftID() {
+        UserDefaults.standard.removeObject(forKey: preferredDraftDefaultsKey)
+    }
+
+    private func extractDraftID(from deepLinkRawValue: String?) -> UUID? {
+        guard let deepLinkRawValue else { return nil }
+        guard let url = URL(string: deepLinkRawValue) else { return nil }
+        guard let route = AppDeepLink.parse(url) else { return nil }
+        switch route {
+        case let .scan(_, draftID):
+            return draftID
+        case .history, .settings:
+            return nil
+        }
+    }
+
     private func normalizedLiveActivityStageToken(_ token: String?) -> String {
         guard let token else { return "" }
         return token
@@ -352,9 +402,60 @@ final class PartsIntakeLiveActivityManager {
             .lowercased()
     }
 
-    private func shouldAllowProgressRegression(statusText: String) -> Bool {
+    private func shouldAllowProgressRegression(
+        statusText: String,
+        previousStageToken: String,
+        stageToken: String,
+        deepLinkDidChange: Bool
+    ) -> Bool {
+        if deepLinkDidChange {
+            return true
+        }
+        if liveActivityStageOrder(for: stageToken) < liveActivityStageOrder(for: previousStageToken) {
+            return true
+        }
+        if ["capture", "ocr", "parse"].contains(stageToken) {
+            return true
+        }
         let normalized = statusText.lowercased()
-        return normalized.contains("step 1 of 4") || normalized.contains("capture in progress")
+        return normalized.contains("step 1 of 4")
+            || normalized.contains("step 2 of 4")
+            || normalized.contains("capture in progress")
+            || normalized.contains("capturing invoice")
+            || normalized.contains("reviewing ocr")
+            || normalized.contains("parsing line items")
+    }
+
+    private func liveActivityStageOrder(for token: String) -> Int {
+        switch token {
+        case "capture":
+            return 0
+        case "ocr":
+            return 1
+        case "parse":
+            return 2
+        case "draft":
+            return 3
+        case "submit":
+            return 4
+        case "success":
+            return 5
+        case "fail":
+            return 6
+        default:
+            return Int.max
+        }
+    }
+
+    private func isInFlightStageToken(_ token: String) -> Bool {
+        switch token {
+        case "capture", "ocr", "parse", "submit":
+            return true
+        case "draft", "success", "fail", "paused", "intake":
+            return false
+        default:
+            return false
+        }
     }
 
     private func shouldRequestProminentUpdate(previous: Signature?, next: Signature) -> Bool {

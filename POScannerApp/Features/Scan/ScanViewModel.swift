@@ -31,7 +31,7 @@ final class ScanViewModel: ObservableObject {
             case .parsing:
                 return 0.64
             case .finalizing:
-                return 0.9
+                return 0.78
             }
         }
 

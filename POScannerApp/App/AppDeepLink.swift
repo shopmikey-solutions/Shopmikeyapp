@@ -12,13 +12,29 @@ enum AppDeepLink {
         case settings
     }
 
-    private static let scheme = "shopmikey"
+    private static let appScheme = DeepLinks.scheme
+    private static let webHostSuffix = "shopmikey.app"
 
     static func parse(_ url: URL) -> Route? {
-        guard url.scheme?.lowercased() == scheme else { return nil }
+        if url.scheme?.lowercased() == appScheme {
+            return parseAppScheme(url)
+        }
+        if let host = url.host?.lowercased(),
+           host.hasSuffix(webHostSuffix) {
+            return parseWebURL(url)
+        }
+        return nil
+    }
 
-        let primary = primaryRouteComponent(from: url)
-        switch primary {
+    static func scanURL(openComposer: Bool = false, draftID: UUID? = nil) -> URL {
+        DeepLinks.scan(compose: openComposer, draftID: draftID)
+    }
+
+    static var historyURL: URL { DeepLinks.history }
+    static var settingsURL: URL { DeepLinks.settings }
+
+    private static func parseAppScheme(_ url: URL) -> Route? {
+        switch primaryRouteComponent(from: url) {
         case "scan":
             return .scan(
                 openComposer: shouldOpenComposer(from: url),
@@ -33,23 +49,22 @@ enum AppDeepLink {
         }
     }
 
-    static func scanURL(openComposer: Bool = false, draftID: UUID? = nil) -> URL {
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = "scan"
-        var queryItems: [URLQueryItem] = []
-        if openComposer {
-            queryItems.append(URLQueryItem(name: "compose", value: "1"))
+    private static func parseWebURL(_ url: URL) -> Route? {
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        if path.hasPrefix("scan") {
+            return .scan(
+                openComposer: shouldOpenComposer(from: url),
+                draftID: draftID(from: url)
+            )
         }
-        if let draftID {
-            queryItems.append(URLQueryItem(name: "draft", value: draftID.uuidString))
+        if path.hasPrefix("history") {
+            return .history
         }
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
-        return components.url ?? URL(string: "shopmikey://scan")!
+        if path.hasPrefix("settings") {
+            return .settings
+        }
+        return nil
     }
-
-    static var historyURL: URL { URL(string: "shopmikey://history")! }
-    static var settingsURL: URL { URL(string: "shopmikey://settings")! }
 
     private static func primaryRouteComponent(from url: URL) -> String {
         if let host = url.host, !host.isEmpty {

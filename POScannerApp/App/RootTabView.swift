@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import os
 
 struct RootTabView: View {
     private enum Tab: Hashable {
@@ -11,6 +12,8 @@ struct RootTabView: View {
         case history
         case settings
     }
+
+    private static let deepLinkLogger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.DeepLink")
 
     @Environment(\.appEnvironment) private var environment
     @Environment(\.scenePhase) private var scenePhase
@@ -21,6 +24,7 @@ struct RootTabView: View {
     @State private var lastLiveActivitySyncAt: Date?
     @State private var lastLiveActivitySignature: String?
     private let minimumLiveActivitySyncInterval: TimeInterval = 0.9
+    private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -111,6 +115,7 @@ struct RootTabView: View {
 
     private func handleDeepLink(_ url: URL) {
         guard let route = AppDeepLink.parse(url) else { return }
+        Self.deepLinkLogger.debug("Handling deep link: \(url.absoluteString, privacy: .public)")
 
         switch route {
         case let .scan(openComposer, draftID):
@@ -201,36 +206,71 @@ struct RootTabView: View {
         from drafts: [ReviewDraftSnapshot],
         now: Date
     ) -> ReviewDraftSnapshot? {
-        drafts
+        let eligibleDrafts = drafts
             .filter { draft in
                 guard draft.isLiveIntakeSession else { return false }
                 return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
             }
+        guard !eligibleDrafts.isEmpty else { return nil }
+
+        if let preferredDraftID = self.preferredLiveActivityDraftID(),
+           let preferredDraft = eligibleDrafts.first(where: { $0.id == preferredDraftID }) {
+            return preferredDraft
+        }
+
+        let inFlightDrafts = eligibleDrafts.filter { self.isInFlightLiveActivityState($0.workflowState) }
+        if !inFlightDrafts.isEmpty {
+            return inFlightDrafts.sorted {
+                if $0.updatedAt == $1.updatedAt {
+                    return self.liveActivityPriority(for: $0.workflowState) > self.liveActivityPriority(for: $1.workflowState)
+                }
+                return $0.updatedAt > $1.updatedAt
+            }
+            .first
+        }
+
+        return eligibleDrafts
             .sorted {
                 if $0.updatedAt == $1.updatedAt {
-                    return liveActivityPriority(for: $0.workflowState) > liveActivityPriority(for: $1.workflowState)
+                    return self.liveActivityPriority(for: $0.workflowState) > self.liveActivityPriority(for: $1.workflowState)
                 }
                 return $0.updatedAt > $1.updatedAt
             }
             .first
     }
 
+    private func preferredLiveActivityDraftID() -> UUID? {
+        guard let raw = UserDefaults.standard.string(forKey: self.preferredDraftDefaultsKey) else {
+            return nil
+        }
+        return UUID(uuidString: raw)
+    }
+
     private func liveActivityPriority(for state: ReviewDraftSnapshot.WorkflowState) -> Int {
         switch state {
         case .submitting:
-            return 5
-        case .reviewEdited:
             return 4
-        case .reviewReady:
-            return 3
         case .parsing:
-            return 2
+            return 3
         case .ocrReview:
-            return 1
+            return 2
         case .scanning:
+            return 1
+        case .reviewEdited:
             return 0
+        case .reviewReady:
+            return -1
         case .failed:
             return -1
+        }
+    }
+
+    private func isInFlightLiveActivityState(_ state: ReviewDraftSnapshot.WorkflowState) -> Bool {
+        switch state {
+        case .scanning, .ocrReview, .parsing, .submitting:
+            return true
+        case .reviewReady, .reviewEdited, .failed:
+            return false
         }
     }
 }

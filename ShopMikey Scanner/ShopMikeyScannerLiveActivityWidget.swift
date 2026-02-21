@@ -60,57 +60,53 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             let stage = self.resolvedStage(for: context.state)
             let islandStatusText = self.islandStatusText(from: context.state.statusText)
             let islandDetailText = self.islandDetailText(from: context.state.detailText)
+            let clampedProgress = self.clampedProgress(context.state.progress)
+            let progressPercent = self.progressPercent(clampedProgress)
             return DynamicIsland {
-                DynamicIslandExpandedRegion(.leading, priority: 1) {
-                    Label(stage.label, systemImage: stage.iconName)
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
-                }
-                DynamicIslandExpandedRegion(.trailing, priority: 1) {
-                    Text("\(self.progressPercent(self.clampedProgress(context.state.progress)))%")
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
-                        .contentTransition(.numericText())
-                }
-                DynamicIslandExpandedRegion(.center, priority: 4) {
-                    Text(islandStatusText)
-                        .font(.subheadline.weight(.semibold))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.78)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
-                }
-                DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(islandDetailText)
-                                .font(.caption2)
+                DynamicIslandExpandedRegion(.bottom, priority: 1) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Label(stage.label, systemImage: stage.iconName)
+                                .labelStyle(.titleAndIcon)
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.82)
+                                .minimumScaleFactor(0.78)
                             Spacer(minLength: 8)
                             Text(context.state.updatedAt, style: .timer)
-                                .font(.caption2.monospacedDigit())
+                                .font(.system(size: 14, weight: .regular, design: .rounded).monospacedDigit())
                                 .foregroundStyle(.secondary)
+                            Text("\(progressPercent)%")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .contentTransition(.numericText())
                         }
-                        ProgressView(value: self.clampedProgress(context.state.progress))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(islandStatusText)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(islandDetailText)
+                            .font(.system(size: 13, weight: .regular, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ProgressView(value: clampedProgress)
                             .progressViewStyle(.linear)
                             .tint(stage.tint)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .padding(.leading, 18)
+                    .padding(.trailing, 12)
+                    .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } compactLeading: {
                 Image(systemName: stage.iconName)
             } compactTrailing: {
-                Text("\(self.progressPercent(self.clampedProgress(context.state.progress)))%")
+                Text("\(progressPercent)%")
                     .font(.caption2.monospacedDigit())
                     .contentTransition(.numericText())
             } minimal: {
@@ -167,7 +163,7 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
            let url = URL(string: raw) {
             return url
         }
-        return URL(string: "shopmikey://scan?compose=1")
+        return DeepLinks.scan(compose: true)
     }
 
     private func islandStatusText(from raw: String) -> String {
@@ -281,7 +277,7 @@ extension PartsIntakeActivityAttributes.ContentState {
             detailText: "Applying on-device AI and deterministic rules.",
             progress: 0.64,
             updatedAt: .now,
-            deepLinkURL: "shopmikey://scan?compose=1",
+            deepLinkURL: DeepLinks.scan(compose: true).absoluteString,
             stageToken: "parse"
         )
     }
@@ -292,7 +288,7 @@ extension PartsIntakeActivityAttributes.ContentState {
             detailText: "Finishing purchase-order intake checks.",
             progress: 0.9,
             updatedAt: .now,
-            deepLinkURL: "shopmikey://scan?compose=1",
+            deepLinkURL: DeepLinks.scan(compose: true).absoluteString,
             stageToken: "draft"
         )
     }

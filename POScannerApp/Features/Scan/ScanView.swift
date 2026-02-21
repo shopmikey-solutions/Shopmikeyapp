@@ -13,6 +13,7 @@ struct ScanView: View {
         let status: String
         let detail: String
         let progressBucket: Int
+        let stageToken: String
     }
 
     private enum PendingCaptureSource {
@@ -655,7 +656,8 @@ struct ScanView: View {
                 statusText: payload.status,
                 detailText: payload.detail,
                 progress: payload.progress,
-                deepLinkURL: payload.deepLinkURL
+                deepLinkURL: payload.deepLinkURL,
+                stageToken: payload.stageToken
             )
             return
         }
@@ -676,7 +678,8 @@ struct ScanView: View {
                 statusText: "",
                 detailText: "",
                 progress: 0,
-                deepLinkURL: nil
+                deepLinkURL: nil,
+                stageToken: nil
             )
         }
     }
@@ -686,32 +689,39 @@ struct ScanView: View {
         status: String,
         detail: String,
         progress: Double,
-        deepLinkURL: URL?
+        deepLinkURL: URL?,
+        stageToken: String?
     ) {
         if viewModel.isProcessing, let stage = viewModel.processingStage {
             let activeDraftID = viewModel.activeWorkflowDraftIDForLiveActivity ?? viewModel.latestDraft?.id
             let status: String
             let detail: String
+            let stageToken: String
             switch stage {
             case .extractingText:
                 status = "Capturing invoice"
                 detail = "Step 1 of 4 • Running on-device Vision OCR."
+                stageToken = "capture"
             case .preparingReview:
                 status = "Reviewing OCR"
                 detail = "Step 2 of 4 • Preparing text and barcode highlights."
+                stageToken = "ocr"
             case .parsing:
                 status = "Parsing line items"
                 detail = "Step 2 of 4 • Applying on-device AI + rules."
+                stageToken = "parse"
             case .finalizing:
                 status = "Draft ready"
                 detail = "Step 3 of 4 • Open draft and verify before submit."
+                stageToken = "draft"
             }
             return (
                 true,
                 status,
                 detail,
                 viewModel.processingProgressEstimate,
-                activeDraftID.map { AppDeepLink.scanURL(draftID: $0) } ?? AppDeepLink.scanURL(openComposer: true)
+                activeDraftID.map { AppDeepLink.scanURL(draftID: $0) } ?? AppDeepLink.scanURL(openComposer: true),
+                stageToken
             )
         }
 
@@ -720,7 +730,7 @@ struct ScanView: View {
             return payload
         }
 
-        return (false, "", "", 0, nil)
+        return (false, "", "", 0, nil, nil)
     }
 
     private func liveActivityPayload(for draft: ReviewDraftSnapshot) -> (
@@ -728,7 +738,8 @@ struct ScanView: View {
         status: String,
         detail: String,
         progress: Double,
-        deepLinkURL: URL?
+        deepLinkURL: URL?,
+        stageToken: String?
     )? {
         guard let mapped = draft.liveActivityPayload else { return nil }
         let trimmedWorkflowDetail = draft.state.workflowDetail?
@@ -740,7 +751,8 @@ struct ScanView: View {
             mapped.status,
             detail,
             min(1, max(0.02, mapped.progress)),
-            AppDeepLink.scanURL(draftID: draft.id)
+            AppDeepLink.scanURL(draftID: draft.id),
+            draft.liveActivityStageToken
         )
     }
 
@@ -750,7 +762,8 @@ struct ScanView: View {
             status: String,
             detail: String,
             progress: Double,
-            deepLinkURL: URL?
+            deepLinkURL: URL?,
+            stageToken: String?
         )
     ) -> LiveActivityPayloadSignature {
         let bucket = Int((min(1, max(0, payload.progress)) * 100).rounded())
@@ -758,7 +771,8 @@ struct ScanView: View {
             isActive: payload.isActive,
             status: payload.status.trimmingCharacters(in: .whitespacesAndNewlines),
             detail: payload.detail.trimmingCharacters(in: .whitespacesAndNewlines),
-            progressBucket: bucket
+            progressBucket: bucket,
+            stageToken: payload.stageToken?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
         )
     }
 

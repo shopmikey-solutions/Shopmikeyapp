@@ -14,6 +14,7 @@ struct PartsIntakeWidgetSnapshot: Codable {
     let draftCount: Int
     let reviewCount: Int
     let totalValueCents: Int
+    let currencyCode: String
 }
 
 enum PartsIntakeWidgetBridge {
@@ -41,7 +42,8 @@ enum PartsIntakeWidgetBridge {
             pendingCount: pendingCount,
             draftCount: draftCount,
             reviewCount: reviewCount,
-            totalValueCents: Self.cents(from: totalValue)
+            totalValueCents: Self.cents(from: totalValue),
+            currencyCode: Self.resolvedCurrencyCode()
         )
 
         guard let encoded = try? JSONEncoder().encode(snapshot) else { return }
@@ -65,6 +67,13 @@ enum PartsIntakeWidgetBridge {
     private static func cents(from decimal: Decimal) -> Int {
         let number = NSDecimalNumber(decimal: decimal)
         return Int((number.doubleValue * 100).rounded())
+    }
+
+    private static func resolvedCurrencyCode() -> String {
+        let fallback = "USD"
+        let configured = Locale.current.currencyCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let configured, !configured.isEmpty else { return fallback }
+        return configured.uppercased()
     }
 
     private static var sharedDefaults: UserDefaults? {

@@ -713,7 +713,8 @@ final class ReviewViewModel: ObservableObject {
             isActive: true,
             statusText: "Submitting to Shopmonkey",
             detailText: "Step 4 of 4 • Posting reviewed draft.",
-            progress: 0.96
+            progress: 0.96,
+            stageToken: "submit"
         )
 
         _ = try? await persistDraft(
@@ -738,7 +739,8 @@ final class ReviewViewModel: ObservableObject {
                 isActive: true,
                 statusText: "Submitted",
                 detailText: "Step 4 of 4 • Draft moved to submitted.",
-                progress: 1.0
+                progress: 1.0,
+                stageToken: "success"
             )
             scheduleLiveActivityEnd(after: 6.0)
             await environment.localNotificationService.notify(
@@ -754,7 +756,8 @@ final class ReviewViewModel: ObservableObject {
                 isActive: true,
                 statusText: "Submission failed",
                 detailText: result.message ?? "Step 4 of 4 • Review vendor and line item details.",
-                progress: 0.55
+                progress: 0.55,
+                stageToken: "fail"
             )
             scheduleLiveActivityEnd(after: 8.0)
             _ = try? await persistDraft(
@@ -774,7 +777,8 @@ final class ReviewViewModel: ObservableObject {
         isActive: Bool,
         statusText: String,
         detailText: String,
-        progress: Double
+        progress: Double,
+        stageToken: String?
     ) {
         let draftURL: URL? = {
             if let activeDraftID {
@@ -788,7 +792,8 @@ final class ReviewViewModel: ObservableObject {
             statusText: statusText,
             detailText: detailText,
             progress: progress,
-            deepLinkURL: draftURL
+            deepLinkURL: draftURL,
+            stageToken: stageToken
         )
     }
 
@@ -803,7 +808,8 @@ final class ReviewViewModel: ObservableObject {
                     isActive: false,
                     statusText: "",
                     detailText: "",
-                    progress: 0
+                    progress: 0,
+                    stageToken: nil
                 )
             }
         }
@@ -1506,24 +1512,29 @@ final class ReviewViewModel: ObservableObject {
         let fallbackDetail: String
         let status: String
         let progress: Double
+        let stageToken: String
 
         switch workflowState {
         case .reviewReady:
             status = "Draft ready"
             fallbackDetail = "Step 3 of 4 • Review lines, vendor details, and submit."
             progress = 0.90
+            stageToken = "draft"
         case .reviewEdited:
             status = "Draft updated"
             fallbackDetail = "Step 3 of 4 • Review complete and ready to submit."
             progress = 0.94
+            stageToken = "draft"
         case .submitting:
             status = "Submitting to Shopmonkey"
             fallbackDetail = "Step 4 of 4 • Posting reviewed draft."
             progress = 0.96
+            stageToken = "submit"
         case .failed:
             status = "Needs attention"
             fallbackDetail = "Step 4 of 4 • Update details and retry submission."
             progress = 0.55
+            stageToken = "fail"
         case .scanning, .ocrReview, .parsing:
             return
         }
@@ -1535,7 +1546,8 @@ final class ReviewViewModel: ObservableObject {
             statusText: status,
             detailText: resolvedDetail,
             progress: progress,
-            deepLinkURL: AppDeepLink.scanURL(draftID: draftID)
+            deepLinkURL: AppDeepLink.scanURL(draftID: draftID),
+            stageToken: stageToken
         )
     }
 

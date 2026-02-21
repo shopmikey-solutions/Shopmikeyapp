@@ -17,6 +17,7 @@ struct PartsIntakeWidgetSnapshot: Codable {
     let draftCount: Int
     let reviewCount: Int
     let totalValueCents: Int
+    let currencyCode: String
 
     init(
         generatedAt: Date,
@@ -26,7 +27,8 @@ struct PartsIntakeWidgetSnapshot: Codable {
         pendingCount: Int,
         draftCount: Int,
         reviewCount: Int,
-        totalValueCents: Int
+        totalValueCents: Int,
+        currencyCode: String
     ) {
         self.generatedAt = generatedAt
         self.scansToday = scansToday
@@ -36,6 +38,7 @@ struct PartsIntakeWidgetSnapshot: Codable {
         self.draftCount = draftCount
         self.reviewCount = reviewCount
         self.totalValueCents = totalValueCents
+        self.currencyCode = currencyCode
     }
 
     init(from decoder: Decoder) throws {
@@ -48,6 +51,7 @@ struct PartsIntakeWidgetSnapshot: Codable {
         draftCount = try container.decodeIfPresent(Int.self, forKey: .draftCount) ?? 0
         reviewCount = try container.decodeIfPresent(Int.self, forKey: .reviewCount) ?? 0
         totalValueCents = try container.decode(Int.self, forKey: .totalValueCents)
+        currencyCode = try container.decodeIfPresent(String.self, forKey: .currencyCode) ?? "USD"
     }
 }
 
@@ -63,7 +67,8 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
             pendingCount: 0,
             draftCount: 0,
             reviewCount: 0,
-            totalValueCents: 0
+            totalValueCents: 0,
+            currencyCode: "USD"
         )
     }
 
@@ -89,7 +94,8 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
                 pendingCount: 0,
                 draftCount: 0,
                 reviewCount: 0,
-                totalValueCents: 0
+                totalValueCents: 0,
+                currencyCode: "USD"
             )
         }
 
@@ -103,7 +109,8 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
                 pendingCount: 0,
                 draftCount: 0,
                 reviewCount: 0,
-                totalValueCents: 0
+                totalValueCents: 0,
+                currencyCode: "USD"
             )
         }
 
@@ -115,7 +122,8 @@ struct PartsIntakeWidgetProvider: TimelineProvider {
             pendingCount: snapshot.pendingCount,
             draftCount: snapshot.draftCount,
             reviewCount: snapshot.reviewCount,
-            totalValueCents: snapshot.totalValueCents
+            totalValueCents: snapshot.totalValueCents,
+            currencyCode: snapshot.currencyCode
         )
     }
 
@@ -139,6 +147,7 @@ struct PartsIntakeWidgetEntry: TimelineEntry {
     let draftCount: Int
     let reviewCount: Int
     let totalValueCents: Int
+    let currencyCode: String
 }
 
 struct ShopMikeyScannerEntryView: View {
@@ -176,16 +185,28 @@ struct ShopMikeyScannerEntryView: View {
             ProgressView(value: progress)
                 .tint(.accentColor)
 
-            Text(totalValueString)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(totalValueString)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+
+                Spacer(minLength: 6)
+
+                Label("\(attentionCount)", systemImage: "exclamationmark.triangle")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(attentionTint)
+                    .contentTransition(.numericText())
+                    .accessibilityLabel("Needs attention \(attentionCount)")
+            }
         }
         .padding(.vertical, 2)
     }
 
     private var inlineAccessoryView: some View {
-        Text("D\(entry.draftCount) R\(entry.reviewCount) S\(entry.submittedCount)")
+        Text("D\(entry.draftCount) R\(entry.reviewCount) S\(entry.submittedCount) A\(attentionCount)")
             .font(.caption.weight(.semibold))
+            .contentTransition(.numericText())
     }
 
     private var rectangularAccessoryView: some View {
@@ -207,10 +228,12 @@ struct ShopMikeyScannerEntryView: View {
                 Label("\(entry.draftCount)", systemImage: "doc.badge.plus")
                 Label("\(entry.reviewCount)", systemImage: "slider.horizontal.3")
                 Label("\(entry.submittedCount)", systemImage: "checkmark.circle")
+                Label("\(attentionCount)", systemImage: "exclamationmark.triangle")
             }
             .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(attentionTint)
             .lineLimit(1)
+            .contentTransition(.numericText())
         }
     }
 
@@ -224,7 +247,21 @@ struct ShopMikeyScannerEntryView: View {
 
     private var totalValueString: String {
         let value = Double(entry.totalValueCents) / 100
-        return value.formatted(.currency(code: "USD"))
+        let code = normalizedCurrencyCode(entry.currencyCode)
+        return value.formatted(.currency(code: code))
+    }
+
+    private var attentionCount: Int {
+        max(0, entry.pendingCount + entry.failedCount)
+    }
+
+    private func normalizedCurrencyCode(_ code: String) -> String {
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return trimmed.isEmpty ? "USD" : trimmed
+    }
+
+    private var attentionTint: Color {
+        attentionCount == 0 ? Color.secondary : Color.orange
     }
 
     private func metric(title: String, value: Int) -> some View {
@@ -265,6 +302,7 @@ struct ShopMikeyScannerWidget: Widget {
         pendingCount: 2,
         draftCount: 3,
         reviewCount: 1,
-        totalValueCents: 9088003
+        totalValueCents: 9088003,
+        currencyCode: "USD"
     )
 }

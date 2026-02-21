@@ -16,6 +16,7 @@ struct PartsIntakeActivityAttributes: ActivityAttributes {
         var progress: Double
         var updatedAt: Date
         var deepLinkURL: String?
+        var stageToken: String?
     }
 
     var title: String
@@ -24,6 +25,7 @@ struct PartsIntakeActivityAttributes: ActivityAttributes {
 struct ShopMikeyScannerLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: PartsIntakeActivityAttributes.self) { context in
+            let stage = resolvedStage(for: context.state)
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Label(context.attributes.title, systemImage: "doc.text.viewfinder")
@@ -41,7 +43,7 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                     .lineLimit(1)
 
                 ProgressView(value: clampedProgress(context.state.progress))
-                    .tint(.accentColor)
+                    .tint(stage.tint)
 
                 Text(context.state.detailText)
                     .font(.footnote)
@@ -50,59 +52,62 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .activityBackgroundTint(Color.accentColor.opacity(0.14))
+            .activityBackgroundTint(stage.tint.opacity(0.14))
             .activitySystemActionForegroundColor(.primary)
             .widgetURL(deepLinkURL(for: context))
         } dynamicIsland: { context in
-            DynamicIsland {
-                DynamicIslandExpandedRegion(.leading, priority: 1) {
-                    Label(stageLabel(for: context.state.statusText), systemImage: stageIconName(for: context.state.statusText))
-                        .labelStyle(.iconOnly)
+            let stage = resolvedStage(for: context.state)
+            return DynamicIsland {
+                DynamicIslandExpandedRegion(.leading, priority: 3) {
+                    Label(stage.label, systemImage: stage.iconName)
+                        .labelStyle(.titleAndIcon)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
                 }
-                DynamicIslandExpandedRegion(.trailing, priority: 1) {
+                DynamicIslandExpandedRegion(.trailing, priority: 2) {
                     Text("\(progressPercent(clampedProgress(context.state.progress)))%")
                         .font(.caption2.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.9)
-                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                        .contentTransition(.numericText())
                 }
-                DynamicIslandExpandedRegion(.center, priority: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(context.state.statusText)
-                            .font(.callout.weight(.semibold))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.82)
+                DynamicIslandExpandedRegion(.center, priority: 1) {
+                    Text(context.state.statusText)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    .dynamicIsland(verticalPlacement: .belowIfTooWide)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) {
+                            ProgressView(value: clampedProgress(context.state.progress))
+                                .tint(stage.tint)
+                            Text(context.state.updatedAt, style: .relative)
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
                         Text(context.state.detailText)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .minimumScaleFactor(0.82)
                     }
-                    .dynamicIsland(verticalPlacement: .belowIfTooWide)
-                }
-                DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 10) {
-                        ProgressView(value: clampedProgress(context.state.progress))
-                            .tint(.accentColor)
-                        Text(context.state.updatedAt, style: .relative)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
                 }
             } compactLeading: {
-                Image(systemName: "doc.text.viewfinder")
+                Image(systemName: stage.iconName)
             } compactTrailing: {
                 Text("\(progressPercent(clampedProgress(context.state.progress)))%")
                     .font(.caption2.monospacedDigit())
+                    .contentTransition(.numericText())
             } minimal: {
-                Image(systemName: "doc.text.viewfinder")
+                Image(systemName: stage.iconName)
             }
             .widgetURL(deepLinkURL(for: context))
-            .keylineTint(Color.accentColor)
+            .keylineTint(stage.tint)
         }
     }
 
@@ -115,44 +120,35 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
         Int((progress * 100).rounded())
     }
 
-    private func stageLabel(for statusText: String) -> String {
-        let normalized = statusText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalized.contains("step 1") || normalized.contains("capture") {
-            return "Capture"
+    private func resolvedStage(for state: PartsIntakeActivityAttributes.ContentState) -> Stage {
+        if let token = state.stageToken?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           let stage = Stage(rawValue: token) {
+            return stage
         }
-        if normalized.contains("step 2") || normalized.contains("ocr") || normalized.contains("parsing") {
-            return "Review"
-        }
-        if normalized.contains("step 3") || normalized.contains("draft") {
-            return "Draft"
-        }
-        if normalized.contains("step 4") || normalized.contains("submit") {
-            return "Submit"
-        }
-        if normalized.contains("fail") {
-            return "Attention"
-        }
-        return "Parts Intake"
-    }
 
-    private func stageIconName(for statusText: String) -> String {
-        let normalized = statusText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalized = state.statusText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if normalized.contains("step 1") || normalized.contains("capture") {
-            return "camera.viewfinder"
+            return .capture
         }
         if normalized.contains("step 2") || normalized.contains("ocr") || normalized.contains("parsing") {
-            return "doc.text.magnifyingglass"
+            return .ocr
         }
         if normalized.contains("step 3") || normalized.contains("draft") {
-            return "square.and.pencil"
+            return .draft
         }
         if normalized.contains("step 4") || normalized.contains("submit") {
-            return "paperplane"
+            return .submit
         }
-        if normalized.contains("fail") {
-            return "exclamationmark.triangle"
+        if normalized.contains("success") || normalized.contains("complete") {
+            return .success
         }
-        return "doc.text.viewfinder"
+        if normalized.contains("fail") || normalized.contains("attention") {
+            return .fail
+        }
+        if normalized.contains("pause") || normalized.contains("inactive") {
+            return .paused
+        }
+        return .intake
     }
 
     private func deepLinkURL(for context: ActivityViewContext<PartsIntakeActivityAttributes>) -> URL? {
@@ -162,6 +158,79 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             return url
         }
         return URL(string: "shopmikey://scan?compose=1")
+    }
+}
+
+private extension ShopMikeyScannerLiveActivityWidget {
+    enum Stage: String {
+        case capture
+        case ocr
+        case parse
+        case draft
+        case submit
+        case success
+        case fail
+        case paused
+        case intake
+
+        var label: String {
+            switch self {
+            case .capture:
+                return "Capture"
+            case .ocr:
+                return "OCR"
+            case .parse:
+                return "Parse"
+            case .draft:
+                return "Draft"
+            case .submit:
+                return "Submit"
+            case .success:
+                return "Submitted"
+            case .fail:
+                return "Attention"
+            case .paused:
+                return "Paused"
+            case .intake:
+                return "Parts Intake"
+            }
+        }
+
+        var iconName: String {
+            switch self {
+            case .capture:
+                return "camera.viewfinder"
+            case .ocr:
+                return "doc.text.magnifyingglass"
+            case .parse:
+                return "text.badge.checkmark"
+            case .draft:
+                return "square.and.pencil"
+            case .submit:
+                return "paperplane"
+            case .success:
+                return "checkmark.circle"
+            case .fail:
+                return "exclamationmark.triangle"
+            case .paused:
+                return "pause.circle"
+            case .intake:
+                return "doc.text.viewfinder"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .fail:
+                return .orange
+            case .success:
+                return .green
+            case .paused:
+                return .gray
+            default:
+                return .accentColor
+            }
+        }
     }
 }
 
@@ -178,7 +247,8 @@ extension PartsIntakeActivityAttributes.ContentState {
             detailText: "Applying on-device AI and deterministic rules.",
             progress: 0.64,
             updatedAt: .now,
-            deepLinkURL: "shopmikey://scan?compose=1"
+            deepLinkURL: "shopmikey://scan?compose=1",
+            stageToken: "parse"
         )
     }
 
@@ -188,7 +258,8 @@ extension PartsIntakeActivityAttributes.ContentState {
             detailText: "Finishing purchase-order intake checks.",
             progress: 0.9,
             updatedAt: .now,
-            deepLinkURL: "shopmikey://scan?compose=1"
+            deepLinkURL: "shopmikey://scan?compose=1",
+            stageToken: "draft"
         )
     }
 }

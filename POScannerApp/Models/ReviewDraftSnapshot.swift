@@ -300,4 +300,21 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
             return nil
         }
     }
+
+    var liveActivityStageToken: String {
+        switch workflowState {
+        case .scanning:
+            return "capture"
+        case .ocrReview:
+            return "ocr"
+        case .parsing:
+            return "parse"
+        case .reviewReady, .reviewEdited:
+            return "draft"
+        case .submitting:
+            return "submit"
+        case .failed:
+            return "fail"
+        }
+    }
 }

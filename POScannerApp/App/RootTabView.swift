@@ -181,7 +181,8 @@ struct RootTabView: View {
             draft.id.uuidString,
             payload.status.trimmingCharacters(in: .whitespacesAndNewlines),
             payload.detail.trimmingCharacters(in: .whitespacesAndNewlines),
-            String(progressBucket)
+            String(progressBucket),
+            draft.liveActivityStageToken
         ].joined(separator: "|")
         guard signature != lastLiveActivitySignature else { return }
         lastLiveActivitySignature = signature
@@ -191,7 +192,8 @@ struct RootTabView: View {
             statusText: payload.status,
             detailText: payload.detail,
             progress: payload.progress,
-            deepLinkURL: AppDeepLink.scanURL(draftID: draft.id)
+            deepLinkURL: AppDeepLink.scanURL(draftID: draft.id),
+            stageToken: draft.liveActivityStageToken
         )
     }
 

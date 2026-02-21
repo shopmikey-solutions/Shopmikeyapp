@@ -21,6 +21,7 @@ struct PartsIntakeActivityAttributes: ActivityAttributes {
         var progress: Double
         var updatedAt: Date
         var deepLinkURL: String?
+        var stageToken: String?
     }
 
     var title: String
@@ -44,6 +45,7 @@ actor PartsIntakeLiveActivityManager {
         let statusText: String
         let detailText: String
         let progressBucket: Int
+        let stageToken: String
     }
 
     func sync(
@@ -51,7 +53,8 @@ actor PartsIntakeLiveActivityManager {
         statusText: String,
         detailText: String,
         progress: Double,
-        deepLinkURL: URL?
+        deepLinkURL: URL?,
+        stageToken: String?
     ) async {
         guard isEnabled else {
             cancelScheduledEnd()
@@ -87,6 +90,7 @@ actor PartsIntakeLiveActivityManager {
 
         let normalizedStatusText = statusText.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedDetailText = detailText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedStageToken = normalizedLiveActivityStageToken(stageToken)
         let deepLinkRawValue = deepLinkURL?.absoluteString
         if let deepLinkRawValue, !deepLinkRawValue.isEmpty {
             lastDeepLinkRawValue = deepLinkRawValue
@@ -103,7 +107,8 @@ actor PartsIntakeLiveActivityManager {
         let signature = Signature(
             statusText: normalizedStatusText,
             detailText: normalizedDetailText,
-            progressBucket: progressBucket
+            progressBucket: progressBucket,
+            stageToken: normalizedStageToken
         )
 
         // Avoid churn when app re-enters foreground and repeatedly emits equivalent updates.
@@ -117,7 +122,8 @@ actor PartsIntakeLiveActivityManager {
             detailText: normalizedDetailText,
             progress: clampedProgress,
             updatedAt: Date(),
-            deepLinkURL: deepLinkRawValue
+            deepLinkURL: deepLinkRawValue,
+            stageToken: normalizedStageToken
         )
         let content = ActivityContent(
             state: state,
@@ -256,12 +262,14 @@ actor PartsIntakeLiveActivityManager {
             if let fallbackDeepLink, !fallbackDeepLink.isEmpty { return fallbackDeepLink }
             return nil
         }()
+        let finalStageToken = terminalCompletion ? "success" : "paused"
         let state = PartsIntakeActivityAttributes.ContentState(
             statusText: finalStatus,
             detailText: finalDetail,
             progress: finalProgress,
             updatedAt: Date(),
-            deepLinkURL: finalDeepLink
+            deepLinkURL: finalDeepLink,
+            stageToken: finalStageToken
         )
         let content = ActivityContent(
             state: state,
@@ -321,6 +329,13 @@ actor PartsIntakeLiveActivityManager {
         return min(1, max(0, value))
     }
 
+    private func normalizedLiveActivityStageToken(_ token: String?) -> String {
+        guard let token else { return "" }
+        return token
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
     private func shouldAllowProgressRegression(statusText: String) -> Bool {
         let normalized = statusText.lowercased()
         return normalized.contains("step 1 of 4") || normalized.contains("capture in progress")
@@ -346,6 +361,7 @@ enum PartsIntakeLiveActivityBridge {
         let detailText: String
         let progress: Double
         let deepLinkURL: URL?
+        let stageToken: String?
     }
 
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.LiveActivity")
@@ -364,7 +380,8 @@ enum PartsIntakeLiveActivityBridge {
         statusText: String,
         detailText: String,
         progress: Double,
-        deepLinkURL: URL? = nil
+        deepLinkURL: URL? = nil,
+        stageToken: String? = nil
     ) {
         #if canImport(UIKit)
         if isActive, UIApplication.shared.applicationState == .background {
@@ -374,7 +391,8 @@ enum PartsIntakeLiveActivityBridge {
                 statusText: statusText,
                 detailText: detailText,
                 progress: progress,
-                deepLinkURL: deepLinkURL
+                deepLinkURL: deepLinkURL,
+                stageToken: stageToken
             )
             return
         }
@@ -395,7 +413,8 @@ enum PartsIntakeLiveActivityBridge {
                     statusText: statusText,
                     detailText: detailText,
                     progress: progress,
-                    deepLinkURL: deepLinkURL
+                    deepLinkURL: deepLinkURL,
+                    stageToken: stageToken
                 )
             )
             return
@@ -407,7 +426,8 @@ enum PartsIntakeLiveActivityBridge {
             statusText: statusText,
             detailText: detailText,
             progress: progress,
-            deepLinkURL: deepLinkURL
+            deepLinkURL: deepLinkURL,
+            stageToken: stageToken
         )
     }
 
@@ -476,7 +496,8 @@ enum PartsIntakeLiveActivityBridge {
                 statusText: pending.statusText,
                 detailText: pending.detailText,
                 progress: pending.progress,
-                deepLinkURL: pending.deepLinkURL
+                deepLinkURL: pending.deepLinkURL,
+                stageToken: pending.stageToken
             )
         }
     }
@@ -499,7 +520,8 @@ enum PartsIntakeLiveActivityBridge {
         statusText: String,
         detailText: String,
         progress: Double,
-        deepLinkURL: URL?
+        deepLinkURL: URL?,
+        stageToken: String?
     ) {
         #if canImport(ActivityKit)
         guard #available(iOS 16.1, *) else { return }
@@ -509,7 +531,8 @@ enum PartsIntakeLiveActivityBridge {
                 statusText: statusText,
                 detailText: detailText,
                 progress: progress,
-                deepLinkURL: deepLinkURL
+                deepLinkURL: deepLinkURL,
+                stageToken: stageToken
             )
         }
         #endif

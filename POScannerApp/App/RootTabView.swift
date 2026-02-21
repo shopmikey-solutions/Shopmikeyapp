@@ -14,6 +14,10 @@ struct RootTabView: View {
     }
 
     private static let deepLinkLogger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.DeepLink")
+    nonisolated(unsafe) private static var lastGlobalRawDeepLinkSignature: String?
+    nonisolated(unsafe) private static var lastGlobalRawDeepLinkHandledAt: Date?
+    nonisolated(unsafe) private static var lastGlobalNormalizedDeepLinkSignature: String?
+    nonisolated(unsafe) private static var lastGlobalNormalizedDeepLinkHandledAt: Date?
 
     @Environment(\.appEnvironment) private var environment
     @Environment(\.scenePhase) private var scenePhase
@@ -23,13 +27,9 @@ struct RootTabView: View {
     @State private var liveActivitySyncTask: Task<Void, Never>?
     @State private var lastLiveActivitySyncAt: Date?
     @State private var lastLiveActivitySignature: String?
-    @State private var lastDeepLinkSignature: String?
-    @State private var lastDeepLinkHandledAt: Date?
-    @State private var lastRawDeepLinkSignature: String?
-    @State private var lastRawDeepLinkHandledAt: Date?
     private let minimumLiveActivitySyncInterval: TimeInterval = 0.9
     private let deepLinkDedupInterval: TimeInterval = 8.0
-    private let rawDeepLinkDedupInterval: TimeInterval = 1.25
+    private let rawDeepLinkDedupInterval: TimeInterval = 8.0
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
     private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
     private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
@@ -97,11 +97,17 @@ struct RootTabView: View {
             }
         }
         .onOpenURL { url in
-            self.handleDeepLink(url)
+            Task { @MainActor in
+                await Task.yield()
+                self.handleDeepLink(url)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appDeepLinkRequested)) { notification in
             guard let url = notification.object as? URL else { return }
-            self.handleDeepLink(url)
+            Task { @MainActor in
+                await Task.yield()
+                self.handleDeepLink(url)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
             self.scheduleGlobalLiveActivitySync()
@@ -126,14 +132,14 @@ struct RootTabView: View {
         let rawSignature = url.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        if let lastRawDeepLinkSignature,
-           let lastRawDeepLinkHandledAt,
+        if let lastRawDeepLinkSignature = Self.lastGlobalRawDeepLinkSignature,
+           let lastRawDeepLinkHandledAt = Self.lastGlobalRawDeepLinkHandledAt,
            rawSignature == lastRawDeepLinkSignature,
            now.timeIntervalSince(lastRawDeepLinkHandledAt) < self.rawDeepLinkDedupInterval {
             return
         }
-        self.lastRawDeepLinkSignature = rawSignature
-        self.lastRawDeepLinkHandledAt = now
+        Self.lastGlobalRawDeepLinkSignature = rawSignature
+        Self.lastGlobalRawDeepLinkHandledAt = now
 
         guard let parsedRoute = AppDeepLink.parse(url) else { return }
         let route = self.normalizedDeepLinkRoute(from: parsedRoute)
@@ -143,17 +149,17 @@ struct RootTabView: View {
         }
         let signature = self.deepLinkSignature(for: route)
         if self.pendingDeepLinkTask != nil,
-           self.lastDeepLinkSignature == signature {
+           Self.lastGlobalNormalizedDeepLinkSignature == signature {
             return
         }
-        if let lastDeepLinkSignature,
-           let lastDeepLinkHandledAt,
+        if let lastDeepLinkSignature = Self.lastGlobalNormalizedDeepLinkSignature,
+           let lastDeepLinkHandledAt = Self.lastGlobalNormalizedDeepLinkHandledAt,
            lastDeepLinkSignature == signature,
            now.timeIntervalSince(lastDeepLinkHandledAt) < deepLinkDedupInterval {
             return
         }
-        self.lastDeepLinkSignature = signature
-        self.lastDeepLinkHandledAt = now
+        Self.lastGlobalNormalizedDeepLinkSignature = signature
+        Self.lastGlobalNormalizedDeepLinkHandledAt = now
         Self.deepLinkLogger.debug("Handling deep link: \(url.absoluteString, privacy: .public)")
 
         switch route {
@@ -317,10 +323,11 @@ struct RootTabView: View {
 
     private func isDraftEligibleForGlobalLiveActivity(_ draft: ReviewDraftSnapshot, now: Date) -> Bool {
         switch draft.workflowState {
-        case .scanning, .ocrReview, .parsing:
-            return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
         case .reviewReady, .reviewEdited, .submitting:
             return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+        case .scanning, .ocrReview, .parsing:
+            // Global sync runs outside the scan tab; keep only resumable review/submission states here.
+            return false
         case .failed:
             return false
         }

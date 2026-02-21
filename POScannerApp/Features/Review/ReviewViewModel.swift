@@ -25,6 +25,11 @@ final class ReviewViewModel: ObservableObject {
         case restock
     }
 
+    private enum DraftAutosaveTrigger {
+        case regularChange
+        case itemReorder
+    }
+
     let environment: AppEnvironment
     let shopmonkeyService: ShopmonkeyServicing
     let parsedInvoice: ParsedInvoice
@@ -66,8 +71,9 @@ final class ReviewViewModel: ObservableObject {
     }
     @Published var items: [POItem] = [] {
         didSet {
+            guard !isApplyingItemReorder else { return }
             refreshUnknownKindRate()
-            scheduleDraftAutosaveIfNeeded()
+            scheduleDraftAutosaveIfNeeded(trigger: .regularChange)
         }
     }
 
@@ -133,6 +139,7 @@ final class ReviewViewModel: ObservableObject {
     private var lastDraftFingerprint: Int?
     private var isRestoringDraftState: Bool = false
     private var shouldSkipDraftPersistence: Bool = false
+    private var isApplyingItemReorder: Bool = false
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
 
     init(
@@ -463,7 +470,11 @@ final class ReviewViewModel: ObservableObject {
         let removedBeforeDestination = source.filter { $0 < destination }.count
         let adjustedDestination = max(0, min(reordered.count, destination - removedBeforeDestination))
         reordered.insert(contentsOf: movingItems, at: adjustedDestination)
+
+        isApplyingItemReorder = true
         items = reordered
+        isApplyingItemReorder = false
+        scheduleDraftAutosaveIfNeeded(trigger: .itemReorder)
     }
 
     func removeItems(at offsets: IndexSet) {
@@ -1354,18 +1365,28 @@ final class ReviewViewModel: ObservableObject {
         return hasher.finalize()
     }
 
-    private func scheduleDraftAutosaveIfNeeded() {
+    private func scheduleDraftAutosaveIfNeeded(trigger: DraftAutosaveTrigger = .regularChange) {
         guard !isRestoringDraftState else { return }
         guard !shouldSkipDraftPersistence else { return }
         guard !isSubmitting else { return }
         guard hasMeaningfulDraftContent else { return }
 
-        let fingerprint = draftFingerprint
-        guard lastDraftFingerprint != fingerprint else { return }
+        if trigger == .regularChange {
+            let fingerprint = draftFingerprint
+            guard lastDraftFingerprint != fingerprint else { return }
+        }
 
         draftAutosaveTask?.cancel()
         draftAutosaveTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 850_000_000)
+            let delayNanos: UInt64
+            switch trigger {
+            case .regularChange:
+                delayNanos = 850_000_000
+            case .itemReorder:
+                // Reordering can fire repeatedly while dragging; keep gesture handling smooth.
+                delayNanos = 1_400_000_000
+            }
+            try? await Task.sleep(nanoseconds: delayNanos)
             guard !Task.isCancelled, let self else { return }
             await self.persistDraftIfNeeded(
                 workflowState: .reviewEdited,

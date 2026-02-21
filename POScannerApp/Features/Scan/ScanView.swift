@@ -45,6 +45,7 @@ struct ScanView: View {
     @State private var lastResumeDraftRequestAt: Date?
     @State private var activeResumeDraftID: UUID?
     @State private var deepLinkResumeTask: Task<Void, Never>?
+    @State private var deepLinkConsumeTask: Task<Void, Never>?
     @StateObject private var viewModel: ScanViewModel
     @Environment(\.scenePhase) private var scenePhase
     private let resumeDraftRequestDedupInterval: TimeInterval = 8.0
@@ -139,7 +140,7 @@ struct ScanView: View {
         .onAppear {
             guard self.isTabActive else { return }
             self.scheduleInitialDashboardRefresh(force: true)
-            self.consumePendingDeepLinkRequests()
+            self.scheduleConsumePendingDeepLinkRequests(after: 140_000_000)
         }
         .onDisappear {
             self.initialLoadTask?.cancel()
@@ -150,6 +151,8 @@ struct ScanView: View {
             self.liveActivityEndTask = nil
             self.deepLinkResumeTask?.cancel()
             self.deepLinkResumeTask = nil
+            self.deepLinkConsumeTask?.cancel()
+            self.deepLinkConsumeTask = nil
             self.activeResumeDraftID = nil
         }
         .onChange(of: isTabActive) { _, active in
@@ -157,7 +160,7 @@ struct ScanView: View {
                 self.scheduleInitialDashboardRefresh()
                 self.scheduleDraftStoreRefresh()
                 self.syncLiveActivity()
-                self.consumePendingDeepLinkRequests()
+                self.scheduleConsumePendingDeepLinkRequests(after: 140_000_000)
             } else {
                 self.initialLoadTask?.cancel()
                 self.initialLoadTask = nil
@@ -180,7 +183,7 @@ struct ScanView: View {
                 self.syncLiveActivity()
             }
             if oldValue && !newValue {
-                self.consumePendingDeepLinkRequests()
+                self.scheduleConsumePendingDeepLinkRequests(after: 220_000_000)
             }
         }
         .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
@@ -199,17 +202,23 @@ struct ScanView: View {
             Task { await self.importPhoto(item) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
-            if self.canPresentCaptureFlow {
-                UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
-                UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
-                self.presentCaptureFlow()
-            } else {
-                UserDefaults.standard.set(true, forKey: self.pendingOpenComposerDefaultsKey)
+            Task { @MainActor in
+                await Task.yield()
+                if self.canPresentCaptureFlow {
+                    UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+                    UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+                    self.presentCaptureFlow()
+                } else {
+                    UserDefaults.standard.set(true, forKey: self.pendingOpenComposerDefaultsKey)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .appResumeScanDraft)) { notification in
             guard let draftID = notification.object as? UUID else { return }
-            self.requestResumeDraftFromDeepLink(draftID)
+            Task { @MainActor in
+                await Task.yield()
+                self.requestResumeDraftFromDeepLink(draftID)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
             guard !self.viewModel.isProcessing else { return }
@@ -245,11 +254,11 @@ struct ScanView: View {
             if self.viewModel.isProcessing || self.liveActivityDraftCandidate() != nil || (self.lastLiveActivitySignature?.isActive == true) {
                 self.syncLiveActivity()
             }
-            self.consumePendingDeepLinkRequests()
+            self.scheduleConsumePendingDeepLinkRequests(after: 180_000_000)
         }
         .onChange(of: isReviewFlowPresented) { _, presented in
             if !presented {
-                self.consumePendingDeepLinkRequests()
+                self.scheduleConsumePendingDeepLinkRequests(after: 320_000_000)
             }
         }
     }
@@ -503,6 +512,20 @@ struct ScanView: View {
     }
 
     @MainActor
+    private func scheduleConsumePendingDeepLinkRequests(after delayNanos: UInt64 = 120_000_000) {
+        self.deepLinkConsumeTask?.cancel()
+        self.deepLinkConsumeTask = Task { @MainActor in
+            if delayNanos > 0 {
+                try? await Task.sleep(nanoseconds: delayNanos)
+            } else {
+                await Task.yield()
+            }
+            guard !Task.isCancelled else { return }
+            self.consumePendingDeepLinkRequests()
+        }
+    }
+
+    @MainActor
     private func consumePendingDeepLinkRequests() {
         guard !self.viewModel.isProcessing else { return }
         guard !self.isReviewFlowPresented else { return }
@@ -518,8 +541,8 @@ struct ScanView: View {
 
         let shouldOpenComposer = defaults.bool(forKey: self.pendingOpenComposerDefaultsKey)
         guard shouldOpenComposer else { return }
-        defaults.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
         if self.canPresentCaptureFlow {
+            defaults.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
             self.presentCaptureFlow()
         }
     }

@@ -934,21 +934,24 @@ func userMessage(for error: Error) -> String {
         case .unauthorized:
             return "Unauthorized"
         case .rateLimited:
-            return "Rate limited, retrying"
+            return "Rate limited. Please retry in a moment."
         case .serverError(let code):
+            if code == 502 || code == 503 || code == 504 {
+                return "Shopmonkey is temporarily unavailable (\(code)). Your draft is saved locally; retry in a moment."
+            }
             if code == 400 || code == 422 {
                 return "Server rejected request (\(code)). Check vendor, IDs, and line item fields."
             }
             return "Server error (\(code))"
-        case .network:
-            return "Network unavailable"
+        case .network(let underlying):
+            return userMessage(forNetworkError: underlying)
         case .invalidURL, .encodingFailed, .decodingFailed:
             return "Unexpected error"
         }
     }
 
-    if error is URLError {
-        return "Network unavailable"
+    if let urlError = error as? URLError {
+        return userMessage(forNetworkError: urlError)
     }
 
     #if DEBUG
@@ -961,4 +964,21 @@ func userMessage(for error: Error) -> String {
     #else
     return "Unexpected error"
     #endif
+}
+
+private func userMessage(forNetworkError error: Error) -> String {
+    guard let urlError = error as? URLError else {
+        return "Network unavailable"
+    }
+
+    switch urlError.code {
+    case .timedOut:
+        return "Request timed out. Your draft is saved locally; retry in a moment."
+    case .notConnectedToInternet:
+        return "No internet connection. Your draft is saved locally."
+    case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .networkConnectionLost:
+        return "Could not reach Shopmonkey. Your draft is saved locally; retry shortly."
+    default:
+        return "Network unavailable"
+    }
 }

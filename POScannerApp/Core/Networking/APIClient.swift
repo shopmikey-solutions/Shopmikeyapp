@@ -64,7 +64,9 @@ final class APIClient {
 
         let (data, httpResponse) = try await send(
             request,
+            method: method,
             didRetryOn429: false,
+            didRetryTransientGET: false,
             startedAt: requestStart
         )
         let requestDurationMillis = elapsedMillis(since: requestStart)
@@ -115,13 +117,37 @@ final class APIClient {
 
     private func send(
         _ request: URLRequest,
+        method: HTTPMethod,
         didRetryOn429: Bool,
+        didRetryTransientGET: Bool,
         startedAt: Date
     ) async throws -> (Data, HTTPURLResponse) {
         let dataAndResponse: (Data, URLResponse)
         do {
             dataAndResponse = try await urlSession.data(for: request)
         } catch {
+            if method == .get,
+               !didRetryTransientGET,
+               shouldRetryTransientNetworkError(error) {
+                await diagnosticsRecorder.record(
+                    entry(
+                        for: request,
+                        statusCode: nil,
+                        responseData: nil,
+                        durationMillis: elapsedMillis(since: startedAt),
+                        errorSummary: "Transient network error; retrying once"
+                    )
+                )
+                try await sleeper(0.8)
+                return try await send(
+                    request,
+                    method: method,
+                    didRetryOn429: didRetryOn429,
+                    didRetryTransientGET: true,
+                    startedAt: startedAt
+                )
+            }
+
             await diagnosticsRecorder.record(
                 entry(
                     for: request,
@@ -146,7 +172,9 @@ final class APIClient {
                 try await sleeper(delay)
                 return try await send(
                     request,
+                    method: method,
                     didRetryOn429: true,
+                    didRetryTransientGET: didRetryTransientGET,
                     startedAt: startedAt
                 )
             }
@@ -160,6 +188,28 @@ final class APIClient {
                 )
             )
             throw APIError.rateLimited
+        }
+
+        if method == .get,
+           !didRetryTransientGET,
+           isTransientServerStatus(http.statusCode) {
+            await diagnosticsRecorder.record(
+                entry(
+                    for: request,
+                    statusCode: http.statusCode,
+                    responseData: data,
+                    durationMillis: elapsedMillis(since: startedAt),
+                    errorSummary: "Transient server status; retrying once"
+                )
+            )
+            try await sleeper(0.8)
+            return try await send(
+                request,
+                method: method,
+                didRetryOn429: didRetryOn429,
+                didRetryTransientGET: true,
+                startedAt: startedAt
+            )
         }
 
         switch http.statusCode {
@@ -206,6 +256,25 @@ final class APIClient {
             )
             throw APIError.serverError(http.statusCode)
         }
+    }
+
+    private func shouldRetryTransientNetworkError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .timedOut,
+             .cannotConnectToHost,
+             .cannotFindHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .notConnectedToInternet:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isTransientServerStatus(_ statusCode: Int) -> Bool {
+        statusCode == 502 || statusCode == 503 || statusCode == 504
     }
 
     static func encodeJSON<T: Encodable>(_ value: T) throws -> Data {

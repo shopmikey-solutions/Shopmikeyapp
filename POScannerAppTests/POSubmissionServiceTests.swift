@@ -103,6 +103,23 @@ private func fetchPurchaseOrders(in context: NSManagedObjectContext) throws -> [
 }
 
 struct POSubmissionServiceTests {
+    @Test func userMessageMapsGatewayTimeoutToDraftSafeGuidance() {
+        let message = userMessage(for: APIError.serverError(504))
+        #expect(message.contains("temporarily unavailable"))
+        #expect(message.contains("draft is saved locally"))
+    }
+
+    @Test func userMessageMapsTimedOutNetworkToRetryGuidance() {
+        let message = userMessage(for: APIError.network(URLError(.timedOut)))
+        #expect(message.contains("Request timed out"))
+        #expect(message.contains("draft is saved locally"))
+    }
+
+    @Test func userMessageMapsRateLimitToManualRetryGuidance() {
+        let message = userMessage(for: APIError.rateLimited)
+        #expect(message == "Rate limited. Please retry in a moment.")
+    }
+
     @Test @MainActor func invalidPayloadMissingVendorDoesNotCallNetwork() async throws {
         let controller = DataController(inMemory: true)
         await controller.waitUntilLoaded()

@@ -25,8 +25,11 @@ struct RootTabView: View {
     @State private var lastLiveActivitySignature: String?
     @State private var lastDeepLinkSignature: String?
     @State private var lastDeepLinkHandledAt: Date?
+    @State private var lastRawDeepLinkSignature: String?
+    @State private var lastRawDeepLinkHandledAt: Date?
     private let minimumLiveActivitySyncInterval: TimeInterval = 0.9
     private let deepLinkDedupInterval: TimeInterval = 8.0
+    private let rawDeepLinkDedupInterval: TimeInterval = 1.25
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
     private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
     private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
@@ -119,9 +122,21 @@ struct RootTabView: View {
     }
 
     private func handleDeepLink(_ url: URL) {
-        guard let parsedRoute = AppDeepLink.parse(url) else { return }
         let now = self.environment.dateProvider.now
-        guard let route = self.normalizedDeepLinkRoute(from: parsedRoute, now: now) else { return }
+        let rawSignature = url.absoluteString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let lastRawDeepLinkSignature,
+           let lastRawDeepLinkHandledAt,
+           rawSignature == lastRawDeepLinkSignature,
+           now.timeIntervalSince(lastRawDeepLinkHandledAt) < self.rawDeepLinkDedupInterval {
+            return
+        }
+        self.lastRawDeepLinkSignature = rawSignature
+        self.lastRawDeepLinkHandledAt = now
+
+        guard let parsedRoute = AppDeepLink.parse(url) else { return }
+        let route = self.normalizedDeepLinkRoute(from: parsedRoute)
         if case let .scan(_, draftID) = route,
            let draftID {
             UserDefaults.standard.set(draftID.uuidString, forKey: self.preferredDraftDefaultsKey)
@@ -164,36 +179,29 @@ struct RootTabView: View {
             }
         case .history:
             selectedTab = .history
+            UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
             pendingDeepLinkTask?.cancel()
             pendingDeepLinkTask = nil
         case .settings:
             selectedTab = .settings
+            UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
             pendingDeepLinkTask?.cancel()
             pendingDeepLinkTask = nil
         }
     }
 
-    private func normalizedDeepLinkRoute(from route: AppDeepLink.Route, now: Date) -> AppDeepLink.Route? {
-        _ = now
+    private func normalizedDeepLinkRoute(from route: AppDeepLink.Route) -> AppDeepLink.Route {
         switch route {
-        case let .scan(openComposer, draftID):
+        case let .scan(_, draftID):
             if let draftID {
-                return .scan(openComposer: openComposer, draftID: draftID)
-            }
-            if let pendingResumeDraftID = self.pendingResumeDraftID() {
-                return .scan(openComposer: false, draftID: pendingResumeDraftID)
+                return .scan(openComposer: false, draftID: draftID)
             }
             return .scan(openComposer: true, draftID: nil)
         case .history, .settings:
             return route
         }
-    }
-
-    private func pendingResumeDraftID() -> UUID? {
-        guard let raw = UserDefaults.standard.string(forKey: self.pendingResumeDraftDefaultsKey) else {
-            return nil
-        }
-        return UUID(uuidString: raw)
     }
 
     private func deepLinkSignature(for route: AppDeepLink.Route) -> String {

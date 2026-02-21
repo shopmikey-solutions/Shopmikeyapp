@@ -33,6 +33,50 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
                 return "Needs Attention"
             }
         }
+
+        var lifecycleRank: Int {
+            switch self {
+            case .scanning:
+                return 0
+            case .ocrReview:
+                return 1
+            case .parsing:
+                return 2
+            case .reviewReady:
+                return 3
+            case .reviewEdited:
+                return 4
+            case .submitting:
+                return 5
+            case .failed:
+                return 6
+            }
+        }
+
+        func allowsTransition(to next: WorkflowState) -> Bool {
+            if self == next {
+                return true
+            }
+
+            if next == .failed {
+                return true
+            }
+
+            if self == .failed {
+                switch next {
+                case .reviewReady, .reviewEdited, .submitting:
+                    return true
+                case .scanning, .ocrReview, .parsing, .failed:
+                    return false
+                }
+            }
+
+            if self == .reviewEdited && next == .reviewReady {
+                return true
+            }
+
+            return next.lifecycleRank >= self.lifecycleRank
+        }
     }
 
     struct ParsedLineItemSnapshot: Codable, Hashable {

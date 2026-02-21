@@ -9,6 +9,9 @@ import os
 
 final class AppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.App")
+    private static var lastURLSignature: String?
+    private static var lastURLHandledAt: Date?
+    private static let urlDedupInterval: TimeInterval = 1.25
 
     func application(
         _ application: UIApplication,
@@ -49,6 +52,25 @@ final class AppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
         guard AppDeepLink.parse(url) != nil else { return false }
+
+        let now = Date()
+        let signature = url.absoluteString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let lastURLSignature = Self.lastURLSignature,
+           let lastURLHandledAt = Self.lastURLHandledAt,
+           lastURLSignature == signature,
+           now.timeIntervalSince(lastURLHandledAt) < Self.urlDedupInterval {
+            return true
+        }
+        Self.lastURLSignature = signature
+        Self.lastURLHandledAt = now
+
+        // In active foreground, SwiftUI's onOpenURL path will handle routing.
+        // Keep this delegate as a fallback for launch/background transitions.
+        if app.applicationState == .active {
+            return true
+        }
         Self.logger.debug("Posting deep link request from URL open.")
         NotificationCenter.default.post(name: .appDeepLinkRequested, object: url)
         return true

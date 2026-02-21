@@ -43,10 +43,20 @@ actor ReviewDraftStore: ReviewDraftStoring {
     func upsert(_ snapshot: ReviewDraftSnapshot) async throws {
         var drafts = readAll()
         if let index = drafts.firstIndex(where: { $0.id == snapshot.id }) {
-            if drafts[index].state == snapshot.state {
+            let existing = drafts[index]
+            if existing.state.workflowStateRawValue != nil,
+               !existing.workflowState.allowsTransition(to: snapshot.workflowState) {
                 return
             }
-            drafts[index] = snapshot
+
+            var merged = snapshot
+            merged.createdAt = min(existing.createdAt, snapshot.createdAt)
+            merged.updatedAt = max(existing.updatedAt, snapshot.updatedAt)
+
+            if existing == merged {
+                return
+            }
+            drafts[index] = merged
         } else {
             drafts.append(snapshot)
         }

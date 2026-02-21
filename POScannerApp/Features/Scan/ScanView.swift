@@ -576,11 +576,15 @@ struct ScanView: View {
             }
 
             let resumed = await self.resumeDraftFromDeepLink(id: draftID)
-            guard !resumed else { return }
+            if resumed {
+                self.syncLiveActivity()
+                return
+            }
             UserDefaults.standard.removeObject(forKey: self.preferredDraftDefaultsKey)
             UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
             UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
             self.viewModel.loadInProgressDrafts(force: true)
+            self.syncLiveActivity()
         }
     }
 
@@ -949,6 +953,11 @@ struct ScanView: View {
         }
         guard !eligibleDrafts.isEmpty else { return nil }
 
+        if let activeDraftID = self.viewModel.activeWorkflowDraftIDForLiveActivity,
+           let activeDraft = eligibleDrafts.first(where: { $0.id == activeDraftID }) {
+            return activeDraft
+        }
+
         let sortedDrafts = eligibleDrafts
             .sorted { lhs, rhs in
                 if lhs.updatedAt == rhs.updatedAt {
@@ -988,8 +997,12 @@ struct ScanView: View {
             return true
         }
         switch draft.workflowState {
-        case .scanning, .ocrReview, .parsing:
-            return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+        case .scanning, .parsing:
+            // Only show these while they are truly in-flight (handled above by active workflow checks).
+            return false
+        case .ocrReview:
+            // OCR review is only restorable when we still hold the extraction payload.
+            return self.viewModel.canResumeOCRReview(draft)
         case .reviewReady, .reviewEdited, .submitting:
             return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
         case .failed:

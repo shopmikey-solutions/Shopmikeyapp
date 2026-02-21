@@ -372,16 +372,19 @@ final class ScanViewModel: ObservableObject {
             return true
         }
         guard let draft = await environment.reviewDraftStore.load(id: id) else { return false }
-        if canResumeOCRReview(draft) {
+        switch draft.workflowState {
+        case .ocrReview:
+            guard canResumeOCRReview(draft) else { return false }
             resumeOCRReview(draft)
             return true
-        }
-        if draft.workflowState == .scanning || draft.workflowState == .ocrReview || draft.workflowState == .parsing {
-            activeWorkflowDraftID = id
-            setPreferredLiveActivityDraftID(id)
-            parsedInvoiceRoute = nil
-            ocrReviewDraft = nil
-            return true
+        case .scanning, .parsing:
+            if isProcessing, activeWorkflowDraftID == id {
+                setPreferredLiveActivityDraftID(id)
+                return true
+            }
+            return false
+        case .reviewReady, .reviewEdited, .submitting, .failed:
+            break
         }
         guard draft.canResumeInReview else { return false }
         resumeDraft(draft)
@@ -395,6 +398,7 @@ final class ScanViewModel: ObservableObject {
                 if activeWorkflowDraftID == draft.id {
                     activeWorkflowDraftID = nil
                 }
+                clearPreferredLiveActivityDraftIDIfMatches(draft.id)
                 cachedOCRReviewDrafts[draft.id] = nil
                 let drafts = await environment.reviewDraftStore.list()
                 lastInProgressDraftsLoadAt = Date()
@@ -695,6 +699,14 @@ final class ScanViewModel: ObservableObject {
             activeWorkflowDraftID = draftID
         }
         let existing = await environment.reviewDraftStore.load(id: draftID)
+        if let existing,
+           existing.state.workflowStateRawValue != nil,
+           !existing.workflowState.allowsTransition(to: stage) {
+            Self.logger.debug(
+                "Ignoring workflow draft stage regression from \(existing.workflowState.rawValue, privacy: .public) to \(stage.rawValue, privacy: .public)."
+            )
+            return existing
+        }
         let createdAt = existing?.createdAt ?? now
 
         let snapshot = ReviewDraftSnapshot(
@@ -1093,6 +1105,17 @@ final class ScanViewModel: ObservableObject {
     }
 
     private func reconcileActiveWorkflowDraft(with drafts: [ReviewDraftSnapshot]) {
+        if drafts.isEmpty {
+            activeWorkflowDraftID = nil
+            clearPreferredLiveActivityDraftID()
+            return
+        }
+
+        if let preferredDraftID = preferredLiveActivityDraftID(),
+           !drafts.contains(where: { $0.id == preferredDraftID }) {
+            clearPreferredLiveActivityDraftID()
+        }
+
         if activeWorkflowDraftID == nil, !isProcessing {
             if let preferredDraftID = preferredLiveActivityDraftID(),
                let preferredDraft = drafts.first(where: { $0.id == preferredDraftID }),
@@ -1128,12 +1151,34 @@ final class ScanViewModel: ObservableObject {
         }
         guard !isProcessing else { return }
         self.activeWorkflowDraftID = nil
+        clearPreferredLiveActivityDraftIDIfMatches(activeWorkflowDraftID)
         cachedOCRReviewDrafts[activeWorkflowDraftID] = nil
     }
 
     private func isStoredDraftEligibleForLiveActivity(_ draft: ReviewDraftSnapshot) -> Bool {
         guard draft.isLiveIntakeSession else { return false }
-        return Date().timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+        if activeWorkflowDraftID == draft.id && isProcessing {
+            return true
+        }
+        if parsedInvoiceRoute?.draftSnapshot?.id == draft.id {
+            return true
+        }
+        if ocrReviewDraft?.draftID == draft.id {
+            return true
+        }
+
+        switch draft.workflowState {
+        case .scanning, .parsing:
+            // In-flight scan stages are only resumable while actively processing.
+            return false
+        case .ocrReview:
+            // OCR review requires cached extraction payload for a true resume.
+            return canResumeOCRReview(draft)
+        case .reviewReady, .reviewEdited, .submitting:
+            return Date().timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
+        case .failed:
+            return false
+        }
     }
 
     private func preferredLiveActivityDraftID() -> UUID? {
@@ -1189,6 +1234,15 @@ final class ScanViewModel: ObservableObject {
 
     private func setPreferredLiveActivityDraftID(_ id: UUID) {
         UserDefaults.standard.set(id.uuidString, forKey: preferredDraftDefaultsKey)
+    }
+
+    private func clearPreferredLiveActivityDraftIDIfMatches(_ id: UUID) {
+        guard let preferredID = preferredLiveActivityDraftID(), preferredID == id else { return }
+        clearPreferredLiveActivityDraftID()
+    }
+
+    private func clearPreferredLiveActivityDraftID() {
+        UserDefaults.standard.removeObject(forKey: preferredDraftDefaultsKey)
     }
 
     private static let uiTestReviewInvoice: ParsedInvoice = {

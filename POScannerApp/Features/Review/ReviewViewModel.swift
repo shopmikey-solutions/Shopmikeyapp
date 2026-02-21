@@ -1454,7 +1454,20 @@ final class ReviewViewModel: ObservableObject {
     ) async throws -> ReviewDraftSnapshot {
         let now = Date()
         let draftID = activeDraftID ?? UUID()
-        let createdAt = draftCreatedAt ?? now
+        let existingSnapshot = await environment.reviewDraftStore.load(id: draftID)
+        let createdAt = existingSnapshot?.createdAt ?? draftCreatedAt ?? now
+
+        let resolvedWorkflowState: ReviewDraftSnapshot.WorkflowState
+        let resolvedWorkflowDetail: String?
+        if let existingSnapshot,
+           existingSnapshot.state.workflowStateRawValue != nil,
+           !existingSnapshot.workflowState.allowsTransition(to: workflowState) {
+            resolvedWorkflowState = existingSnapshot.workflowState
+            resolvedWorkflowDetail = existingSnapshot.state.workflowDetail ?? workflowDetail
+        } else {
+            resolvedWorkflowState = workflowState
+            resolvedWorkflowDetail = workflowDetail
+        }
 
         let snapshot = ReviewDraftSnapshot(
             id: draftID,
@@ -1477,8 +1490,8 @@ final class ReviewViewModel: ObservableObject {
                 ignoreTaxOverride: shouldIgnoreTax,
                 selectedPOId: selectedPOId,
                 selectedTicketId: selectedTicketId,
-                workflowStateRawValue: workflowState.rawValue,
-                workflowDetail: workflowDetail
+                workflowStateRawValue: resolvedWorkflowState.rawValue,
+                workflowDetail: resolvedWorkflowDetail
             )
         )
 
@@ -1492,8 +1505,8 @@ final class ReviewViewModel: ObservableObject {
             statusMessage = "Saved intake draft locally."
         }
         publishDraftReviewLiveActivity(
-            workflowState: workflowState,
-            workflowDetail: workflowDetail,
+            workflowState: resolvedWorkflowState,
+            workflowDetail: resolvedWorkflowDetail,
             draftID: draftID
         )
         return snapshot

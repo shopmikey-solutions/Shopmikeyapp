@@ -211,7 +211,8 @@ final class ReviewViewModel: ObservableObject {
     }
 
     deinit {
-        Self.logger.debug("ReviewViewModel deinit: cancelling outstanding tasks.")
+        Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.Review")
+            .debug("ReviewViewModel deinit: cancelling outstanding tasks.")
         vendorLookupTask?.cancel()
         lineItemSuggestionTask?.cancel()
         purchaseOrderLookupTask?.cancel()

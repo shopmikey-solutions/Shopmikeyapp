@@ -81,8 +81,8 @@ struct OCRReviewView: View {
                     ForEach(draft.extraction.barcodes) { barcode in
                         Button {
                             AppHaptics.selection()
-                            selectedBarcodeID = barcode.id
-                            appendBarcode(barcode)
+                            self.selectedBarcodeID = barcode.id
+                            self.appendBarcode(barcode)
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(barcode.payload)
@@ -116,7 +116,7 @@ struct OCRReviewView: View {
 
                                 Button(role: .destructive) {
                                     AppHaptics.warning()
-                                    deleteLine(id: line.id)
+                                    self.deleteLine(id: line.id)
                                 } label: {
                                     Image(systemName: "trash")
                                 }
@@ -126,7 +126,7 @@ struct OCRReviewView: View {
                         } else {
                             Button {
                                 AppHaptics.selection()
-                                selectedLineID = line.id
+                                self.selectedLineID = line.id
                             } label: {
                                 HStack(alignment: .firstTextBaseline) {
                                     VStack(alignment: .leading, spacing: 2) {
@@ -156,7 +156,7 @@ struct OCRReviewView: View {
                         Button(isEditingLines ? "Done" : "Edit") {
                             AppHaptics.selection()
                             withAnimation(.snappy(duration: 0.2)) {
-                                isEditingLines.toggle()
+                                self.isEditingLines.toggle()
                             }
                         }
                         .buttonStyle(.borderless)
@@ -166,15 +166,15 @@ struct OCRReviewView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if hasManualTextEdits && hasLineEdits {
                         Button("Apply line edits to OCR text") {
-                            hasManualTextEdits = false
-                            syncReviewedTextFromLinesIfNeeded(force: true)
+                            self.hasManualTextEdits = false
+                            self.syncReviewedTextFromLinesIfNeeded(force: true)
                         }
                     }
 
                     if let deleted = recentlyDeletedLine {
                         Button("Undo delete: \(deleted.line.text)") {
                             AppHaptics.selection()
-                            restoreDeletedLine()
+                            self.restoreDeletedLine()
                         }
                         .lineLimit(1)
                     }
@@ -202,10 +202,10 @@ struct OCRReviewView: View {
         .toolbar(.hidden, for: .tabBar)
         .searchable(text: $searchText, prompt: "Filter lines")
         .onChange(of: reviewedText) { _, newValue in
-            if lastProgrammaticReviewedText == newValue {
-                lastProgrammaticReviewedText = nil
+            if self.lastProgrammaticReviewedText == newValue {
+                self.lastProgrammaticReviewedText = nil
             } else {
-                hasManualTextEdits = true
+                self.hasManualTextEdits = true
             }
         }
         .navigationTitle("Review Invoice Capture")
@@ -214,17 +214,17 @@ struct OCRReviewView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
                     AppHaptics.selection()
-                    onCancel()
-                    dismiss()
+                    self.onCancel()
+                    self.dismiss()
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Parse") {
                     AppHaptics.impact(.medium, intensity: 0.85)
-                    onContinue(reviewedText, includeDetectedBarcodes)
-                    dismiss()
+                    self.onContinue(self.reviewedText, self.includeDetectedBarcodes)
+                    self.dismiss()
                 }
-                .disabled(reviewedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(self.reviewedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("ocr.parseButton")
             }
         }
@@ -253,13 +253,13 @@ struct OCRReviewView: View {
     private func bindingForLine(id: OCRService.RecognizedLine.ID) -> Binding<String> {
         Binding(
             get: {
-                editableLines.first(where: { $0.id == id })?.text ?? ""
+                self.editableLines.first(where: { $0.id == id })?.text ?? ""
             },
             set: { newValue in
-                guard let index = editableLines.firstIndex(where: { $0.id == id }) else { return }
-                editableLines[index].text = newValue
-                hasLineEdits = true
-                syncReviewedTextFromLinesIfNeeded()
+                guard let index = self.editableLines.firstIndex(where: { $0.id == id }) else { return }
+                self.editableLines[index].text = newValue
+                self.hasLineEdits = true
+                self.syncReviewedTextFromLinesIfNeeded()
             }
         )
     }
@@ -388,14 +388,14 @@ private struct OCROverlayPreview: View {
                             state = value
                         }
                         .onEnded { value in
-                            zoomScale = min(4, max(1, zoomScale * value))
-                            if zoomScale <= 1.01 {
-                                zoomScale = 1
-                                panOffset = .zero
+                            self.zoomScale = min(4, max(1, self.zoomScale * value))
+                            if self.zoomScale <= 1.01 {
+                                self.zoomScale = 1
+                                self.panOffset = .zero
                             } else {
-                                panOffset = clampedOffset(
-                                    panOffset,
-                                    scale: zoomScale,
+                                self.panOffset = self.clampedOffset(
+                                    self.panOffset,
+                                    scale: self.zoomScale,
                                     containerSize: containerSize
                                 )
                             }
@@ -408,43 +408,43 @@ private struct OCROverlayPreview: View {
                             state = value.translation
                         }
                         .onEnded { value in
-                            guard zoomScale > 1.01 else {
-                                panOffset = .zero
+                            guard self.zoomScale > 1.01 else {
+                                self.panOffset = .zero
                                 return
                             }
-                            panOffset = clampedOffset(
+                            self.panOffset = self.clampedOffset(
                                 CGSize(
-                                    width: panOffset.width + value.translation.width,
-                                    height: panOffset.height + value.translation.height
+                                    width: self.panOffset.width + value.translation.width,
+                                    height: self.panOffset.height + value.translation.height
                                 ),
-                                scale: zoomScale,
+                                scale: self.zoomScale,
                                 containerSize: containerSize
                             )
                         }
                 )
                 .onTapGesture(count: 2) {
                     withAnimation(.snappy(duration: 0.2)) {
-                        if zoomScale > 1.01 {
-                            zoomScale = 1
-                            panOffset = .zero
+                        if self.zoomScale > 1.01 {
+                            self.zoomScale = 1
+                            self.panOffset = .zero
                         } else {
-                            zoomScale = 2
+                            self.zoomScale = 2
                         }
                     }
                 }
                 .onChange(of: combinedScale) { _, newValue in
-                    lockParentScroll = newValue > 1.01
+                    self.lockParentScroll = newValue > 1.01
                 }
             } else {
                 Color.clear
                     .onAppear {
-                        lockParentScroll = false
+                        self.lockParentScroll = false
                     }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onDisappear {
-            lockParentScroll = false
+            self.lockParentScroll = false
         }
     }
 

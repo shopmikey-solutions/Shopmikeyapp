@@ -25,10 +25,7 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
         return controller
     }
 
-    func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {
-        _ = uiViewController
-        _ = context
-    }
+    func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {}
 
     final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
         let onScan: (UIImage, CGImagePropertyOrientation) -> Void
@@ -47,6 +44,7 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
             _ controller: VNDocumentCameraViewController,
             didFinishWith scan: VNDocumentCameraScan
         ) {
+            _ = controller
             guard !didComplete else { return }
             didComplete = true
 
@@ -59,26 +57,33 @@ struct VisionDocumentScanner: UIViewControllerRepresentable {
                 AppHaptics.success()
             }
 
-            DispatchQueue.global(qos: .userInitiated).async { [onScan] in
+            Task.detached(priority: .userInitiated) { [onScan] in
                 // Use first page for now.
                 let image = scan.imageOfPage(at: 0)
                 let orientation = image.imageOrientation.cgImagePropertyOrientation
-                DispatchQueue.main.async {
+                await MainActor.run {
                     onScan(image, orientation)
                 }
             }
         }
 
         func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
+            _ = controller
             guard !didComplete else { return }
             didComplete = true
             onCancel()
         }
 
         func documentCameraViewController(_ controller: VNDocumentCameraViewController, didFailWithError error: Error) {
-            _ = error
+            _ = controller
             guard !didComplete else { return }
             didComplete = true
+            Task { @MainActor in
+                AppHaptics.warning()
+            }
+            #if DEBUG
+            print("VisionDocumentScanner failed: \(error.localizedDescription)")
+            #endif
             onCancel()
         }
     }

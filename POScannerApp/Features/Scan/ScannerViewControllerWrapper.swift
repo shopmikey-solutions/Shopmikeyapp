@@ -81,7 +81,20 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        // No-op. Scanning starts in `makeUIViewController`.
+        _ = context
+        guard let scanner = uiViewController as? DataScannerViewController else { return }
+        guard !scanner.isScanning else { return }
+        do {
+            try scanner.startScanning()
+        } catch {
+            // Keep current content stable; scanner fallback is already handled on initial creation.
+        }
+    }
+
+    static func dismantleUIViewController(_ uiViewController: UIViewController, coordinator: Coordinator) {
+        _ = coordinator
+        guard let scanner = uiViewController as? DataScannerViewController else { return }
+        scanner.stopScanning()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -111,6 +124,8 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
     }
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
+        private let maxTranscriptCount: Int = 240
+        private let maxTranscriptCharacters: Int = 24_000
         @Binding var recognizedText: String
         private var transcripts: [String] = []
 
@@ -147,13 +162,21 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
                 }
             }
 
+            if transcripts.count > maxTranscriptCount {
+                transcripts = Array(transcripts.suffix(maxTranscriptCount))
+            }
+
             recognizedText = joinedTranscripts(transcripts)
         }
 
         private func joinedTranscripts(_ transcripts: [String]) -> String {
             var seen = Set<String>()
             let deduped = transcripts.filter { seen.insert($0).inserted }
-            return deduped.joined(separator: "\n")
+            let joined = deduped.joined(separator: "\n")
+            if joined.count > maxTranscriptCharacters {
+                return String(joined.prefix(maxTranscriptCharacters))
+            }
+            return joined
         }
     }
 }

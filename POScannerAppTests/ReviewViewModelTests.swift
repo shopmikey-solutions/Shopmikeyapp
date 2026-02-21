@@ -32,7 +32,8 @@ private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
         ocrService: OCRService(),
         poParser: POParser(),
         foundationModelService: FoundationModelService(),
-        parseHandoffService: LocalParseHandoffService()
+        parseHandoffService: LocalParseHandoffService(),
+        dateProvider: SystemDateProvider()
     )
 }
 

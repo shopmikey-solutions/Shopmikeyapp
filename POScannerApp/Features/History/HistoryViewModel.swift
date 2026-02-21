@@ -47,19 +47,20 @@ final class HistoryViewModel: ObservableObject {
     @Published private(set) var isLoading: Bool = false
 
     private let dataController: DataController
-    private let reviewDraftStore: ReviewDraftStore
+    private let reviewDraftStore: any ReviewDraftStoring
     private var loadHistoryTask: Task<Void, Never>?
     private var pendingHistoryReload: Bool = false
     private var lastHistoryLoadAt: Date?
     private let minimumHistoryReloadInterval: TimeInterval = 1.0
 
-    init(dataController: DataController, reviewDraftStore: ReviewDraftStore) {
+    init(dataController: DataController, reviewDraftStore: any ReviewDraftStoring) {
         self.dataController = dataController
         self.reviewDraftStore = reviewDraftStore
     }
 
     deinit {
-        Self.logger.debug("HistoryViewModel deinit: cancelling history load task.")
+        Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.History")
+            .debug("HistoryViewModel deinit: cancelling history load task.")
         loadHistoryTask?.cancel()
     }
 

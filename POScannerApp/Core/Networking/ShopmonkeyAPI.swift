@@ -16,6 +16,7 @@ protocol ShopmonkeyServicing {
     func fetchServices(orderId: String) async throws -> [ServiceSummary]
     func searchVendors(name: String) async throws -> [VendorSummary]
     func testConnection() async throws
+    func runEndpointProbe() async throws -> ShopmonkeyEndpointProbeReport
 }
 
 extension ShopmonkeyServicing {
@@ -35,6 +36,10 @@ extension ShopmonkeyServicing {
 
     func createPurchaseOrder(_ request: CreatePurchaseOrderRequest) async throws -> CreatePurchaseOrderResponse {
         _ = request
+        throw APIError.serverError(501)
+    }
+
+    func runEndpointProbe() async throws -> ShopmonkeyEndpointProbeReport {
         throw APIError.serverError(501)
     }
 }

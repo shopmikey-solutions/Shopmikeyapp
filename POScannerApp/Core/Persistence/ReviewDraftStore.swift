@@ -5,7 +5,14 @@
 
 import Foundation
 
-actor ReviewDraftStore {
+protocol ReviewDraftStoring: Sendable {
+    func list() async -> [ReviewDraftSnapshot]
+    func load(id: UUID) async -> ReviewDraftSnapshot?
+    func upsert(_ snapshot: ReviewDraftSnapshot) async throws
+    func delete(id: UUID) async throws
+}
+
+actor ReviewDraftStore: ReviewDraftStoring {
     private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -25,15 +32,15 @@ actor ReviewDraftStore {
         self.decoder = decoder
     }
 
-    func list() -> [ReviewDraftSnapshot] {
+    func list() async -> [ReviewDraftSnapshot] {
         readAll().sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    func load(id: UUID) -> ReviewDraftSnapshot? {
+    func load(id: UUID) async -> ReviewDraftSnapshot? {
         readAll().first { $0.id == id }
     }
 
-    func upsert(_ snapshot: ReviewDraftSnapshot) throws {
+    func upsert(_ snapshot: ReviewDraftSnapshot) async throws {
         var drafts = readAll()
         if let index = drafts.firstIndex(where: { $0.id == snapshot.id }) {
             if drafts[index].state == snapshot.state {
@@ -47,7 +54,7 @@ actor ReviewDraftStore {
         notifyDidChange()
     }
 
-    func delete(id: UUID) throws {
+    func delete(id: UUID) async throws {
         let filtered = readAll().filter { $0.id != id }
         try writeAll(filtered)
         notifyDidChange()

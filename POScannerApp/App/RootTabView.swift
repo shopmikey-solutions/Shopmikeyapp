@@ -79,33 +79,33 @@ struct RootTabView: View {
         .sensoryFeedback(.selection, trigger: selectedTab)
         .appSensoryFeedback()
         .onChange(of: selectedTab) { _, tab in
-            loadedTabs.insert(tab)
+            self.loadedTabs.insert(tab)
             if tab != .scan {
-                scheduleGlobalLiveActivitySync(force: true)
+                self.scheduleGlobalLiveActivitySync(force: true)
             }
         }
         .onOpenURL { url in
-            handleDeepLink(url)
+            self.handleDeepLink(url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .appDeepLinkRequested)) { notification in
             guard let url = notification.object as? URL else { return }
-            handleDeepLink(url)
+            self.handleDeepLink(url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewDraftStoreDidChange)) { _ in
-            scheduleGlobalLiveActivitySync()
+            self.scheduleGlobalLiveActivitySync()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            scheduleGlobalLiveActivitySync(force: true)
+            self.scheduleGlobalLiveActivitySync(force: true)
         }
         .onAppear {
-            scheduleGlobalLiveActivitySync(force: true)
+            self.scheduleGlobalLiveActivitySync(force: true)
         }
         .onDisappear {
-            pendingDeepLinkTask?.cancel()
-            pendingDeepLinkTask = nil
-            liveActivitySyncTask?.cancel()
-            liveActivitySyncTask = nil
+            self.pendingDeepLinkTask?.cancel()
+            self.pendingDeepLinkTask = nil
+            self.liveActivitySyncTask?.cancel()
+            self.liveActivitySyncTask = nil
         }
     }
 
@@ -124,7 +124,7 @@ struct RootTabView: View {
                 } else if openComposer {
                     NotificationCenter.default.post(name: .appOpenScanComposer, object: nil)
                 }
-                pendingDeepLinkTask = nil
+                self.pendingDeepLinkTask = nil
             }
         case .history:
             selectedTab = .history
@@ -141,7 +141,7 @@ struct RootTabView: View {
     private func scheduleGlobalLiveActivitySync(force: Bool = false) {
         // Scan tab already publishes richer in-flight stage events.
         guard selectedTab != .scan else { return }
-        let now = Date()
+        let now = environment.dateProvider.now
         if !force,
            let lastLiveActivitySyncAt,
            now.timeIntervalSince(lastLiveActivitySyncAt) < minimumLiveActivitySyncInterval {
@@ -152,14 +152,14 @@ struct RootTabView: View {
         liveActivitySyncTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: force ? 140_000_000 : 280_000_000)
             guard !Task.isCancelled else { return }
-            await syncLiveActivityFromDraftStore()
-            lastLiveActivitySyncAt = Date()
+            await self.syncLiveActivityFromDraftStore()
+            self.lastLiveActivitySyncAt = self.environment.dateProvider.now
         }
     }
 
     @MainActor
     private func syncLiveActivityFromDraftStore() async {
-        let now = Date()
+        let now = environment.dateProvider.now
         let drafts = await environment.reviewDraftStore.list()
 
         guard let draft = liveActivityCandidate(from: drafts, now: now),

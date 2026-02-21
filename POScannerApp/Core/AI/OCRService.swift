@@ -44,6 +44,20 @@ final class OCRService {
         var textCount: Int = 0
     }
 
+    private let recognitionLanguages: [String]
+    private let maxRecognizedLines: Int
+    private let maxExtractedCharacters: Int
+
+    init(
+        recognitionLanguages: [String] = ["en-US"],
+        maxRecognizedLines: Int = 400,
+        maxExtractedCharacters: Int = 32_000
+    ) {
+        self.recognitionLanguages = recognitionLanguages
+        self.maxRecognizedLines = max(50, maxRecognizedLines)
+        self.maxExtractedCharacters = max(4_000, maxExtractedCharacters)
+    }
+
     func extractText(from scannerText: String) async throws -> String {
         try await extractDocument(from: scannerText).text
     }
@@ -85,6 +99,7 @@ final class OCRService {
                     let textRequest = VNRecognizeTextRequest()
                     textRequest.recognitionLevel = .accurate
                     textRequest.usesLanguageCorrection = true
+                    textRequest.recognitionLanguages = self.recognitionLanguages
 
                     let barcodeRequest = VNDetectBarcodesRequest()
 
@@ -126,6 +141,8 @@ final class OCRService {
                             boundingBox: OCRService.unionBoundingBox(for: sortedRow)
                         )
                     }
+                    .prefix(self.maxRecognizedLines)
+                    .map { $0 }
 
                     let fullText = normalizedLines
                         .map(\.text)
@@ -140,15 +157,18 @@ final class OCRService {
                         .map { "[BARCODE \($0.symbology)] \($0.payload)" }
                         .joined(separator: "\n")
                     let assembledText = fullText.isEmpty ? barcodeText : fullText
+                    let boundedText = assembledText.count > self.maxExtractedCharacters
+                        ? String(assembledText.prefix(self.maxExtractedCharacters))
+                        : assembledText
 
-                    guard !assembledText.isEmpty else {
+                    guard !boundedText.isEmpty else {
                         continuation.resume(throwing: OCRServiceError.noResults)
                         return
                     }
 
                     continuation.resume(
                         returning: DocumentExtraction(
-                            text: assembledText,
+                            text: boundedText,
                             lines: normalizedLines,
                             barcodes: barcodes
                         )
@@ -233,9 +253,10 @@ final class OCRService {
             for (index, cell) in row.enumerated() {
                 var stats = columnStats[index] ?? ColumnStats(index: index)
 
-                if Double(cell.replacingOccurrences(of: ",", with: "")) != nil {
+                let normalizedNumeric = normalizedNumericCellValue(from: cell)
+                if let normalizedNumeric, Double(normalizedNumeric) != nil {
                     stats.numericCount += 1
-                    if cell.contains(".") {
+                    if normalizedNumeric.contains(".") {
                         stats.decimalCount += 1
                     }
                 } else {
@@ -259,6 +280,31 @@ final class OCRService {
         })?.index
 
         return (description: descriptionColumn, quantity: quantityColumn, price: priceColumn)
+    }
+
+    private static func normalizedNumericCellValue(from cell: String) -> String? {
+        let trimmed = cell.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // Preserve minus sign and decimal point, strip common currency/formatting tokens.
+        let cleaned = trimmed
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "(", with: "-")
+            .replacingOccurrences(of: ")", with: "")
+
+        let filtered = cleaned.filter { character in
+            character.isNumber || character == "." || character == "-"
+        }
+
+        guard !filtered.isEmpty else { return nil }
+        // Reject pathological values with multiple decimals or sign markers.
+        guard filtered.filter({ $0 == "." }).count <= 1 else { return nil }
+        guard filtered.filter({ $0 == "-" }).count <= 1 else { return nil }
+        if filtered.contains("-"), filtered.first != "-" {
+            return nil
+        }
+        return filtered
     }
 
     private static func normalizedRowString(

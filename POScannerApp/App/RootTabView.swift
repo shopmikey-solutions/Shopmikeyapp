@@ -94,6 +94,9 @@ struct RootTabView: View {
             self.loadedTabs.insert(tab)
             if tab != .scan {
                 self.scheduleGlobalLiveActivitySync(force: true)
+            } else {
+                self.liveActivitySyncTask?.cancel()
+                self.liveActivitySyncTask = nil
             }
         }
         .onOpenURL { url in
@@ -236,6 +239,7 @@ struct RootTabView: View {
         liveActivitySyncTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: force ? 140_000_000 : 280_000_000)
             guard !Task.isCancelled else { return }
+            guard self.selectedTab != .scan else { return }
             await self.syncLiveActivityFromDraftStore()
             self.lastLiveActivitySyncAt = self.environment.dateProvider.now
         }
@@ -243,6 +247,7 @@ struct RootTabView: View {
 
     @MainActor
     private func syncLiveActivityFromDraftStore() async {
+        guard self.selectedTab != .scan else { return }
         let now = environment.dateProvider.now
         let drafts = await environment.reviewDraftStore.list()
 

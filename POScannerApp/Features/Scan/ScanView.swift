@@ -6,8 +6,18 @@
 import SwiftUI
 import VisionKit
 import PhotosUI
+import os
 
 struct ScanView: View {
+    private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.ScanCapture")
+
+    private struct CaptureFlowActivityState: Equatable {
+        let showSourceSheet: Bool
+        let showScanner: Bool
+        let showPhotoPicker: Bool
+        let isImportingPhoto: Bool
+    }
+
     private struct LiveActivityPayloadSignature: Equatable {
         let isActive: Bool
         let status: String
@@ -44,6 +54,7 @@ struct ScanView: View {
     @State private var lastResumeDraftRequestID: UUID?
     @State private var lastResumeDraftRequestAt: Date?
     @State private var activeResumeDraftID: UUID?
+    @State private var captureFlowIntentStartedAt: Date?
     @State private var deepLinkResumeTask: Task<Void, Never>?
     @State private var deepLinkConsumeTask: Task<Void, Never>?
     @StateObject private var viewModel: ScanViewModel
@@ -52,6 +63,15 @@ struct ScanView: View {
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
     private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
     private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
+
+    private var captureFlowActivityState: CaptureFlowActivityState {
+        CaptureFlowActivityState(
+            showSourceSheet: self.showSourceSheet,
+            showScanner: self.showScanner,
+            showPhotoPicker: self.showPhotoPicker,
+            isImportingPhoto: self.isImportingPhoto
+        )
+    }
 
     init(environment: AppEnvironment, isTabActive: Bool = true) {
         self.isTabActive = isTabActive
@@ -93,6 +113,7 @@ struct ScanView: View {
                     VisionDocumentScanner(
                         onScan: { image, orientation in
                             self.showScanner = false
+                            Self.logger.debug("Camera capture completed. Routing image into OCR pipeline.")
                             self.viewModel.handleScannedImage(
                                 image,
                                 orientation: orientation,
@@ -101,6 +122,7 @@ struct ScanView: View {
                         },
                         onCancel: {
                             self.showScanner = false
+                            Self.logger.debug("Camera capture cancelled.")
                         }
                     )
                 } else {
@@ -201,6 +223,10 @@ struct ScanView: View {
             guard let item else { return }
             Task { await self.importPhoto(item) }
         }
+        .onChange(of: captureFlowActivityState) { _, _ in
+            self.syncLiveActivity()
+            self.clearCaptureFlowIntentIfIdle()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
             Task { @MainActor in
                 await Task.yield()
@@ -208,6 +234,9 @@ struct ScanView: View {
                     UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
                     UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
                     self.presentCaptureFlow()
+                } else if self.isCaptureFlowTransitionActive {
+                    Self.logger.debug("Ignoring open-composer request because capture flow is already active.")
+                    UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
                 } else {
                     UserDefaults.standard.set(true, forKey: self.pendingOpenComposerDefaultsKey)
                 }
@@ -254,11 +283,14 @@ struct ScanView: View {
             if self.viewModel.isProcessing || self.liveActivityDraftCandidate() != nil || (self.lastLiveActivitySignature?.isActive == true) {
                 self.syncLiveActivity()
             }
+            self.clearCaptureFlowIntentIfIdle()
             self.scheduleConsumePendingDeepLinkRequests(after: 180_000_000)
         }
         .onChange(of: isReviewFlowPresented) { _, presented in
             if !presented {
                 self.scheduleConsumePendingDeepLinkRequests(after: 320_000_000)
+            } else {
+                self.captureFlowIntentStartedAt = nil
             }
         }
     }
@@ -463,26 +495,37 @@ struct ScanView: View {
 
     private func presentCaptureFlow() {
         guard self.canPresentCaptureFlow else { return }
+        Self.logger.debug("Capture flow requested from scan surface.")
+        self.captureFlowIntentStartedAt = self.captureFlowIntentStartedAt ?? Date()
+        self.viewModel.prepareForNewCaptureSession()
         AppHaptics.impact(.medium, intensity: 0.9)
         self.presentCaptureSourcePicker()
+        self.syncLiveActivity()
     }
 
     private func presentCaptureSourcePicker() {
         guard self.canPresentCaptureFlow else { return }
+        Self.logger.debug("Presenting capture source sheet.")
         self.pendingCaptureSource = nil
         self.showSourceSheet = true
     }
 
     private func handleCaptureSourceSheetDismissed() {
-        guard let pendingCaptureSource else { return }
+        guard let pendingCaptureSource else {
+            Self.logger.debug("Capture source sheet dismissed without selection.")
+            self.clearCaptureFlowIntentIfIdle()
+            return
+        }
         guard !self.showScanner, !self.showPhotoPicker, !self.viewModel.isProcessing, !self.isImportingPhoto else { return }
         guard !self.isReviewFlowPresented else { return }
         self.pendingCaptureSource = nil
 
         switch pendingCaptureSource {
         case .camera:
+            Self.logger.debug("Capture source selected: camera.")
             showScanner = true
         case .photos:
+            Self.logger.debug("Capture source selected: photos.")
             showPhotoPicker = true
         }
     }
@@ -499,6 +542,15 @@ struct ScanView: View {
             && !self.viewModel.isProcessing
             && !self.isImportingPhoto
             && !self.isReviewFlowPresented
+    }
+
+    private var isCaptureFlowTransitionActive: Bool {
+        self.captureFlowIntentStartedAt != nil
+            || self.showSourceSheet
+            || self.showScanner
+            || self.showPhotoPicker
+            || self.isImportingPhoto
+            || self.viewModel.isProcessing
     }
 
     @MainActor
@@ -529,6 +581,7 @@ struct ScanView: View {
     private func consumePendingDeepLinkRequests() {
         guard !self.viewModel.isProcessing else { return }
         guard !self.isReviewFlowPresented else { return }
+        guard !self.isCaptureFlowTransitionActive else { return }
         guard !self.showSourceSheet, !self.showPhotoPicker, !self.showScanner else { return }
 
         let defaults = UserDefaults.standard
@@ -667,7 +720,7 @@ struct ScanView: View {
         } else {
             Button {
                 AppHaptics.selection()
-                self.presentCaptureSourcePicker()
+                self.presentCaptureFlow()
             } label: {
                 Label("Start New Capture", systemImage: "camera.viewfinder")
             }
@@ -676,7 +729,7 @@ struct ScanView: View {
         if canResume {
             Button {
                 AppHaptics.selection()
-                self.presentCaptureSourcePicker()
+                self.presentCaptureFlow()
             } label: {
                 Label("Start New Capture", systemImage: "camera.viewfinder")
             }
@@ -894,6 +947,10 @@ struct ScanView: View {
             )
         }
 
+        if let capturePayload = self.captureFlowLiveActivityPayload() {
+            return capturePayload
+        }
+
         if let ocrDraft = self.viewModel.ocrReviewDraft {
             let lineCount = ocrDraft.extraction.lines.count
             let lineLabel = lineCount == 1 ? "line" : "lines"
@@ -918,6 +975,67 @@ struct ScanView: View {
         }
 
         return (false, "", "", 0, nil, nil)
+    }
+
+    private func captureFlowLiveActivityPayload() -> (
+        isActive: Bool,
+        status: String,
+        detail: String,
+        progress: Double,
+        deepLinkURL: URL?,
+        stageToken: String?
+    )? {
+        guard !self.viewModel.isProcessing else { return nil }
+        guard !self.isReviewFlowPresented else { return nil }
+        let hasCaptureIntent =
+            self.captureFlowIntentStartedAt != nil
+            || self.showSourceSheet
+            || self.showScanner
+            || self.showPhotoPicker
+            || self.isImportingPhoto
+        guard hasCaptureIntent else { return nil }
+
+        if self.showScanner {
+            return (
+                true,
+                "Capturing invoice",
+                "Step 1 of 4 • Align invoice inside the camera frame.",
+                0.24,
+                AppDeepLink.scanURL(openComposer: true),
+                "capture"
+            )
+        }
+
+        if self.isImportingPhoto {
+            return (
+                true,
+                "Importing invoice",
+                "Step 1 of 4 • Loading selected photo.",
+                0.24,
+                AppDeepLink.scanURL(openComposer: true),
+                "capture"
+            )
+        }
+
+        if self.showPhotoPicker {
+            return (
+                true,
+                "Select invoice photo",
+                "Step 1 of 4 • Choose a clear photo of the invoice.",
+                0.22,
+                AppDeepLink.scanURL(openComposer: true),
+                "capture"
+            )
+        }
+
+        return (
+            true,
+            "Prepare capture",
+            "Step 1 of 4 • Choose camera or photos.",
+            0.20,
+            AppDeepLink.scanURL(openComposer: true),
+            "capture"
+        )
     }
 
     private func liveActivityPayload(for draft: ReviewDraftSnapshot) -> (
@@ -1075,6 +1193,7 @@ struct ScanView: View {
     @MainActor
     private func importPhoto(_ item: PhotosPickerItem) async {
         guard !isImportingPhoto else { return }
+        Self.logger.debug("Photo import started from capture flow.")
         isImportingPhoto = true
         defer {
             isImportingPhoto = false
@@ -1085,20 +1204,34 @@ struct ScanView: View {
             guard let data = try await item.loadTransferable(type: Data.self),
                   let image = UIImage(data: data) else {
                 viewModel.errorMessage = "Could not load the selected photo."
+                Self.logger.debug("Photo import failed: selected item could not be decoded.")
                 AppHaptics.error()
                 return
             }
 
+            Self.logger.debug("Photo import completed. Routing image into OCR pipeline.")
             viewModel.handleScannedImage(
                 image,
                 ignoreTaxAndTotals: ignoreTaxAndTotals
             )
         } catch is CancellationError {
+            Self.logger.debug("Photo import cancelled.")
             return
         } catch {
             viewModel.errorMessage = "Could not load the selected photo."
+            Self.logger.debug("Photo import failed with error.")
             AppHaptics.error()
         }
+    }
+
+    @MainActor
+    private func clearCaptureFlowIntentIfIdle() {
+        guard !self.showSourceSheet else { return }
+        guard !self.showScanner else { return }
+        guard !self.showPhotoPicker else { return }
+        guard !self.isImportingPhoto else { return }
+        guard !self.viewModel.isProcessing else { return }
+        self.captureFlowIntentStartedAt = nil
     }
 
     @MainActor

@@ -119,7 +119,11 @@ final class ScanViewModel: ObservableObject {
         orientation: CGImagePropertyOrientation,
         ignoreTaxAndTotals: Bool
     ) {
-        guard !isProcessing else { return }
+        guard !isProcessing else {
+            Self.logger.debug("Ignoring scanned image because workflow is already processing.")
+            return
+        }
+        Self.logger.debug("Scanned image accepted for OCR pipeline. ignoreTax=\(ignoreTaxAndTotals, privacy: .public)")
         errorMessage = nil
         Task {
             await processScannedImage(
@@ -149,11 +153,15 @@ final class ScanViewModel: ObservableObject {
 
     func cancelOCRReview() {
         ocrReviewDraft = nil
+        Self.logger.debug("OCR review cancelled.")
     }
 
     func continueFromOCRReview(editedText: String, includeDetectedBarcodes: Bool) {
         guard !isProcessing else { return }
         guard let draft = ocrReviewDraft else { return }
+        Self.logger.debug(
+            "Continuing from OCR review. draftID=\(draft.draftID.uuidString, privacy: .public) includeBarcodes=\(includeDetectedBarcodes, privacy: .public)"
+        )
         activeWorkflowDraftID = draft.draftID
         setPreferredLiveActivityDraftID(draft.draftID)
         cachedOCRReviewDrafts[draft.draftID] = nil
@@ -167,6 +175,17 @@ final class ScanViewModel: ObservableObject {
                 ignoreTaxAndTotals: draft.ignoreTaxAndTotals
             )
         }
+    }
+
+    func prepareForNewCaptureSession() {
+        guard !isProcessing else { return }
+        if let activeWorkflowDraftID {
+            Self.logger.debug("Preparing new capture session. Clearing active workflow draft \(activeWorkflowDraftID.uuidString, privacy: .public).")
+        } else {
+            Self.logger.debug("Preparing new capture session.")
+        }
+        activeWorkflowDraftID = nil
+        clearPreferredLiveActivityDraftID()
     }
 
     private func parseReviewedText(
@@ -192,6 +211,7 @@ final class ScanViewModel: ObservableObject {
         let flowStart = Date()
         processingStartedAt = flowStart
         processingStage = .parsing
+        Self.logger.debug("Capture workflow stage -> parsing.")
         let parsingStageStart = Date()
 
         await upsertWorkflowDraft(
@@ -225,6 +245,7 @@ final class ScanViewModel: ObservableObject {
         let invoice = mergedParsedInvoice(aiInvoice: ai, rulesInvoice: rulesInvoice)
         await ensureMinimumStageDuration(since: parsingStageStart, stage: .parsing)
         processingStage = .finalizing
+        Self.logger.debug("Capture workflow stage -> finalizing.")
         let finalizingStageStart = Date()
         logScanDiagnostics(
             handoff: handoff,
@@ -251,6 +272,11 @@ final class ScanViewModel: ObservableObject {
             cachedOCRReviewDrafts[activeWorkflowDraftID] = nil
         }
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: invoice, draftSnapshot: draftSnapshot)
+        if let draftID = draftSnapshot?.id {
+            Self.logger.debug("Capture workflow opened review route. draftID=\(draftID.uuidString, privacy: .public)")
+        } else {
+            Self.logger.debug("Capture workflow opened review route without persisted draft snapshot.")
+        }
         await environment.localNotificationService.notify(
             .scanReadyForReview(
                 vendor: invoice.vendorName,
@@ -262,6 +288,7 @@ final class ScanViewModel: ObservableObject {
         isProcessing = false
         processingStage = nil
         processingStartedAt = nil
+        Self.logger.debug("Capture workflow parse/finalize completed.")
     }
 
     private nonisolated static func computeRulesInvoice(
@@ -420,12 +447,14 @@ final class ScanViewModel: ObservableObject {
         activeWorkflowDraftID = UUID()
         if let activeWorkflowDraftID {
             setPreferredLiveActivityDraftID(activeWorkflowDraftID)
+            Self.logger.debug("Capture workflow started. draftID=\(activeWorkflowDraftID.uuidString, privacy: .public)")
         }
         isProcessing = true
         errorMessage = nil
         let flowStart = Date()
         processingStartedAt = flowStart
         processingStage = .extractingText
+        Self.logger.debug("Capture workflow stage -> extractingText.")
         let extractionStageStart = Date()
         await upsertWorkflowDraft(
             stage: .scanning,
@@ -456,9 +485,13 @@ final class ScanViewModel: ObservableObject {
                 from: cgImage,
                 orientation: effectiveOrientation
             )
+            Self.logger.debug(
+                "Capture workflow OCR extracted lines=\(extraction.lines.count, privacy: .public) barcodes=\(extraction.barcodes.count, privacy: .public)."
+            )
             AppHaptics.success()
             await ensureMinimumStageDuration(since: extractionStageStart, stage: .extractingText)
             processingStage = .preparingReview
+            Self.logger.debug("Capture workflow stage -> preparingReview.")
             let preparingStageStart = Date()
             await upsertWorkflowDraft(
                 stage: .ocrReview,
@@ -480,8 +513,10 @@ final class ScanViewModel: ObservableObject {
             )
             cachedOCRReviewDrafts[draftID] = nextDraft
             ocrReviewDraft = nextDraft
+            Self.logger.debug("Capture workflow moved to OCR review. draftID=\(draftID.uuidString, privacy: .public)")
         } catch {
             errorMessage = "Could not process the invoice scan."
+            Self.logger.error("Capture workflow failed while processing scanned image.")
             await environment.localNotificationService.notify(.scanFailed)
             await upsertWorkflowDraft(
                 stage: .failed,
@@ -494,6 +529,7 @@ final class ScanViewModel: ObservableObject {
         isProcessing = false
         processingStage = nil
         processingStartedAt = nil
+        Self.logger.debug("Capture workflow stopped.")
     }
 
     private nonisolated static func makeCGImage(from image: UIImage) async -> CGImage? {
@@ -739,6 +775,9 @@ final class ScanViewModel: ObservableObject {
 
         do {
             try await environment.reviewDraftStore.upsert(snapshot)
+            Self.logger.debug(
+                "Workflow draft upserted. draftID=\(draftID.uuidString, privacy: .public) stage=\(stage.rawValue, privacy: .public)"
+            )
             let drafts = await environment.reviewDraftStore.list()
             lastInProgressDraftsLoadAt = now
             lastDraftRefreshAt = now
@@ -749,6 +788,9 @@ final class ScanViewModel: ObservableObject {
             reconcileActiveWorkflowDraft(with: drafts)
             return snapshot
         } catch {
+            Self.logger.error(
+                "Workflow draft upsert failed. draftID=\(draftID.uuidString, privacy: .public) stage=\(stage.rawValue, privacy: .public)"
+            )
             return nil
         }
     }

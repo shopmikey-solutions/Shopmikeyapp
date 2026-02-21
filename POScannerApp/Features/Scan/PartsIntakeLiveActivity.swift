@@ -39,6 +39,7 @@ final class PartsIntakeLiveActivityManager {
     private var lastUpdateAt: Date?
     private var lastDeepLinkRawValue: String?
     private var scheduledEndTask: Task<Void, Never>?
+    private var scheduledEndAt: Date?
     private let inactiveWorkflowEndDelay: TimeInterval = 45
     private let terminalCompletionEndDelay: TimeInterval = 12
 
@@ -301,6 +302,12 @@ final class PartsIntakeLiveActivityManager {
             ? terminalCompletionEndDelay
             : inactiveWorkflowEndDelay
         let nanos = UInt64((delay * 1_000_000_000).rounded())
+        let targetEndAt = Date().addingTimeInterval(delay)
+
+        if let scheduledEndAt,
+           abs(scheduledEndAt.timeIntervalSince(targetEndAt)) < 0.35 {
+            return
+        }
 
         scheduledEndTask?.cancel()
         scheduledEndTask = Task { [weak self] in
@@ -308,12 +315,14 @@ final class PartsIntakeLiveActivityManager {
             guard !Task.isCancelled else { return }
             await self?.endCurrent(dismissalPolicy: .immediate)
         }
+        scheduledEndAt = targetEndAt
         Self.logger.debug("Live Activity end scheduled in \(delay, privacy: .public)s.")
     }
 
     private func cancelScheduledEnd() {
         scheduledEndTask?.cancel()
         scheduledEndTask = nil
+        scheduledEndAt = nil
     }
 
     private func isTerminalCompletionStatus(_ statusText: String, progress: Double) -> Bool {

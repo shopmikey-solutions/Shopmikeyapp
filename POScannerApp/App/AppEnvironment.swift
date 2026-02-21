@@ -32,14 +32,12 @@ struct AppEnvironment {
 }
 
 private struct AppEnvironmentKey: EnvironmentKey {
+    // SwiftUI may evaluate environment defaults many times; keep this fallback stable
+    // so we do not repeatedly initialize in-memory dependencies.
+    nonisolated(unsafe) private static var cachedDefaultValue: AppEnvironment = .preview
+
     static var defaultValue: AppEnvironment {
-        #if DEBUG
-        // SwiftUI may touch environment defaults during test/bootstrap before root injection.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
-            NSLog("AppEnvironment not injected. Inject at app root.")
-        }
-        #endif
-        return .preview
+        cachedDefaultValue
     }
 }
 

@@ -38,14 +38,15 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(context.state.statusText)
+                Text(self.lockScreenStatusText(from: context.state.statusText))
                     .font(.headline)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
 
                 ProgressView(value: self.clampedProgress(context.state.progress))
                     .tint(stage.tint)
 
-                Text(context.state.detailText)
+                Text(self.lockScreenDetailText(from: context.state.detailText))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -57,16 +58,19 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             .widgetURL(self.deepLinkURL(for: context))
         } dynamicIsland: { context in
             let stage = self.resolvedStage(for: context.state)
+            let islandStatusText = self.islandStatusText(from: context.state.statusText)
+            let islandDetailText = self.islandDetailText(from: context.state.detailText)
             return DynamicIsland {
-                DynamicIslandExpandedRegion(.leading, priority: 3) {
+                DynamicIslandExpandedRegion(.leading, priority: 1) {
                     Label(stage.label, systemImage: stage.iconName)
                         .labelStyle(.titleAndIcon)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.82)
+                        .minimumScaleFactor(0.75)
+                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
-                DynamicIslandExpandedRegion(.trailing, priority: 2) {
+                DynamicIslandExpandedRegion(.trailing, priority: 1) {
                     Text("\(self.progressPercent(self.clampedProgress(context.state.progress)))%")
                         .font(.caption2.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -74,11 +78,13 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                         .minimumScaleFactor(0.9)
                         .contentTransition(.numericText())
                 }
-                DynamicIslandExpandedRegion(.center, priority: 1) {
-                    Text(context.state.statusText)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                DynamicIslandExpandedRegion(.center, priority: 4) {
+                    Text(islandStatusText)
+                        .font(.subheadline.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.78)
+                        .frame(maxWidth: .infinity, alignment: .center)
                         .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -90,12 +96,13 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
-                        Text(context.state.detailText)
+                        Text(islandDetailText)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                            .lineLimit(1)
                             .minimumScaleFactor(0.82)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } compactLeading: {
                 Image(systemName: stage.iconName)
@@ -158,6 +165,30 @@ struct ShopMikeyScannerLiveActivityWidget: Widget {
             return url
         }
         return URL(string: "shopmikey://scan?compose=1")
+    }
+
+    private func islandStatusText(from raw: String) -> String {
+        Self.trimmed(raw, maxLength: 64)
+    }
+
+    private func islandDetailText(from raw: String) -> String {
+        Self.trimmed(raw, maxLength: 90)
+    }
+
+    private func lockScreenStatusText(from raw: String) -> String {
+        Self.trimmed(raw, maxLength: 90)
+    }
+
+    private func lockScreenDetailText(from raw: String) -> String {
+        Self.trimmed(raw, maxLength: 160)
+    }
+
+    private static func trimmed(_ raw: String, maxLength: Int) -> String {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return "Working..." }
+        guard normalized.count > maxLength else { return normalized }
+        let prefix = normalized.prefix(maxLength).trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(prefix)..."
     }
 }
 

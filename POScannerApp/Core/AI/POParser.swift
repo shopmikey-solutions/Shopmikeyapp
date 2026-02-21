@@ -675,6 +675,7 @@ private extension POParser {
     }
 
     func extractPartNumber(from text: String) -> (value: String?, found: Bool) {
+        var explicitPartNumber: String?
         if let regex = try? NSRegularExpression(pattern: partPattern) {
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
             if let match = regex.firstMatch(in: text, options: [], range: range),
@@ -682,21 +683,16 @@ private extension POParser {
                let r = Range(match.range(at: 2), in: text) {
                 let value = String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !value.isEmpty {
-                    return (value, true)
+                    explicitPartNumber = value
                 }
             }
         }
 
-        // Fallback heuristic.
-        let rawTokens = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
-        for raw in rawTokens {
-            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
-            let token = raw.trimmingCharacters(in: allowed.inverted)
-            guard token.count >= 4 else { continue }
-            guard token.rangeOfCharacter(from: .letters) != nil else { continue }
-            guard token.rangeOfCharacter(from: .decimalDigits) != nil else { continue }
-            guard token.rangeOfCharacter(from: CharacterSet.decimalDigits.inverted) != nil else { continue } // not pure number
-            return (token, true)
+        if let suggested = LineItemSuggestionService.preferredPartNumber(
+            from: text,
+            explicitPartNumber: explicitPartNumber
+        ) {
+            return (suggested, true)
         }
 
         return (nil, false)

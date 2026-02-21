@@ -222,4 +222,31 @@ struct POParserAdvancedTests {
         #expect(battery.kind == .part || battery.kind == .unknown)
         #expect(battery.kind != .tire)
     }
+
+    @Test func prefersHyphenatedPartTokenOverCapacitySuffix() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        Advance Auto Parts
+        DieHard Gold AGM Battery H7 850CCA BAT-H7-AGM Qty: 1 $219.95
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.items.count == 1)
+        guard let item = parsed.items.first else { return }
+        #expect(item.partNumber == "BAT-H7-AGM")
+        #expect(item.kind == .part || item.kind == .unknown)
+        #expect(item.kind != .tire)
+    }
+
+    @Test func avoidsServiceCodeAsPartNumberWhenSpecificPartCodeExists() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        Advance Auto Parts
+        Dorman TPMS Sensor 433MHz TPMS-433 ALIGN-4WHL Qty: 1 $52.00
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.items.count == 1)
+        guard let item = parsed.items.first else { return }
+        #expect(item.partNumber == "TPMS-433")
+        #expect(item.kind == .part)
+    }
 }

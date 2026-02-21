@@ -233,20 +233,36 @@ final class OCRService {
             $0.boundingBox.minY > $1.boundingBox.minY
         }
 
-        var rows: [[VNRecognizedTextObservation]] = []
-        let rowThreshold: CGFloat = 0.02
+        guard !sorted.isEmpty else { return [] }
+
+        // Use an adaptive threshold based on observed text height to reduce cross-row merges.
+        let averageHeight = sorted
+            .map { max(0, $0.boundingBox.height) }
+            .reduce(0, +) / CGFloat(sorted.count)
+        let rowThreshold = min(0.018, max(0.0075, averageHeight * 0.70))
+
+        struct RowCluster {
+            var anchorY: CGFloat
+            var observations: [VNRecognizedTextObservation]
+        }
+
+        var clusters: [RowCluster] = []
 
         for observation in sorted {
-            if let lastRow = rows.last,
-               let first = lastRow.first,
-               abs(first.boundingBox.minY - observation.boundingBox.minY) < rowThreshold {
-                rows[rows.count - 1].append(observation)
+            let centerY = observation.boundingBox.midY
+            if var lastCluster = clusters.last,
+               abs(lastCluster.anchorY - centerY) < rowThreshold {
+                let existingCount = CGFloat(lastCluster.observations.count)
+                lastCluster.observations.append(observation)
+                // Keep anchor resilient by averaging in the new observation's center.
+                lastCluster.anchorY = ((lastCluster.anchorY * existingCount) + centerY) / (existingCount + 1)
+                clusters[clusters.count - 1] = lastCluster
             } else {
-                rows.append([observation])
+                clusters.append(RowCluster(anchorY: centerY, observations: [observation]))
             }
         }
 
-        return rows
+        return clusters.map(\.observations)
     }
 
     private static func inferColumnRoles(from rows: [[String]]) -> (description: Int?, quantity: Int?, price: Int?) {

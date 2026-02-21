@@ -161,6 +161,13 @@ final class LineItemSuggestionService {
         )
     }
 
+    static func preferredPartNumber(
+        from description: String,
+        explicitPartNumber: String? = nil
+    ) -> String? {
+        suggestedPartNumber(from: description, explicitPartNumber: explicitPartNumber)
+    }
+
     // MARK: - Private
 
     private struct HistoryAggregate {
@@ -410,24 +417,95 @@ private extension LineItemSuggestionService {
     }
 
     static func suggestedPartNumber(from description: String, explicitPartNumber: String?) -> String? {
-        let explicit = normalizeWhitespace(explicitPartNumber ?? "")
-        if !explicit.isEmpty {
-            return explicit.uppercased()
-        }
-
-        let pattern = #"\b[A-Z]{1,6}[A-Z0-9]*[-][A-Z0-9-]{2,}\b|\b[A-Z]{1,4}\d[A-Z0-9-]{2,}\b"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
-
         let source = description.uppercased()
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        guard let match = regex.firstMatch(in: source, range: range),
-              let matchRange = Range(match.range, in: source) else {
-            return nil
+
+        let explicit = normalizeWhitespace(explicitPartNumber ?? "").uppercased()
+        if !explicit.isEmpty {
+            let normalized = normalizePartNumberToken(explicit)
+            if scoreForPartNumberCandidate(normalized, in: source) >= 24 {
+                return normalized
+            }
         }
 
-        let token = source[matchRange].trimmingCharacters(in: .whitespacesAndNewlines)
-        return token.isEmpty ? nil : token
+        guard let best = bestPartNumberCandidate(in: source), best.score >= 24 else {
+            return nil
+        }
+        return best.token
+    }
+
+    private struct PartNumberCandidate {
+        let token: String
+        let score: Int
+    }
+
+    private static func bestPartNumberCandidate(in source: String) -> PartNumberCandidate? {
+        let rawTokens = source.split(whereSeparator: \.isWhitespace).map(String.init)
+        var best: PartNumberCandidate?
+
+        for raw in rawTokens {
+            let token = normalizePartNumberToken(raw)
+            guard token.count >= 4 else { continue }
+            guard token.rangeOfCharacter(from: .letters) != nil else { continue }
+            guard token.rangeOfCharacter(from: .decimalDigits) != nil else { continue }
+            guard token.rangeOfCharacter(from: CharacterSet.decimalDigits.inverted) != nil else { continue }
+
+            let score = scoreForPartNumberCandidate(token, in: source)
+            if let best, best.score > score {
+                continue
+            }
+            best = PartNumberCandidate(token: token, score: score)
+        }
+
+        return best
+    }
+
+    private static func normalizePartNumberToken(_ token: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        return token
+            .trimmingCharacters(in: allowed.inverted)
+            .uppercased()
+    }
+
+    private static func scoreForPartNumberCandidate(_ token: String, in source: String) -> Int {
+        guard !token.isEmpty else { return .min }
+
+        // Reject tire size formats outright.
+        if firstTireSize(in: token) != nil {
+            return .min
+        }
+
+        var score = 0
+        if token.contains("-") { score += 28 }
+        if token.range(of: #"^[A-Z]{2,8}[-][A-Z0-9-]{2,}$"#, options: .regularExpression) != nil { score += 24 }
+        if token.range(of: #"^[A-Z]{1,6}\d[A-Z0-9-]{1,}$"#, options: .regularExpression) != nil { score += 18 }
+        if token.range(of: #"[A-Z]"#, options: .regularExpression) != nil { score += 8 }
+        if token.range(of: #"\d"#, options: .regularExpression) != nil { score += 8 }
+
+        let containsServiceSignal = token.range(
+            of: #"(ALIGN|ALGN|SERVICE|LABOR|INSTALL|MOUNT|BALANCE)"#,
+            options: .regularExpression
+        ) != nil
+        if containsServiceSignal { score -= 30 }
+
+        let unitSuffixPenalty = token.range(
+            of: #"(?:CCA|MHZ|MM|CM|IN|HR|HRS)$"#,
+            options: .regularExpression
+        ) != nil
+        if unitSuffixPenalty { score -= 18 }
+
+        if token.range(of: #"^\d+[A-Z]{2,}$"#, options: .regularExpression) != nil {
+            score -= 20
+        }
+
+        if token.count > 22 { score -= 10 }
+
+        // Prefer tokens that appear near explicit part markers.
+        let escapedToken = NSRegularExpression.escapedPattern(for: token)
+        let labeledPattern = "(?:PN|P/N|PART#?|SKU)[:\\s\\-]*\(escapedToken)"
+        if source.range(of: labeledPattern, options: .regularExpression) != nil {
+            score += 14
+        }
+
+        return score
     }
 }

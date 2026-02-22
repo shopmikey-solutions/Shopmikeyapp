@@ -11,15 +11,9 @@ import Foundation
 final class POParser: @unchecked Sendable {
     func parse(from text: String, ignoreTaxAndTotals: Bool = false) -> ParsedInvoice {
         let lines = nonEmptyLines(from: text)
-        let firstLine = lines.first
         let headerLines = vendorHeaderCandidateLines(from: lines)
 
-        let vendorName: String?
-        if let firstLine, firstLine.containsVendorKeywords {
-            vendorName = firstLine
-        } else {
-            vendorName = nil
-        }
+        let vendorName = extractVendorName(from: lines)
         let vendorPhone = extractVendorPhone(from: headerLines)
         let vendorEmail = extractVendorEmail(from: headerLines)
 
@@ -77,9 +71,10 @@ final class POParser: @unchecked Sendable {
             from: text,
             inlinePatterns: [
                 #"(?i)\bInvoice[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?[ \t]*([A-Z0-9][A-Z0-9\-]*)"#,
-                #"(?i)\bInv[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?[ \t]*([A-Z0-9][A-Z0-9\-]*)"#
+                #"(?i)\bInv[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?[ \t]*([A-Z0-9][A-Z0-9\-]*)"#,
+                #"(?i)\bOrder[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?[ \t]*([A-Z0-9][A-Z0-9\-]{3,})"#
             ],
-            labelOnlyPattern: #"(?i)^\s*(Invoice|Inv)[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?\s*$"#
+            labelOnlyPattern: #"(?i)^\s*(Invoice|Inv|Order)[ \t]*(?:No\.?|#|Number)?[ \t]*[:#]?\s*$"#
         )
     }
 
@@ -87,6 +82,7 @@ final class POParser: @unchecked Sendable {
 
     private let qtyPatterns: [String] = [
         #"(?i)(qty|quantity)[:\s]*(\d+)"#,
+        #"(?i)\b(\d+)\s*(qty|quantity)\b"#,
         #"(?i)\b(\d+)\s*(ea|pcs|x)\b"#,
         #"(?i)\bx(\d+)\b"#
     ]
@@ -174,34 +170,77 @@ private extension POParser {
         let unitCents = item.costCents ?? 0
         let qty = max(1, item.quantity ?? 1)
         let totalCents = unitCents * qty
+        let hasPartNumber = !(item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let zeroPriceSignalScore = self.zeroPriceProductSignalScore(description: description, item: item)
 
-        // Drop zero-money rows.
+        // Zero-price ecommerce captures are valid when we still have strong product signals.
         if unitCents == 0 && totalCents == 0 {
-            return false
+            if !hasPartNumber && zeroPriceSignalScore < 2 {
+                return false
+            }
         }
 
-        // Drop short ALL CAPS header-style rows.
+        // Drop short ALL CAPS header-style rows only when no strong product evidence exists.
         if description == description.uppercased(),
            description.count < 25,
-           unitCents == 0 {
+           unitCents == 0,
+           !hasPartNumber,
+           qty <= 1,
+           zeroPriceSignalScore < 2 {
             return false
         }
 
         // Drop known summary labels.
         let upper = description.uppercased()
-        let hardBannedKeywords = ["WAREHOUSE", "SUMMARY"]
+        let hardBannedKeywords = [
+            "WAREHOUSE",
+            "SUMMARY",
+            "GIFT CERTIFICATE",
+            "STORE CREDIT",
+            "BALANCE DUE",
+            "ORDER TOTAL",
+            "TOTAL AMOUNT DUE"
+        ]
         if hardBannedKeywords.contains(where: { upper.contains($0) }) {
             return false
         }
 
         // Treat financial summary labels as invalid rows unless the line looks product-like.
         let summaryKeywords = ["SUBTOTAL", "TOTAL", "TAX", "BALANCE"]
-        if summaryKeywords.contains(where: { upper.contains($0) }),
-           (InvoiceLineClassifier.isNonProductSummaryLine(description) || !looksLikeProductRow(description, item: item)) {
-            return false
+        if summaryKeywords.contains(where: { upper.contains($0) }) {
+            if InvoiceLineClassifier.isNonProductSummaryLine(description) {
+                return false
+            }
+            let hasStrongProductSignals = hasPartNumber
+                || qty > 1
+                || item.kind == .part
+                || item.kind == .tire
+            if !hasStrongProductSignals || !looksLikeProductRow(description, item: item) {
+                return false
+            }
         }
 
         return true
+    }
+
+    func zeroPriceProductSignalScore(description: String, item: ParsedLineItem) -> Int {
+        let lower = description.lowercased()
+        var score = 0
+
+        if item.kind != .unknown && item.kindConfidence >= 0.55 {
+            score += 1
+        }
+        if lower.range(of: #"\b(axle|clutch|flywheel|rotor|brake|pad|sensor|battery|filter|wheel|bearing|kit|tire)\b"#, options: .regularExpression) != nil {
+            score += 1
+        }
+        if lower.range(of: #"\b(front|rear|left|right|premium|performance)\b"#, options: .regularExpression) != nil {
+            score += 1
+        }
+        if description.range(of: #"(?i)[A-Z]{2,}\d[A-Z0-9-]{2,}"#, options: .regularExpression) != nil {
+            score += 1
+        }
+
+        return score
     }
 
     func looksLikeProductRow(_ description: String, item: ParsedLineItem) -> Bool {
@@ -239,6 +278,28 @@ private extension POParser {
         if InvoiceLineClassifier.isNonProductSummaryLine(line) { return true }
 
         let lower = line.lowercased()
+        if lower.contains("tap to expand") { return true }
+        if lower == "info" { return true }
+        if lower == "help" { return true }
+        if lower == "cart" { return true }
+        if lower == "menu" { return true }
+        if lower == "order status & returns" { return true }
+        if lower.contains("arrange a return") { return true }
+        if lower.contains("report a problem") { return true }
+        if lower.contains("return policy") { return true }
+        if lower == "shipped" { return true }
+        if lower.range(of: #"^\d{4}\s+[a-z0-9].*\b\d\.\d+l\b"#, options: .regularExpression) != nil { return true }
+        if lower.hasPrefix("warehouse ") { return true }
+        if lower.contains("tracking:") { return true }
+        if lower.contains("cart menu") { return true }
+        if lower.contains("order status") && lower.contains("returns") { return true }
+        if lower.contains("parts catalog") || lower.contains("help pages") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("to check order status") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("please print this page as your receipt") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("order total") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("balance due") { return true }
+        if lower.contains("gift certificate") || lower.contains("store credit") { return true }
+        if lower.contains("all the parts your car will ever need") { return true }
         if lower.contains("pickup location") { return true }
         if (lower.contains("unit") && lower.contains("ext"))
             && (lower.contains("pickup location") || lower.contains("part #") || lower.contains("description")) {
@@ -246,6 +307,9 @@ private extension POParser {
         }
         if lower.contains("unit price") && lower.contains("extended") { return true }
         if lower.contains("purchase order") { return true }
+        if lower.contains("invoice #:") && lower.contains("po number") { return true }
+        if lower.contains("total amount due") { return true }
+        if lower.contains("amount due") && lower.contains("$") { return true }
         if lower.localizedCaseInsensitiveHasPrefix("po:") { return true }
         if lower.localizedCaseInsensitiveHasPrefix("po #") { return true }
         if lower.localizedCaseInsensitiveHasPrefix("po no") { return true }
@@ -404,20 +468,57 @@ private extension POParser {
     }
 
     func shouldStartNewItemBlock(with line: String, currentBlock: [String]) -> Bool {
-        // If the current block already has something beyond a single name line, a new name-like line likely starts a new item.
-        if currentBlock.count >= 2 {
-            return true
+        if looksLikeContinuationLine(line, currentBlock: currentBlock) {
+            return false
+        }
+        if isAttributeOnlyLine(line) {
+            return false
         }
 
-        // If the current name line already contains cost/qty/part number, treat the next name-like line as a new block.
         let currentText = currentBlock.joined(separator: "\n")
-        if extractCost(from: currentText).found || extractQuantity(from: currentText).found || extractPartNumber(from: currentText).found {
+        let currentHasCost = extractCost(from: currentText).found
+        let currentHasPart = extractPartNumber(from: currentText).found
+        let currentHasQuantity = hasExplicitQuantitySignal(in: currentText)
+
+        let lineHasCost = extractCost(from: line).found
+        let lineHasPart = extractPartNumber(from: line).found
+        let lineHasQuantity = hasExplicitQuantitySignal(in: line)
+
+        if currentBlock.count >= 4 {
             return true
         }
 
-        // Otherwise keep appending; some vendors wrap item descriptions across multiple lines.
+        if lineHasPart && currentHasPart {
+            return true
+        }
+        if lineHasCost && currentHasCost {
+            return true
+        }
+        if lineHasQuantity && currentHasQuantity {
+            return true
+        }
+        if currentBlock.count >= 2 && (lineHasPart || lineHasCost || lineHasQuantity) {
+            return true
+        }
+
         _ = line
         return false
+    }
+
+    func looksLikeContinuationLine(_ line: String, currentBlock: [String]) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+
+        if hasExplicitQuantitySignal(in: trimmed) { return false }
+        if extractPartNumber(from: trimmed).found { return false }
+        if extractCost(from: trimmed).found { return false }
+
+        if trimmed.hasPrefix("(") {
+            return true
+        }
+
+        // Multi-line ecommerce cards frequently split name/model/details across adjacent lines.
+        return currentBlock.count <= 2
     }
 
     func parseItemBlock(_ lines: [String], vendorMatch: Bool) -> ParsedLineItem {
@@ -487,7 +588,33 @@ private extension POParser {
     func descriptionSignalScore(_ line: String) -> Int {
         let letters = line.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count
         let digits = line.unicodeScalars.filter { CharacterSet.decimalDigits.contains($0) }.count
-        return (letters * 5) + line.count - (digits * 2)
+        let lower = line.lowercased()
+        var score = (letters * 5) + line.count - (digits * 2)
+
+        if line.range(of: #"(?i)[A-Z]{1,8}[A-Z0-9-]*\d[A-Z0-9-]{1,}"#, options: .regularExpression) != nil {
+            score += 40
+        }
+        if line.range(of: monetaryTokenPattern, options: .regularExpression) != nil {
+            score += 15
+        }
+        if lower.contains("rockauto") && lower.contains("order confirmation") {
+            score -= 80
+        }
+        if lower == "info"
+            || lower.contains("tracking:")
+            || lower.contains("warehouse ")
+            || lower.contains("order status & returns")
+            || lower.contains("cart menu")
+            || lower.contains("arrange a return")
+            || lower.contains("report a problem")
+            || lower.contains("tap to expand") {
+            score -= 120
+        }
+        if lower.range(of: #"^\d{4}\s+[a-z0-9].*\b\d\.\d+l\b"#, options: .regularExpression) != nil {
+            score -= 100
+        }
+
+        return score
     }
 
     func extractQuantity(from text: String) -> (value: Int, found: Bool) {
@@ -496,17 +623,12 @@ private extension POParser {
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
             guard let match = regex.firstMatch(in: text, options: [], range: range) else { continue }
 
-            let groupIndex: Int
-            switch pattern {
-            case qtyPatterns[0]:
-                groupIndex = 2
-            default:
-                groupIndex = 1
-            }
-
-            guard match.numberOfRanges > groupIndex, let r = Range(match.range(at: groupIndex), in: text) else { continue }
-            if let value = Int(text[r]), value >= 1 {
-                return (value, true)
+            let groupIndexes = Array(1..<match.numberOfRanges).reversed()
+            for groupIndex in groupIndexes {
+                guard let r = Range(match.range(at: groupIndex), in: text) else { continue }
+                if let value = Int(text[r]), value >= 1 {
+                    return (value, true)
+                }
             }
         }
 
@@ -518,6 +640,23 @@ private extension POParser {
                let value = Int(lastToken),
                (1...200).contains(value) {
                 return (value, true)
+            }
+        }
+
+        // Additional table fallback: quantity often sits between two money columns.
+        let monetaryRanges = allMonetaryTokenRanges(in: text)
+        if monetaryRanges.count >= 2 {
+            for index in 0..<(monetaryRanges.count - 1) {
+                let between = text[monetaryRanges[index].upperBound..<monetaryRanges[index + 1].lowerBound]
+                let candidateTokens = between
+                    .split(whereSeparator: \.isWhitespace)
+                    .map(String.init)
+
+                for token in candidateTokens.reversed() {
+                    if let value = Int(token), (1...200).contains(value) {
+                        return (value, true)
+                    }
+                }
             }
         }
 
@@ -725,6 +864,13 @@ private extension POParser {
             }
         }
 
+        // Remove common screenshot UI artifacts.
+        name = name.replacingOccurrences(
+            of: #"\binfo\b"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+
         // Remove monetary tokens while preserving sizes such as "225/60/16".
         if let regex = try? NSRegularExpression(pattern: monetaryTokenPattern) {
             let range = NSRange(name.startIndex..<name.endIndex, in: name)
@@ -784,6 +930,25 @@ private extension POParser {
         }
 
         return matchRange
+    }
+
+    func allMonetaryTokenRanges(in text: String) -> [Range<String.Index>] {
+        guard let regex = try? NSRegularExpression(pattern: monetaryTokenPattern) else {
+            return []
+        }
+
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = regex.matches(in: text, options: [], range: nsRange)
+        return matches.compactMap { match in
+            Range(match.range, in: text)
+        }
+    }
+
+    func hasExplicitQuantitySignal(in text: String) -> Bool {
+        text.range(
+            of: #"\b(qty|quantity|x\d+|\d+\s*(ea|pcs|pc|qty|quantity|x))\b"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     func shouldSwapDocumentIdentifiers(invoiceNumber: String?, poNumber: String?) -> Bool {
@@ -880,6 +1045,29 @@ private extension POParser {
                     return normalized
                 }
                 break
+            }
+        }
+
+        return nil
+    }
+
+    func extractVendorName(from lines: [String]) -> String? {
+        guard !lines.isEmpty else { return nil }
+
+        for line in lines.prefix(8) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            let lower = trimmed.lowercased()
+            if lower.contains("rockauto") {
+                return "RockAuto"
+            }
+            if lower.contains("order confirmation") || lower.contains("ship to:") || lower.contains("bill to:") {
+                continue
+            }
+
+            if trimmed.containsVendorKeywords {
+                return trimmed
             }
         }
 

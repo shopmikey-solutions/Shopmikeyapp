@@ -249,4 +249,146 @@ struct POParserAdvancedTests {
         #expect(item.partNumber == "TPMS-433")
         #expect(item.kind == .part)
     }
+
+    @Test func parsesRockAutoShipmentStyleScreenshotWithoutPriceColumns() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        ROCKAUTO Help Order Status & Returns Cart Menu
+        Shipped
+        Warehouse A Tracking: 426667372807
+        2016 SUBARU OUTBACK 3.6L H6
+        Drivetrain : CV Axle
+        TOP NOTCH TN15002PR
+        Front
+        (Premium) Performance
+        2 Quantity
+        Arrange a Return / Report a Problem
+        Warehouse B Tracking: 1ZB36H830330963840
+        2005 SUBARU FORESTER 2.5L H4
+        Transmission-Manual : Clutch Kit
+        LUK 15031
+        Includes Bearing Retainer Repair Sleeve
+        1 Quantity
+        Transmission-Manual : Flywheel
+        LUK LFW262
+        (Solid Flywheel)
+        1 Quantity
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.items.count >= 2)
+        #expect(parsed.items.contains(where: { $0.partNumber == "TN15002PR" }))
+        #expect(parsed.items.contains(where: { ($0.partNumber ?? "").contains("LFW262") }))
+    }
+
+    @Test func parsesRockAutoShipmentStatusViewWithCardNoise() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        ROCKAUTO
+        Help
+        Order Status & Returns
+        Cart
+        Menu
+        Shipped
+        Warehouse A Tracking: 426667372807
+        2016 SUBARU OUTBACK 3.6L H6
+        Drivetrain : CV Axle
+        TOP NOTCH TN15002PR Info
+        Front
+        (Premium) Performance
+        2 Quantity
+        Arrange a Return / Report a Problem
+        Warehouse B Tracking: 1ZB36H830330963840
+        2005 SUBARU FORESTER 2.5L H4
+        Transmission-Manual : Clutch Kit
+        LUK 15031 Info
+        Includes Bearing Retainer Repair Sleeve and Matching Release Bearing.
+        1 Quantity
+        Transmission-Manual : Flywheel
+        LUK LFW262 Info
+        (Solid Flywheel)
+        1 Quantity
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.vendorName == "RockAuto")
+        #expect(parsed.items.count >= 2)
+        #expect(parsed.items.contains(where: { ($0.partNumber ?? "").contains("TN15002PR") }))
+        #expect(parsed.items.contains(where: { ($0.partNumber ?? "").contains("LFW262") }))
+    }
+
+    @Test func parsesRockAutoOrderConfirmationTableRows() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        RockAuto Order Confirmation
+        Order 336879779
+        2005 SUBARU FORESTER 2.5L H4
+        LUK 15031 (15-031) Clutch Kit $ 185.79 $ 0.00 1 $ 185.79
+        LUK LFW262 Flywheel $ 72.79 $ 0.00 1 $ 72.79
+        2016 SUBARU OUTBACK 3.6L H6
+        TOP NOTCH TN15002PR CV Axle $ 102.79 $ 0.00 2 $ 205.58
+        Shipping Ground $ 27.98
+        Tax $ 35.68
+        Order Total $ 527.82
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.invoiceNumber == "336879779")
+        guard let axle = parsed.items.first(where: { ($0.partNumber ?? "").contains("TN15002PR") }) else {
+            Issue.record("Missing TN15002PR axle row")
+            return
+        }
+        #expect(axle.quantity == 2)
+        #expect(axle.costCents == 10279)
+        #expect(parsed.items.contains(where: { ($0.partNumber ?? "").contains("LFW262") }))
+    }
+
+    @Test func parsesRockAutoOrderConfirmationScreenshotDetailView() async throws {
+        let parser = POParser()
+        let parsed = parser.parse(from: """
+        RockAuto Order Confirmation
+        Order 336879779
+        Saturday, February 14, 2026 09:14 AM Central Time
+        Ship To:
+        Michael Bordeaux
+        505 W HOLDING AVE
+        Wake Forest, NC 27587-2846
+        United States
+        9197248425
+        travers_fidget.2t@icloud.com
+        Bill To:
+        Michael Bordeaux
+        505 W HOLDING AVE
+        Wake Forest, NC 27587-2846
+        United States
+        9197248425
+        travers_fidget.2t@icloud.com
+        Part Number Part Type Price EA Core EA Quantity Total
+        2005 SUBARU FORESTER 2.5L H4
+        LUK 15031 (15-031) Clutch Kit $ 185.79 $ 0.00 1 $ 185.79
+        LUK LFW262 Flywheel $ 72.79 $ 0.00 1 $ 72.79
+        2016 SUBARU OUTBACK 3.6L H6
+        TOP NOTCH TN15002PR CV Axle $ 102.79 $ 0.00 2 $ 205.58
+        Shipping Ground $ 27.98
+        Tax $ 35.68
+        Order Total $ 527.82
+        Gift Certificate or Store Credit ***********BDF4 -$ 527.82
+        Balance Due $ 0.00
+        """, ignoreTaxAndTotals: true)
+
+        #expect(parsed.vendorName == "RockAuto")
+        #expect(parsed.invoiceNumber == "336879779")
+        #expect(parsed.header.vendorPhone == "9197248425")
+        #expect(parsed.header.vendorEmail == "travers_fidget.2t@icloud.com")
+        #expect(parsed.items.count >= 3)
+
+        guard let axle = parsed.items.first(where: { ($0.partNumber ?? "").contains("TN15002PR") }) else {
+            Issue.record("Missing TN15002PR axle row")
+            return
+        }
+        #expect(axle.quantity == 2)
+        #expect(axle.costCents == 10279)
+        #expect(axle.name.localizedCaseInsensitiveContains("axle"))
+
+        #expect(parsed.items.contains(where: { ($0.partNumber ?? "").contains("LFW262") }))
+        #expect(!parsed.items.contains(where: { $0.name.localizedCaseInsensitiveContains("Gift Certificate") }))
+        #expect(!parsed.items.contains(where: { $0.name.localizedCaseInsensitiveContains("Balance Due") }))
+    }
 }

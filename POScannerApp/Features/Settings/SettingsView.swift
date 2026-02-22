@@ -82,108 +82,30 @@ struct SettingsView: View {
 
     private var apiKeySection: some View {
         Section {
-            HStack(spacing: 8) {
-                Image(systemName: viewModel.hasSavedKey ? "checkmark.seal.fill" : "key")
-                    .foregroundStyle(viewModel.hasSavedKey ? AppSurfaceStyle.success : .secondary)
-                Text("Status")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(viewModel.hasSavedKey ? "Saved" : "Missing")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(viewModel.hasSavedKey ? AppSurfaceStyle.success : .secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background((viewModel.hasSavedKey ? AppSurfaceStyle.success : .secondary).opacity(0.12))
-                    .clipShape(Capsule())
-            }
+            keyStatusRow
 
             if showsAPIKeyEditor || !viewModel.hasSavedKey {
-                TextField("Paste API Key", text: $viewModel.pastedKey, axis: .vertical)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(2...4)
-                    .accessibilityIdentifier("settings.apiKeyField")
-
-                if #available(iOS 16.0, *) {
-                    PasteButton(payloadType: String.self) { values in
-                        guard let first = values.first else { return }
-                        viewModel.pastedKey = first
-                    }
-                }
-
-                HStack {
-                    Button("Save") {
-                        AppHaptics.selection()
-                        viewModel.saveKey()
-                        showsAPIKeyEditor = false
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("settings.saveApiKeyButton")
-
-                    if viewModel.hasSavedKey {
-                        Button("Cancel") {
-                            AppHaptics.selection()
-                            showsAPIKeyEditor = false
-                            viewModel.pastedKey = ""
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
+                apiKeyEditor
             }
 
-            HStack {
-                if viewModel.hasSavedKey {
-                    Button {
-                        AppHaptics.impact(.medium, intensity: 0.85)
-                        Task { _ = await viewModel.retrieveKeyForUse() }
-                    } label: {
-                        Text("Verify")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("settings.testRetrievalButton")
+            if viewModel.hasSavedKey {
+                savedKeyActions
+            }
 
-                    Button(showsAPIKeyEditor ? "Hide Editor" : "Edit Key") {
-                        AppHaptics.selection()
-                        showsAPIKeyEditor.toggle()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button(viewModel.revealedAPIKey == nil ? "Reveal" : "Hide") {
-                        AppHaptics.selection()
-                        if viewModel.revealedAPIKey == nil {
-                            Task { await viewModel.revealStoredKey() }
-                        } else {
-                            viewModel.hideRevealedKey()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("settings.revealApiKeyButton")
-
-                    Button("Copy") {
-                        AppHaptics.selection()
-                        Task { await viewModel.copyStoredKey() }
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("settings.copyApiKeyButton")
+            if let keyActionActivityText {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(keyActionActivityText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
-
-                Spacer(minLength: 8)
-
-                if viewModel.hasSavedKey {
-                    Button("Remove", role: .destructive) {
-                        AppHaptics.warning()
-                        viewModel.removeKey()
-                        showsAPIKeyEditor = false
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("settings.removeApiKeyButton")
-                }
+                .accessibilityIdentifier("settings.keyActionProgress")
             }
 
             if let revealedAPIKey = viewModel.revealedAPIKey, !revealedAPIKey.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Revealed temporarily")
+                    Text("Revealed temporarily (auto-hides)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(revealedAPIKey)
@@ -213,8 +135,123 @@ struct SettingsView: View {
         } header: {
             Text("API Key")
         } footer: {
-            Text("Authentication applies to key verification and Shopmonkey submissions.")
+            Text("Key edit/view actions always require authentication. Enable the toggle to also require authentication before submission.")
         }
+    }
+
+    private var keyStatusRow: some View {
+        LabeledContent {
+            Text(viewModel.hasSavedKey ? "Saved in Keychain" : "Missing")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(viewModel.hasSavedKey ? AppSurfaceStyle.success : .secondary)
+        } label: {
+            Label("Status", systemImage: viewModel.hasSavedKey ? "checkmark.seal.fill" : "key")
+                .foregroundStyle(viewModel.hasSavedKey ? AppSurfaceStyle.success : .secondary)
+        }
+    }
+
+    private var apiKeyEditor: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Paste API Key", text: $viewModel.pastedKey, axis: .vertical)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(2...4)
+                .accessibilityIdentifier("settings.apiKeyField")
+
+            if #available(iOS 16.0, *) {
+                PasteButton(payloadType: String.self) { values in
+                    guard let first = values.first else { return }
+                    viewModel.pastedKey = first
+                }
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    saveAPIKeyButton
+                    if viewModel.hasSavedKey {
+                        cancelEditingAPIKeyButton
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    saveAPIKeyButton
+                    if viewModel.hasSavedKey {
+                        cancelEditingAPIKeyButton
+                    }
+                }
+            }
+        }
+    }
+
+    private var savedKeyActions: some View {
+        Group {
+            Button {
+                AppHaptics.impact(.medium, intensity: 0.85)
+                Task { _ = await viewModel.retrieveKeyForUse() }
+            } label: {
+                if viewModel.activeKeyAction == .verifying {
+                    Label("Verifying Key Access…", systemImage: "hourglass")
+                } else {
+                    Label("Verify Stored Key", systemImage: "checkmark.shield")
+                }
+            }
+            .accessibilityIdentifier("settings.testRetrievalButton")
+            .disabled(viewModel.activeKeyAction != nil)
+
+            Button {
+                AppHaptics.selection()
+                if showsAPIKeyEditor {
+                    showsAPIKeyEditor = false
+                    viewModel.pastedKey = ""
+                } else {
+                    Task {
+                        let authorized = await viewModel.authorizeForKeyEditorAccess()
+                        guard authorized else { return }
+                        await MainActor.run {
+                            showsAPIKeyEditor = true
+                        }
+                    }
+                }
+            } label: {
+                Label(showsAPIKeyEditor ? "Hide API Key Editor" : "Edit API Key", systemImage: "pencil")
+            }
+            .disabled(viewModel.activeKeyAction != nil)
+
+            NavigationLink {
+                SettingsAPIKeyActionsView(
+                    viewModel: viewModel,
+                    onRemoveKey: {
+                        showsAPIKeyEditor = false
+                    }
+                )
+            } label: {
+                Label("Advanced Key Actions", systemImage: "key.horizontal")
+            }
+            .accessibilityIdentifier("settings.apiKeyActionsMenu")
+            .disabled(viewModel.activeKeyAction != nil)
+        }
+    }
+
+    private var saveAPIKeyButton: some View {
+        Button("Save") {
+            AppHaptics.selection()
+            viewModel.saveKey()
+            showsAPIKeyEditor = false
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("settings.saveApiKeyButton")
+        .disabled(viewModel.activeKeyAction != nil)
+    }
+
+    private var cancelEditingAPIKeyButton: some View {
+        Button("Cancel") {
+            AppHaptics.selection()
+            showsAPIKeyEditor = false
+            viewModel.pastedKey = ""
+        }
+        .buttonStyle(.bordered)
+        .disabled(viewModel.activeKeyAction != nil)
     }
 
     private var connectivityChecksSection: some View {
@@ -241,12 +278,11 @@ struct SettingsView: View {
                 Task { await viewModel.testConnection() }
             } label: {
                 if viewModel.isTestingConnection {
-                    Label("Testing…", systemImage: "hourglass")
+                    Label("Testing Connection…", systemImage: "hourglass")
                 } else {
-                    Text("Test Connection")
+                    Label("Test Connection", systemImage: "bolt.horizontal.circle")
                 }
             }
-            .appPrimaryActionButton()
             .disabled(viewModel.isTestingConnection)
             .accessibilityIdentifier("settings.testConnectionButton")
 
@@ -311,6 +347,25 @@ struct SettingsView: View {
         viewModel.networkDiagnostics.filter(\.isFailure).count
     }
 
+    private var keyActionActivityText: String? {
+        switch viewModel.activeKeyAction {
+        case .saving:
+            "Saving key…"
+        case .authorizingEdit:
+            "Authenticating to edit key…"
+        case .verifying:
+            "Verifying key access…"
+        case .revealing:
+            "Authenticating to reveal key…"
+        case .copying:
+            "Authenticating to copy key…"
+        case .removing:
+            "Removing key…"
+        case nil:
+            nil
+        }
+    }
+
     private func preferenceToggle(
         title: String,
         isOn: Binding<Bool>,
@@ -334,6 +389,89 @@ struct SettingsView: View {
             .foregroundStyle(color)
             .background(color.opacity(0.15))
             .clipShape(Capsule())
+    }
+
+}
+
+private struct SettingsAPIKeyActionsView: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    let onRemoveKey: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List {
+            Section("Sensitive Actions") {
+                Button {
+                    AppHaptics.selection()
+                    if viewModel.revealedAPIKey == nil {
+                        Task { await viewModel.revealStoredKey() }
+                    } else {
+                        viewModel.hideRevealedKey()
+                    }
+                } label: {
+                    if viewModel.activeKeyAction == .revealing {
+                        Label("Authenticating…", systemImage: "hourglass")
+                    } else {
+                        Label(
+                            viewModel.revealedAPIKey == nil ? "Reveal API Key" : "Hide Revealed Key",
+                            systemImage: viewModel.revealedAPIKey == nil ? "eye" : "eye.slash"
+                        )
+                    }
+                }
+                .accessibilityIdentifier("settings.revealApiKeyButton")
+                .disabled(viewModel.activeKeyAction != nil)
+
+                Button {
+                    AppHaptics.selection()
+                    Task { await viewModel.copyStoredKey() }
+                } label: {
+                    if viewModel.activeKeyAction == .copying {
+                        Label("Copying…", systemImage: "hourglass")
+                    } else {
+                        Label("Copy API Key", systemImage: "doc.on.doc")
+                    }
+                }
+                .accessibilityIdentifier("settings.copyApiKeyButton")
+                .disabled(viewModel.activeKeyAction != nil)
+            }
+
+            if let revealedAPIKey = viewModel.revealedAPIKey, !revealedAPIKey.isEmpty {
+                Section {
+                    Text(revealedAPIKey)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(3)
+                        .truncationMode(.middle)
+                } header: {
+                    Text("Revealed Value")
+                } footer: {
+                    Text("This value automatically hides after a short delay.")
+                }
+            }
+
+            Section {
+                Button(role: .destructive) {
+                    AppHaptics.warning()
+                    viewModel.removeKey()
+                    onRemoveKey()
+                    dismiss()
+                } label: {
+                    if viewModel.activeKeyAction == .removing {
+                        Label("Removing…", systemImage: "hourglass")
+                    } else {
+                        Label("Remove API Key", systemImage: "trash")
+                    }
+                }
+                .accessibilityIdentifier("settings.removeApiKeyButton")
+                .disabled(viewModel.activeKeyAction != nil)
+            } footer: {
+                Text("Removing the key immediately disables Shopmonkey submissions.")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .nativeListSurface()
+        .navigationTitle("API Key Actions")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

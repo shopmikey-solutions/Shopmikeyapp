@@ -38,9 +38,14 @@ final class POSubmissionService {
     }
 
     private let shopmonkey: ShopmonkeyServicing
+    private let authorizeSubmission: (@MainActor () async throws -> Void)?
 
-    init(shopmonkey: ShopmonkeyServicing) {
+    init(
+        shopmonkey: ShopmonkeyServicing,
+        authorizeSubmission: (@MainActor () async throws -> Void)? = nil
+    ) {
         self.shopmonkey = shopmonkey
+        self.authorizeSubmission = authorizeSubmission
     }
 
     func submitNew(
@@ -122,6 +127,20 @@ final class POSubmissionService {
             stage4PersistFinalStatus(purchaseOrder: purchaseOrder, status: "failed", message: message, context: context)
             Self.logger.error("Submission failed after \(self.elapsedMillis(since: submissionStart), privacy: .public)ms.")
             return Result(succeeded: false, message: message, purchaseOrderObjectID: purchaseOrder?.objectID)
+        }
+
+        if let authorizeSubmission {
+            let authStart = Date()
+            do {
+                try await authorizeSubmission()
+                Self.logger.debug("Submission auth gate succeeded in \(self.elapsedMillis(since: authStart), privacy: .public)ms.")
+            } catch {
+                let message = "Authentication required before submission."
+                Self.logger.error(
+                    "Submission auth gate failed in \(self.elapsedMillis(since: authStart), privacy: .public)ms. message=\(message, privacy: .public)"
+                )
+                return Result(succeeded: false, message: message, purchaseOrderObjectID: purchaseOrder?.objectID)
+            }
         }
 
         // Persist locally first (optional).

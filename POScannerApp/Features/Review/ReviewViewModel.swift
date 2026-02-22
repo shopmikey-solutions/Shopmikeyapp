@@ -464,18 +464,30 @@ final class ReviewViewModel: ObservableObject {
         let oldKind = items[index].kind
         guard oldKind != newKind else { return }
         items[index].kind = newKind
+        applyManualKindReviewMetadata(at: index, selectedKind: newKind)
         recordTypeOverride(from: oldKind, to: newKind)
         trackReviewAction(
             "Line type updated (\(oldKind.displayName) → \(newKind.displayName))."
         )
     }
 
-    func noteLineItemKindEdited(from oldKind: POItemKind, to newKind: POItemKind) {
+    func noteLineItemKindEdited(itemID: UUID, from oldKind: POItemKind, to newKind: POItemKind) {
         guard oldKind != newKind else { return }
+        if let index = items.firstIndex(where: { $0.id == itemID }) {
+            applyManualKindReviewMetadata(at: index, selectedKind: newKind)
+        }
         recordTypeOverride(from: oldKind, to: newKind)
         trackReviewAction(
             "Line type updated (\(oldKind.displayName) → \(newKind.displayName))."
         )
+    }
+
+    func confirmItemSuggestion(at index: Int) {
+        guard items.indices.contains(index) else { return }
+        guard items[index].kind != .unknown else { return }
+        guard items[index].isKindConfidenceMedium else { return }
+        applyManualKindReviewMetadata(at: index, selectedKind: items[index].kind)
+        trackReviewAction("Line-item suggestion confirmed.")
     }
 
     func moveItems(from source: IndexSet, to destination: Int) {
@@ -497,8 +509,10 @@ final class ReviewViewModel: ObservableObject {
         isApplyingItemReorder = true
         items = reordered
         isApplyingItemReorder = false
+        let movedCount = movingItems.count
+        let noun = movedCount == 1 ? "line item" : "line items"
         trackReviewAction(
-            "Line items reordered.",
+            "Reordered \(movedCount) \(noun).",
             trigger: .itemReorder
         )
     }
@@ -783,10 +797,11 @@ final class ReviewViewModel: ObservableObject {
     ) {
         let trimmed = workflowDetail.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let liveActivityDetail = liveActivityWorkflowDetail(for: trimmed)
         if let draftID = activeDraftID {
             publishDraftReviewLiveActivity(
                 workflowState: .reviewEdited,
-                workflowDetail: trimmed,
+                workflowDetail: liveActivityDetail,
                 draftID: draftID
             )
         }
@@ -798,16 +813,6 @@ final class ReviewViewModel: ObservableObject {
 
     func submitToShopmonkey(saveHistoryEnabled: Bool, ignoreTaxAndTotals: Bool) async {
         guard !isSubmitting else { return }
-
-        if UserDefaults.standard.bool(forKey: "settings.requireAuthForToken") {
-            do {
-                try await environment.authenticateForSubmissionIfNeeded()
-            } catch {
-                errorMessage = "Authentication required before submission."
-                AppHaptics.error()
-                return
-            }
-        }
 
         isSubmitting = true
         statusMessage = nil
@@ -827,7 +832,12 @@ final class ReviewViewModel: ObservableObject {
             workflowDetail: "Submitting to Shopmonkey."
         )
 
-        let submitter = POSubmissionService(shopmonkey: shopmonkeyService)
+        let submitter = POSubmissionService(
+            shopmonkey: shopmonkeyService,
+            authorizeSubmission: { [environment] in
+                try await environment.authenticateForSubmissionIfNeeded(forcePrompt: true)
+            }
+        )
         let result = await submitter.submitNew(
             payload: submissionPayload,
             mode: submissionMode,
@@ -855,22 +865,41 @@ final class ReviewViewModel: ObservableObject {
             )
             await clearDraftAfterSuccessfulSubmission()
         } else {
-            errorMessage = result.message ?? "Submission failed."
-            publishSubmissionLiveActivity(
-                isActive: true,
-                statusText: "Submission failed",
-                detailText: result.message ?? "Step 4 of 4 • Review vendor and line item details.",
-                progress: 0.55,
-                stageToken: "fail"
-            )
-            scheduleLiveActivityEnd(after: 8.0)
-            _ = try? await persistDraft(
-                showStatusMessage: false,
-                workflowState: .failed,
-                workflowDetail: result.message ?? "Submission failed."
-            )
+            let failureMessage = result.message ?? "Submission failed."
+            let authBlocked = failureMessage.localizedCaseInsensitiveContains("authentication required")
+            errorMessage = failureMessage
+
+            if authBlocked {
+                publishSubmissionLiveActivity(
+                    isActive: true,
+                    statusText: "Submission paused",
+                    detailText: "Authenticate to continue submission.",
+                    progress: 0.82,
+                    stageToken: "draft"
+                )
+                scheduleLiveActivityEnd(after: 3.0)
+                _ = try? await persistDraft(
+                    showStatusMessage: false,
+                    workflowState: .reviewEdited,
+                    workflowDetail: "Submission paused pending authentication."
+                )
+            } else {
+                publishSubmissionLiveActivity(
+                    isActive: true,
+                    statusText: "Submission failed",
+                    detailText: failureMessage,
+                    progress: 0.55,
+                    stageToken: "fail"
+                )
+                scheduleLiveActivityEnd(after: 8.0)
+                _ = try? await persistDraft(
+                    showStatusMessage: false,
+                    workflowState: .failed,
+                    workflowDetail: failureMessage
+                )
+            }
             await environment.localNotificationService.notify(
-                .submissionFailed(message: result.message, draftID: activeDraftID)
+                .submissionFailed(message: failureMessage, draftID: activeDraftID)
             )
         }
 
@@ -1779,7 +1808,7 @@ final class ReviewViewModel: ObservableObject {
             return "Vendor ready"
         }
         if normalizedDetail.contains("suggestion") {
-            return "Suggestions applied"
+            return "Suggestions reviewed"
         }
         if normalizedDetail.contains("line items reordered") || normalizedDetail.contains("reordered") {
             return "Line order updated"
@@ -1794,6 +1823,45 @@ final class ReviewViewModel: ObservableObject {
         }
 
         return workflowState == .reviewReady ? "Draft ready" : "Draft updated"
+    }
+
+    private func liveActivityWorkflowDetail(for workflowDetail: String) -> String {
+        let readinessPercent = Int((max(0, min(1, reviewReadinessScore)) * 100).rounded())
+        let normalized = workflowDetail.lowercased()
+        if normalized.contains("readiness") {
+            return workflowDetail
+        }
+        if normalized.contains("vendor")
+            || normalized.contains("suggestion")
+            || normalized.contains("reordered")
+            || normalized.contains("line type")
+            || normalized.contains("removed")
+            || normalized.contains("service linked")
+            || normalized.contains("work order selected")
+            || normalized.contains("draft po linked") {
+            return "\(workflowDetail) Readiness \(readinessPercent)%."
+        }
+        return workflowDetail
+    }
+
+    private func applyManualKindReviewMetadata(at index: Int, selectedKind: POItemKind) {
+        guard items.indices.contains(index) else { return }
+        let manualReason = "Reviewed manually in intake."
+
+        if selectedKind == .unknown {
+            items[index].kindConfidence = 0
+            if items[index].kindReasons.isEmpty {
+                items[index].kindReasons = [manualReason]
+            }
+            return
+        }
+
+        items[index].kindConfidence = max(0.9, items[index].kindConfidence)
+        var reasons = items[index].kindReasons.filter {
+            !$0.localizedCaseInsensitiveContains("reviewed manually in intake")
+        }
+        reasons.insert(manualReason, at: 0)
+        items[index].kindReasons = reasons
     }
 
     private func setPreferredLiveActivityDraftID(_ draftID: UUID) {

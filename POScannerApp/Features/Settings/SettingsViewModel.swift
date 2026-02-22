@@ -12,6 +12,15 @@ import UIKit
 
 @MainActor
 final class SettingsViewModel: ObservableObject {
+    enum KeyAction: Equatable {
+        case saving
+        case authorizingEdit
+        case verifying
+        case revealing
+        case copying
+        case removing
+    }
+
     let environment: AppEnvironment
 
     private var keyStatusClearTask: Task<Void, Never>?
@@ -27,6 +36,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var isTestingConnection: Bool = false
     @Published var isRunningProbe: Bool = false
     @Published var revealedAPIKey: String?
+    @Published private(set) var activeKeyAction: KeyAction?
     @Published var keyStatusMessage: String?
     @Published var connectivityStatusMessage: String?
     @Published var endpointProbeReport: ShopmonkeyEndpointProbeReport?
@@ -47,6 +57,9 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func saveKey() {
+        guard beginKeyAction(.saving) else { return }
+        defer { endKeyAction(.saving) }
+
         let key = pastedKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             setTransientKeyStatus("Please paste a valid API key.")
@@ -65,6 +78,9 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func removeKey() {
+        guard beginKeyAction(.removing) else { return }
+        defer { endKeyAction(.removing) }
+
         do {
             try environment.keychainService.deleteToken()
             environment.secureStorage.clearAuthenticationCache()
@@ -77,6 +93,9 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func retrieveKeyForUse() async -> String? {
+        guard beginKeyAction(.verifying) else { return nil }
+        defer { endKeyAction(.verifying) }
+
         if isBiometricRequired {
             do {
                 let token = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
@@ -108,6 +127,31 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
+    func authorizeForKeyEditorAccess() async -> Bool {
+        guard hasSavedKey else { return true }
+        guard beginKeyAction(.authorizingEdit) else { return false }
+        defer { endKeyAction(.authorizingEdit) }
+
+        do {
+            _ = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
+                reason: "Authenticate to edit your Shopmonkey API key.",
+                preferCached: false
+            )
+            return true
+        } catch let error as SecureStorage.SecureStorageError {
+            switch error {
+            case .userCancelled:
+                setTransientKeyStatus("Authentication cancelled.")
+            case .authenticationFailed, .biometricsUnavailable:
+                setTransientKeyStatus("Authentication failed.")
+            }
+            return false
+        } catch {
+            setTransientKeyStatus("Authentication failed.")
+            return false
+        }
+    }
+
     func updateStatus() {
         hasSavedKey = environment.keychainService.tokenExists()
         if !hasSavedKey {
@@ -117,6 +161,9 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func revealStoredKey() async {
+        guard beginKeyAction(.revealing) else { return }
+        defer { endKeyAction(.revealing) }
+
         guard hasSavedKey else {
             setTransientKeyStatus("No key available.")
             return
@@ -124,7 +171,8 @@ final class SettingsViewModel: ObservableObject {
 
         do {
             let token = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
-                reason: "Authenticate to reveal your Shopmonkey API key."
+                reason: "Authenticate to reveal your Shopmonkey API key.",
+                preferCached: false
             )
             revealedAPIKey = token
             setTransientKeyStatus("Key revealed for 20 seconds.")
@@ -147,6 +195,9 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func copyStoredKey() async {
+        guard beginKeyAction(.copying) else { return }
+        defer { endKeyAction(.copying) }
+
         guard hasSavedKey else {
             setTransientKeyStatus("No key available.")
             return
@@ -154,7 +205,8 @@ final class SettingsViewModel: ObservableObject {
 
         do {
             let token = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
-                reason: "Authenticate to copy your Shopmonkey API key."
+                reason: "Authenticate to copy your Shopmonkey API key.",
+                preferCached: false
             )
             #if canImport(UIKit)
             UIPasteboard.general.string = token
@@ -275,5 +327,16 @@ final class SettingsViewModel: ObservableObject {
                 #endif
             }
         }
+    }
+
+    private func beginKeyAction(_ action: KeyAction) -> Bool {
+        guard activeKeyAction == nil else { return false }
+        activeKeyAction = action
+        return true
+    }
+
+    private func endKeyAction(_ action: KeyAction) {
+        guard activeKeyAction == action else { return }
+        activeKeyAction = nil
     }
 }

@@ -375,18 +375,12 @@ struct HistoryView: View {
             return
         }
 
-        if UserDefaults.standard.bool(forKey: "settings.requireAuthForToken") {
-            do {
-                try await environment.authenticateForSubmissionIfNeeded()
-            } catch {
-                retryErrorMessage = "Authentication required before retrying submission."
-                isRetryErrorPresented = true
-                AppHaptics.error()
-                return
+        let submitter = POSubmissionService(
+            shopmonkey: environment.shopmonkeyAPI,
+            authorizeSubmission: { [environment] in
+                try await environment.authenticateForSubmissionIfNeeded(forcePrompt: true)
             }
-        }
-
-        let submitter = POSubmissionService(shopmonkey: environment.shopmonkeyAPI)
+        )
         let result = await submitter.retry(purchaseOrder: purchaseOrder, ignoreTaxAndTotals: ignoreTaxAndTotals)
         if !result.succeeded {
             retryErrorMessage = result.message

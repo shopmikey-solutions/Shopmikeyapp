@@ -557,12 +557,14 @@ struct ReviewView: View {
 
         ForEach(filteredItemIndices, id: \.self) { index in
             let itemBinding = $viewModel.items[index]
+            let itemID = viewModel.items[index].id
+            let canConfirmSuggestion = viewModel.items[index].isKindConfidenceMedium && viewModel.items[index].kind != .unknown
             NavigationLink {
                 LineItemEditView(
                     item: itemBinding,
                     allowTaxEditing: !viewModel.shouldIgnoreTax
                 ) { oldKind, newKind in
-                    viewModel.noteLineItemKindEdited(from: oldKind, to: newKind)
+                    viewModel.noteLineItemKindEdited(itemID: itemID, from: oldKind, to: newKind)
                 }
             } label: {
                 lineItemRow(item: viewModel.items[index])
@@ -572,7 +574,17 @@ struct ReviewView: View {
                 kindSwipeButton(title: "Tire", kind: .tire, color: AppSurfaceStyle.warning, at: index)
                 kindSwipeButton(title: "Fee", kind: .fee, color: .teal, at: index)
             }
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if canConfirmSuggestion {
+                    Button {
+                        AppHaptics.selection()
+                        viewModel.confirmItemSuggestion(at: index)
+                    } label: {
+                        Label("Confirm", systemImage: "checkmark.circle")
+                    }
+                    .tint(AppSurfaceStyle.success)
+                }
+
                 Button(role: .destructive) {
                     AppHaptics.warning()
                     viewModel.deleteItems(at: IndexSet(integer: index))
@@ -639,7 +651,7 @@ struct ReviewView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if item.isKindConfidenceMedium {
-                    Text("Suggested")
+                    Text("Suggested • confirm")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

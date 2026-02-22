@@ -155,10 +155,11 @@ extension AppEnvironment {
     }
     #endif
 
-    func authenticateForSubmissionIfNeeded() async throws {
+    func authenticateForSubmissionIfNeeded(forcePrompt: Bool = false) async throws {
         guard UserDefaults.standard.bool(forKey: requireAuthForTokenPreferenceKey) else { return }
         _ = try await secureStorage.retrieveTokenRequiringAuthentication(
-            reason: "Authenticate to submit this draft to Shopmonkey."
+            reason: "Authenticate to submit this draft to Shopmonkey.",
+            preferCached: !forcePrompt
         )
     }
 }

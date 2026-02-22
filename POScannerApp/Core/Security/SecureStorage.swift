@@ -43,8 +43,11 @@ final class SecureStorage: @unchecked Sendable {
 
     /// Retrieves the token requiring device authentication (biometrics or passcode as fallback).
     /// Uses .deviceOwnerAuthentication so the system can prompt for Face ID/Touch ID and fallback to passcode when needed.
-    func retrieveTokenRequiringAuthentication(reason: String = "Authenticate to access the stored API key.") async throws -> String {
-        if let cached = cachedTokenIfValid() {
+    func retrieveTokenRequiringAuthentication(
+        reason: String = "Authenticate to access the stored API key.",
+        preferCached: Bool = true
+    ) async throws -> String {
+        if preferCached, let cached = cachedTokenIfValid() {
             return cached
         }
 

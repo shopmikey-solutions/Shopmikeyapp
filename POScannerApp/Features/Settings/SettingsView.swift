@@ -74,18 +74,72 @@ struct SettingsView: View {
             }
 
             Section("Shopmonkey API") {
-                SecureField("API Key", text: $viewModel.apiKeyInput)
-                    .textContentType(.password)
+                TextField("Paste API Key", text: $viewModel.pastedKey, axis: .vertical)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(3, reservesSpace: true)
                     .accessibilityIdentifier("settings.apiKeyField")
 
                 if #available(iOS 16.0, *) {
                     PasteButton(payloadType: String.self) { values in
                         guard let first = values.first else { return }
-                        viewModel.apiKeyInput = first
+                        viewModel.pastedKey = first
                     }
                 }
+
+                HStack {
+                    Button("Save") {
+                        AppHaptics.selection()
+                        viewModel.saveKey()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("settings.saveApiKeyButton")
+
+                    if viewModel.hasSavedKey {
+                        Button("Remove Key", role: .destructive) {
+                            AppHaptics.warning()
+                            viewModel.removeKey()
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("settings.removeApiKeyButton")
+                    }
+                }
+
+                Toggle("Require Face ID / Touch ID to use key", isOn: $viewModel.isBiometricRequired)
+                    .disabled(!viewModel.hasSavedKey)
+                    .accessibilityIdentifier("settings.requireBiometricsToggle")
+
+                Group {
+                    if let statusMessage = viewModel.statusMessage, !statusMessage.isEmpty {
+                        Text(statusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                    } else {
+                        Text("Stored securely in Keychain")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.28).delay(0.03), value: viewModel.statusMessage)
+
+                Button {
+                    AppHaptics.impact(.medium, intensity: 0.85)
+                    Task { _ = await viewModel.retrieveKeyForUse() }
+                } label: {
+                    Text("Test Retrieval")
+                }
+                .appPrimaryActionButton()
+                .disabled(!viewModel.hasSavedKey)
+                .accessibilityIdentifier("settings.testRetrievalButton")
 
                 Button {
                     AppHaptics.impact(.medium, intensity: 0.85)
@@ -100,15 +154,6 @@ struct SettingsView: View {
                 .appPrimaryActionButton()
                 .disabled(viewModel.isTestingConnection)
                 .accessibilityIdentifier("settings.testConnectionButton")
-
-                Text("Stored securely in Keychain")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                if let statusMessage = viewModel.statusMessage {
-                    Text(statusMessage)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             Section("Diagnostics") {

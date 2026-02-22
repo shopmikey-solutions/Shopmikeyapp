@@ -562,7 +562,7 @@ struct ReviewView: View {
                     item: itemBinding,
                     allowTaxEditing: !viewModel.shouldIgnoreTax
                 ) { oldKind, newKind in
-                    viewModel.recordTypeOverride(from: oldKind, to: newKind)
+                    viewModel.noteLineItemKindEdited(from: oldKind, to: newKind)
                 }
             } label: {
                 lineItemRow(item: viewModel.items[index])

@@ -19,6 +19,12 @@ final class APIClient {
     private let tokenProvider: TokenProvider
     private let sleeper: Sleeper
     private let diagnosticsRecorder: NetworkDiagnosticsRecorder
+    #if DEBUG
+    private static let verboseConsoleLoggingEnabled: Bool = {
+        let environmentValue = ProcessInfo.processInfo.environment["PO_SCANNER_VERBOSE_NETWORK_LOGS"]
+        return environmentValue == "1"
+    }()
+    #endif
 
     private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -59,7 +65,9 @@ final class APIClient {
         request = try authorize(request)
 
         #if DEBUG
-        print("➡️ Request: \(request.url?.absoluteString ?? "")")
+        if Self.verboseConsoleLoggingEnabled {
+            print("➡️ Request: \(request.url?.absoluteString ?? "")")
+        }
         #endif
 
         let (data, httpResponse) = try await send(
@@ -228,7 +236,12 @@ final class APIClient {
             throw APIError.unauthorized
         case 500...599:
             #if DEBUG
-            logFailedResponse(statusCode: http.statusCode, request: request, data: data)
+            logFailedResponse(
+                statusCode: http.statusCode,
+                request: request,
+                response: http,
+                data: data
+            )
             #endif
             await diagnosticsRecorder.record(
                 entry(
@@ -243,7 +256,12 @@ final class APIClient {
         default:
             // Deterministic: treat any other non-2xx as a server error code.
             #if DEBUG
-            logFailedResponse(statusCode: http.statusCode, request: request, data: data)
+            logFailedResponse(
+                statusCode: http.statusCode,
+                request: request,
+                response: http,
+                data: data
+            )
             #endif
             await diagnosticsRecorder.record(
                 entry(
@@ -329,13 +347,29 @@ final class APIClient {
     }
 
     #if DEBUG
-    private func logFailedResponse(statusCode: Int, request: URLRequest, data: Data) {
+    private func logFailedResponse(
+        statusCode: Int,
+        request: URLRequest,
+        response: HTTPURLResponse,
+        data: Data
+    ) {
+        guard Self.verboseConsoleLoggingEnabled else { return }
         let url = request.url?.absoluteString ?? "(unknown url)"
         print("⬅️ Response \(statusCode): \(url)")
         guard let preview = sanitizedPreview(from: data) else {
             return
         }
-        print("⬅️ Body: \(preview)")
+        let contentType = response
+            .value(forHTTPHeaderField: "Content-Type")?
+            .lowercased() ?? "unknown"
+        if contentType.contains("application/json")
+            || contentType.contains("application/problem+json")
+            || contentType.contains("text/plain") {
+            let trimmedPreview = String(preview.prefix(2_000))
+            print("⬅️ Body: \(trimmedPreview)")
+        } else {
+            print("⬅️ Body omitted (\(data.count) bytes, content-type: \(contentType))")
+        }
     }
     #endif
 }

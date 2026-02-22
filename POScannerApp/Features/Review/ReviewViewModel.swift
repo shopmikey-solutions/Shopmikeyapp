@@ -470,6 +470,14 @@ final class ReviewViewModel: ObservableObject {
         )
     }
 
+    func noteLineItemKindEdited(from oldKind: POItemKind, to newKind: POItemKind) {
+        guard oldKind != newKind else { return }
+        recordTypeOverride(from: oldKind, to: newKind)
+        trackReviewAction(
+            "Line type updated (\(oldKind.displayName) → \(newKind.displayName))."
+        )
+    }
+
     func moveItems(from source: IndexSet, to destination: Int) {
         guard !source.isEmpty else { return }
 
@@ -609,18 +617,33 @@ final class ReviewViewModel: ObservableObject {
 
     func applySuggestedVendorName() {
         guard let suggestedVendorName, !suggestedVendorName.isEmpty else { return }
+        let currentVendorName = vendorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let incomingVendorName = suggestedVendorName.trimmingCharacters(in: .whitespacesAndNewlines)
         setVendorName(suggestedVendorName)
         scheduleVendorLookup(for: suggestedVendorName, debounce: false)
+        if !incomingVendorName.isEmpty, incomingVendorName != currentVendorName {
+            trackReviewAction("Vendor suggestion applied.")
+        }
     }
 
     func applySuggestedInvoiceNumber() {
         guard let suggestedInvoiceNumber, !suggestedInvoiceNumber.isEmpty else { return }
+        let currentInvoiceNumber = vendorInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        let incomingInvoiceNumber = suggestedInvoiceNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         vendorInvoiceNumber = suggestedInvoiceNumber
+        if !incomingInvoiceNumber.isEmpty, incomingInvoiceNumber != currentInvoiceNumber {
+            trackReviewAction("Invoice suggestion applied.")
+        }
     }
 
     func applySuggestedPONumber() {
         guard let suggestedPONumber, !suggestedPONumber.isEmpty else { return }
+        let currentPOReference = poReference.trimmingCharacters(in: .whitespacesAndNewlines)
+        let incomingPOReference = suggestedPONumber.trimmingCharacters(in: .whitespacesAndNewlines)
         setPOReference(suggestedPONumber)
+        if !incomingPOReference.isEmpty, incomingPOReference != currentPOReference {
+            trackReviewAction("PO suggestion applied.")
+        }
     }
 
     func setPOReference(_ value: String) {
@@ -1052,6 +1075,8 @@ final class ReviewViewModel: ObservableObject {
             if kindChanges > 0 {
                 let noun = kindChanges == 1 ? "suggestion" : "suggestions"
                 self.trackReviewAction("Applied \(kindChanges) line-item \(noun).")
+            } else {
+                self.trackReviewAction("Line-item suggestions reviewed.")
             }
         }
     }

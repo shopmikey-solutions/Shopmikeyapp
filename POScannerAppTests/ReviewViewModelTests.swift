@@ -471,4 +471,88 @@ struct ReviewViewModelTests {
 
         try? FileManager.default.removeItem(at: draftURL)
     }
+
+    @Test func moveItemsAutosavePersistsReorderWorkflowDetail() async throws {
+        let draftURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("review-reorder-\(UUID().uuidString).json")
+        let environment = makeReviewTestEnvironment(draftFileURL: draftURL)
+
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 6_000,
+            items: [
+                ParsedLineItem(name: "Line A", quantity: 1, costCents: 1_000, partNumber: "A-1", confidence: 0.7, kind: .part, kindConfidence: 0.9, kindReasons: []),
+                ParsedLineItem(name: "Line B", quantity: 1, costCents: 2_000, partNumber: "B-1", confidence: 0.7, kind: .part, kindConfidence: 0.9, kindReasons: []),
+                ParsedLineItem(name: "Line C", quantity: 1, costCents: 3_000, partNumber: "C-1", confidence: 0.7, kind: .part, kindConfidence: 0.9, kindReasons: [])
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(
+                environment: environment,
+                parsedInvoice: parsed,
+                shopmonkeyService: MinimalShopmonkeyService()
+            )
+        }
+
+        await MainActor.run {
+            vm.moveItems(from: IndexSet(integer: 0), to: 2)
+        }
+
+        try? await Task.sleep(nanoseconds: 2_400_000_000)
+        let drafts = await environment.reviewDraftStore.list()
+        let workflowDetail = drafts.first?.state.workflowDetail
+        #expect(workflowDetail == "Line items reordered.")
+
+        try? FileManager.default.removeItem(at: draftURL)
+    }
+
+    @Test func applySuggestedVendorNamePersistsSuggestionWorkflowDetail() async throws {
+        let draftURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("review-suggestion-\(UUID().uuidString).json")
+        let environment = makeReviewTestEnvironment(draftFileURL: draftURL)
+
+        let parsed = ParsedInvoice(
+            vendorName: "Tire center \(UUID().uuidString.prefix(8))",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 1_000,
+            items: [
+                ParsedLineItem(
+                    name: "Shop fee",
+                    quantity: 1,
+                    costCents: 1_000,
+                    partNumber: nil,
+                    confidence: 0.8,
+                    kind: .fee,
+                    kindConfidence: 0.85,
+                    kindReasons: []
+                )
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(
+                environment: environment,
+                parsedInvoice: parsed,
+                shopmonkeyService: MinimalShopmonkeyService()
+            )
+        }
+
+        await MainActor.run {
+            vm.applySuggestedVendorName()
+        }
+
+        try? await Task.sleep(nanoseconds: 2_600_000_000)
+        let drafts = await environment.reviewDraftStore.list()
+        let workflowDetail = drafts.first?.state.workflowDetail
+        #expect(
+            workflowDetail == "Vendor suggestion applied."
+                || workflowDetail == "Line-item suggestions reviewed."
+        )
+
+        try? FileManager.default.removeItem(at: draftURL)
+    }
 }

@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage("scanWidgetRefreshEnabled") private var scanWidgetRefreshEnabled: Bool = true
     @AppStorage(LocalNotificationService.enabledKey) private var scanLocalNotificationsEnabled: Bool = true
     @StateObject private var viewModel: SettingsViewModel
+    @State private var showsAPIKeyEditor: Bool = false
 
     init(environment: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: SettingsViewModel(environment: environment))
@@ -18,156 +19,11 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            Section("Shopmonkey Connectivity") {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: AppSurfaceStyle.info)
-                        healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : AppSurfaceStyle.success)
-                    }
-
-                    if let statusMessage = viewModel.statusMessage, !statusMessage.isEmpty {
-                        Text(statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Use Test Connection or Endpoint Probe to confirm Shopmonkey routing before parts intake.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Section("Parts Intake Preferences") {
-                preferenceToggle(
-                    title: "Save submitted history",
-                    isOn: $saveHistoryEnabled,
-                    description: "Keep a local history of submitted purchase orders for dashboard totals and audits.",
-                    accessibilityIdentifier: "settings.saveHistoryToggle"
-                )
-                preferenceToggle(
-                    title: "Ignore tax and totals",
-                    isOn: $viewModel.ignoreTaxAndTotals,
-                    description: "Focus parsing and review on product lines only, and exclude tax/summary math.",
-                    accessibilityIdentifier: "settings.ignoreTaxToggle"
-                )
-            }
-
-            Section("App Experience Preferences") {
-                preferenceToggle(
-                    title: "Live Activities",
-                    isOn: $scanLiveActivitiesEnabled,
-                    description: "Show current intake progress on the Lock Screen and Dynamic Island.",
-                    accessibilityIdentifier: "settings.liveActivitiesToggle"
-                )
-                preferenceToggle(
-                    title: "Home Screen widget refresh",
-                    isOn: $scanWidgetRefreshEnabled,
-                    description: "Keep the widget in sync with dashboard counts and draft totals.",
-                    accessibilityIdentifier: "settings.widgetRefreshToggle"
-                )
-                preferenceToggle(
-                    title: "Local notifications",
-                    isOn: $scanLocalNotificationsEnabled,
-                    description: "Notify you when scans are ready for review or when submission needs attention.",
-                    accessibilityIdentifier: "settings.localNotificationsToggle"
-                )
-            }
-
-            Section("Shopmonkey API") {
-                TextField("Paste API Key", text: $viewModel.pastedKey, axis: .vertical)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(3, reservesSpace: true)
-                    .accessibilityIdentifier("settings.apiKeyField")
-
-                if #available(iOS 16.0, *) {
-                    PasteButton(payloadType: String.self) { values in
-                        guard let first = values.first else { return }
-                        viewModel.pastedKey = first
-                    }
-                }
-
-                HStack {
-                    Button("Save") {
-                        AppHaptics.selection()
-                        viewModel.saveKey()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("settings.saveApiKeyButton")
-
-                    if viewModel.hasSavedKey {
-                        Button("Remove Key", role: .destructive) {
-                            AppHaptics.warning()
-                            viewModel.removeKey()
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("settings.removeApiKeyButton")
-                    }
-                }
-
-                Toggle("Require Face ID / Touch ID to use key", isOn: $viewModel.isBiometricRequired)
-                    .disabled(!viewModel.hasSavedKey)
-                    .accessibilityIdentifier("settings.requireBiometricsToggle")
-
-                Group {
-                    if let statusMessage = viewModel.statusMessage, !statusMessage.isEmpty {
-                        Text(statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .top).combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                    } else {
-                        Text("Stored securely in Keychain")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .top).combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                    }
-                }
-                .animation(.easeInOut(duration: 0.28).delay(0.03), value: viewModel.statusMessage)
-
-                Button {
-                    AppHaptics.impact(.medium, intensity: 0.85)
-                    Task { _ = await viewModel.retrieveKeyForUse() }
-                } label: {
-                    Text("Test Retrieval")
-                }
-                .appPrimaryActionButton()
-                .disabled(!viewModel.hasSavedKey)
-                .accessibilityIdentifier("settings.testRetrievalButton")
-
-                Button {
-                    AppHaptics.impact(.medium, intensity: 0.85)
-                    Task { await viewModel.testConnection() }
-                } label: {
-                    if viewModel.isTestingConnection {
-                        Label("Testing…", systemImage: "hourglass")
-                    } else {
-                        Text("Test Connection")
-                    }
-                }
-                .appPrimaryActionButton()
-                .disabled(viewModel.isTestingConnection)
-                .accessibilityIdentifier("settings.testConnectionButton")
-            }
-
-            Section("Diagnostics") {
-                Toggle("Experimental Order / PO Linking", isOn: $viewModel.experimentalOrderPOLinking)
-                    .accessibilityIdentifier("settings.experimentalLinkingToggle")
-
-                Text("Shows advanced add-to-order and add-to-PO flows during parts intake review.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                NavigationLink("Endpoint Probe & Network Capture") {
-                    SettingsDiagnosticsView(viewModel: viewModel)
-                }
-            }
+            apiKeySection
+            connectivityChecksSection
+            partsIntakePreferencesSection
+            appExperienceSection
+            diagnosticsSection
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
@@ -204,7 +60,7 @@ struct SettingsView: View {
         .onChange(of: viewModel.experimentalOrderPOLinking) { _, _ in
             AppHaptics.selection()
         }
-        .onChange(of: viewModel.statusMessage) { _, message in
+        .onChange(of: viewModel.connectivityStatusMessage) { _, message in
             guard let message, !message.isEmpty else { return }
             let lower = message.lowercased()
             if lower.contains("fail") || lower.contains("error") || lower.contains("unable") {
@@ -212,6 +68,242 @@ struct SettingsView: View {
             } else {
                 AppHaptics.success()
             }
+        }
+        .onChange(of: viewModel.keyStatusMessage) { _, message in
+            guard let message, !message.isEmpty else { return }
+            let lower = message.lowercased()
+            if lower.contains("unable") || lower.contains("no key") {
+                AppHaptics.warning()
+            } else {
+                AppHaptics.selection()
+            }
+        }
+    }
+
+    private var apiKeySection: some View {
+        Section {
+            HStack(spacing: 8) {
+                Image(systemName: viewModel.hasSavedKey ? "checkmark.seal.fill" : "key")
+                    .foregroundStyle(viewModel.hasSavedKey ? AppSurfaceStyle.success : .secondary)
+                Text("Status")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(viewModel.hasSavedKey ? "Saved" : "Missing")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(viewModel.hasSavedKey ? AppSurfaceStyle.success : .secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background((viewModel.hasSavedKey ? AppSurfaceStyle.success : .secondary).opacity(0.12))
+                    .clipShape(Capsule())
+            }
+
+            if showsAPIKeyEditor || !viewModel.hasSavedKey {
+                TextField("Paste API Key", text: $viewModel.pastedKey, axis: .vertical)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(2...4)
+                    .accessibilityIdentifier("settings.apiKeyField")
+
+                if #available(iOS 16.0, *) {
+                    PasteButton(payloadType: String.self) { values in
+                        guard let first = values.first else { return }
+                        viewModel.pastedKey = first
+                    }
+                }
+
+                HStack {
+                    Button("Save") {
+                        AppHaptics.selection()
+                        viewModel.saveKey()
+                        showsAPIKeyEditor = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("settings.saveApiKeyButton")
+
+                    if viewModel.hasSavedKey {
+                        Button("Cancel") {
+                            AppHaptics.selection()
+                            showsAPIKeyEditor = false
+                            viewModel.pastedKey = ""
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+
+            HStack {
+                if viewModel.hasSavedKey {
+                    Button {
+                        AppHaptics.impact(.medium, intensity: 0.85)
+                        Task { _ = await viewModel.retrieveKeyForUse() }
+                    } label: {
+                        Text("Verify")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("settings.testRetrievalButton")
+
+                    Button(showsAPIKeyEditor ? "Hide Editor" : "Edit Key") {
+                        AppHaptics.selection()
+                        showsAPIKeyEditor.toggle()
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(viewModel.revealedAPIKey == nil ? "Reveal" : "Hide") {
+                        AppHaptics.selection()
+                        if viewModel.revealedAPIKey == nil {
+                            Task { await viewModel.revealStoredKey() }
+                        } else {
+                            viewModel.hideRevealedKey()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("settings.revealApiKeyButton")
+
+                    Button("Copy") {
+                        AppHaptics.selection()
+                        Task { await viewModel.copyStoredKey() }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("settings.copyApiKeyButton")
+                }
+
+                Spacer(minLength: 8)
+
+                if viewModel.hasSavedKey {
+                    Button("Remove", role: .destructive) {
+                        AppHaptics.warning()
+                        viewModel.removeKey()
+                        showsAPIKeyEditor = false
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("settings.removeApiKeyButton")
+                }
+            }
+
+            if let revealedAPIKey = viewModel.revealedAPIKey, !revealedAPIKey.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Revealed temporarily")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(revealedAPIKey)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(3)
+                        .truncationMode(.middle)
+                }
+                .padding(8)
+                .background(AppSurfaceStyle.info.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+
+            Toggle("Require Face ID / Touch ID before submission", isOn: $viewModel.isBiometricRequired)
+                .disabled(!viewModel.hasSavedKey)
+                .accessibilityIdentifier("settings.requireBiometricsToggle")
+
+            if let keyStatusMessage = viewModel.keyStatusMessage, !keyStatusMessage.isEmpty {
+                Text(keyStatusMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+            }
+        } header: {
+            Text("API Key")
+        } footer: {
+            Text("Authentication applies to key verification and Shopmonkey submissions.")
+        }
+    }
+
+    private var connectivityChecksSection: some View {
+        Section("Connectivity Checks") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: AppSurfaceStyle.info)
+                    healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : AppSurfaceStyle.success)
+                }
+
+                Text("Use these checks before first submission or after key changes.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                if let connectivityStatusMessage = viewModel.connectivityStatusMessage, !connectivityStatusMessage.isEmpty {
+                    Text(connectivityStatusMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                AppHaptics.impact(.medium, intensity: 0.85)
+                Task { await viewModel.testConnection() }
+            } label: {
+                if viewModel.isTestingConnection {
+                    Label("Testing…", systemImage: "hourglass")
+                } else {
+                    Text("Test Connection")
+                }
+            }
+            .appPrimaryActionButton()
+            .disabled(viewModel.isTestingConnection)
+            .accessibilityIdentifier("settings.testConnectionButton")
+
+            NavigationLink("Endpoint Probe & Network Capture") {
+                SettingsDiagnosticsView(viewModel: viewModel)
+            }
+        }
+    }
+
+    private var partsIntakePreferencesSection: some View {
+        Section("Parts Intake Preferences") {
+            preferenceToggle(
+                title: "Save submitted history",
+                isOn: $saveHistoryEnabled,
+                description: "Keep a local history of submitted purchase orders for dashboard totals and audits.",
+                accessibilityIdentifier: "settings.saveHistoryToggle"
+            )
+            preferenceToggle(
+                title: "Ignore tax and totals",
+                isOn: $viewModel.ignoreTaxAndTotals,
+                description: "Apply to new scans and submissions.",
+                accessibilityIdentifier: "settings.ignoreTaxToggle"
+            )
+        }
+    }
+
+    private var appExperienceSection: some View {
+        Section("App Experience") {
+            preferenceToggle(
+                title: "Live Activities",
+                isOn: $scanLiveActivitiesEnabled,
+                description: "Show current intake progress on the Lock Screen and Dynamic Island.",
+                accessibilityIdentifier: "settings.liveActivitiesToggle"
+            )
+            preferenceToggle(
+                title: "Home Screen widget refresh",
+                isOn: $scanWidgetRefreshEnabled,
+                description: "Publish dashboard snapshot updates to the widget extension.",
+                accessibilityIdentifier: "settings.widgetRefreshToggle"
+            )
+            preferenceToggle(
+                title: "Local notifications",
+                isOn: $scanLocalNotificationsEnabled,
+                description: "Send scan-ready and submission-result notifications.",
+                accessibilityIdentifier: "settings.localNotificationsToggle"
+            )
+        }
+    }
+
+    private var diagnosticsSection: some View {
+        Section("Diagnostics") {
+            Toggle("Experimental Order / PO Linking", isOn: $viewModel.experimentalOrderPOLinking)
+                .accessibilityIdentifier("settings.experimentalLinkingToggle")
+
+            Text("Shows advanced add-to-order and add-to-PO flows during parts intake review.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 

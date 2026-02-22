@@ -10,23 +10,25 @@ import SwiftUI
 import UIKit
 #endif
 
-private let requireAuthPreferenceKey = "settings.requireAuthForToken"
-
 @MainActor
 final class SettingsViewModel: ObservableObject {
     let environment: AppEnvironment
 
-    private var statusClearTask: Task<Void, Never>?
+    private var keyStatusClearTask: Task<Void, Never>?
+    private var keyRevealClearTask: Task<Void, Never>?
+    private var clipboardClearTask: Task<Void, Never>?
 
     @AppStorage("ignoreTaxAndTotals") var ignoreTaxAndTotals: Bool = false
     @AppStorage("experimentalOrderPOLinking") var experimentalOrderPOLinking: Bool = false
-    @AppStorage(requireAuthPreferenceKey) var isBiometricRequired: Bool = false
+    @AppStorage("settings.requireAuthForToken") var isBiometricRequired: Bool = false
 
     @Published var pastedKey: String = ""
     @Published var hasSavedKey: Bool = false
     @Published var isTestingConnection: Bool = false
     @Published var isRunningProbe: Bool = false
-    @Published var statusMessage: String?
+    @Published var revealedAPIKey: String?
+    @Published var keyStatusMessage: String?
+    @Published var connectivityStatusMessage: String?
     @Published var endpointProbeReport: ShopmonkeyEndpointProbeReport?
     @Published var networkDiagnostics: [NetworkDiagnosticsEntry] = []
 
@@ -47,51 +49,60 @@ final class SettingsViewModel: ObservableObject {
     func saveKey() {
         let key = pastedKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
-            setTransientStatus("Please paste a valid API key.")
+            setTransientKeyStatus("Please paste a valid API key.")
             return
         }
         do {
             try environment.keychainService.storeToken(key)
+            environment.secureStorage.clearAuthenticationCache()
+            hideRevealedKey()
             hasSavedKey = environment.keychainService.tokenExists()
             pastedKey = ""
             updateStatus()
         } catch {
-            setTransientStatus("Unable to save API key.")
+            setTransientKeyStatus("Unable to save API key.")
         }
     }
 
     func removeKey() {
         do {
             try environment.keychainService.deleteToken()
+            environment.secureStorage.clearAuthenticationCache()
+            hideRevealedKey()
             hasSavedKey = environment.keychainService.tokenExists()
             updateStatus()
         } catch {
-            setTransientStatus("Unable to remove API key.")
+            setTransientKeyStatus("Unable to remove API key.")
         }
     }
 
     func retrieveKeyForUse() async -> String? {
         if isBiometricRequired {
             do {
-                return try await environment.secureStorage.retrieveTokenRequiringAuthentication()
+                let token = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
+                    reason: "Authenticate to access your Shopmonkey API key."
+                )
+                setTransientKeyStatus("Stored key is available.")
+                return token
             } catch let error as SecureStorage.SecureStorageError {
                 switch error {
                 case .userCancelled:
-                    setTransientStatus("Cancelled")
-                    return nil
+                    setTransientKeyStatus("Authentication cancelled.")
                 case .authenticationFailed, .biometricsUnavailable:
-                    setTransientStatus("Authentication failed.")
-                    return nil
+                    setTransientKeyStatus("Authentication failed.")
                 }
+                return nil
             } catch {
-                setTransientStatus("Authentication failed.")
+                setTransientKeyStatus("Authentication failed.")
                 return nil
             }
         } else {
             do {
-                return try environment.keychainService.retrieveToken()
+                let token = try environment.keychainService.retrieveToken()
+                setTransientKeyStatus("Stored key is available.")
+                return token
             } catch {
-                setTransientStatus("No key available.")
+                setTransientKeyStatus("No key available.")
                 return nil
             }
         }
@@ -99,19 +110,81 @@ final class SettingsViewModel: ObservableObject {
 
     func updateStatus() {
         hasSavedKey = environment.keychainService.tokenExists()
-        statusMessage = hasSavedKey ? "API key saved securely" : "No key saved"
+        if !hasSavedKey {
+            hideRevealedKey()
+        }
+        keyStatusMessage = hasSavedKey ? "API key is saved in Keychain." : "No API key saved."
+    }
+
+    func revealStoredKey() async {
+        guard hasSavedKey else {
+            setTransientKeyStatus("No key available.")
+            return
+        }
+
+        do {
+            let token = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
+                reason: "Authenticate to reveal your Shopmonkey API key."
+            )
+            revealedAPIKey = token
+            setTransientKeyStatus("Key revealed for 20 seconds.")
+            scheduleRevealAutoHide(after: 20)
+        } catch let error as SecureStorage.SecureStorageError {
+            switch error {
+            case .userCancelled:
+                setTransientKeyStatus("Authentication cancelled.")
+            case .authenticationFailed, .biometricsUnavailable:
+                setTransientKeyStatus("Authentication failed.")
+            }
+        } catch {
+            setTransientKeyStatus("Unable to reveal API key.")
+        }
+    }
+
+    func hideRevealedKey() {
+        keyRevealClearTask?.cancel()
+        revealedAPIKey = nil
+    }
+
+    func copyStoredKey() async {
+        guard hasSavedKey else {
+            setTransientKeyStatus("No key available.")
+            return
+        }
+
+        do {
+            let token = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
+                reason: "Authenticate to copy your Shopmonkey API key."
+            )
+            #if canImport(UIKit)
+            UIPasteboard.general.string = token
+            setTransientKeyStatus("API key copied for 60 seconds.")
+            scheduleClipboardAutoClear(expectedToken: token, after: 60)
+            #else
+            setTransientKeyStatus("Copy unavailable on this platform.")
+            #endif
+        } catch let error as SecureStorage.SecureStorageError {
+            switch error {
+            case .userCancelled:
+                setTransientKeyStatus("Authentication cancelled.")
+            case .authenticationFailed, .biometricsUnavailable:
+                setTransientKeyStatus("Authentication failed.")
+            }
+        } catch {
+            setTransientKeyStatus("Unable to copy API key.")
+        }
     }
 
     func testConnection() async {
         isTestingConnection = true
-        statusMessage = nil
+        connectivityStatusMessage = nil
 
         do {
             try storeTokenFromInputIfNeeded()
             try await environment.shopmonkeyAPI.testConnection()
-            statusMessage = "Shopmonkey connection verified for service-intake workflows."
+            connectivityStatusMessage = "Shopmonkey connection verified."
         } catch {
-            statusMessage = userMessage(for: error)
+            connectivityStatusMessage = userMessage(for: error)
         }
 
         await refreshNetworkDiagnostics()
@@ -120,7 +193,7 @@ final class SettingsViewModel: ObservableObject {
 
     func runEndpointProbe() async {
         isRunningProbe = true
-        statusMessage = nil
+        connectivityStatusMessage = nil
         endpointProbeReport = nil
 
         do {
@@ -129,12 +202,12 @@ final class SettingsViewModel: ObservableObject {
             endpointProbeReport = report
 
             if report.createPurchaseOrderLikelySupported {
-                statusMessage = "Probe complete: purchase-order read/search routes are reachable."
+                connectivityStatusMessage = "Probe complete: purchase-order routes are reachable."
             } else {
-                statusMessage = "Probe complete: purchase-order routes not fully confirmed."
+                connectivityStatusMessage = "Probe complete: purchase-order routes not fully confirmed."
             }
         } catch {
-            statusMessage = userMessage(for: error)
+            connectivityStatusMessage = userMessage(for: error)
         }
 
         await refreshNetworkDiagnostics()
@@ -148,30 +221,58 @@ final class SettingsViewModel: ObservableObject {
     func clearNetworkDiagnostics() async {
         await environment.networkDiagnostics.clear()
         networkDiagnostics = []
-        statusMessage = "Network capture cleared."
+        connectivityStatusMessage = "Network capture cleared."
     }
 
     func copyNetworkDiagnostics() async {
         let text = await environment.networkDiagnostics.exportText(limit: 200)
         #if canImport(UIKit)
         UIPasteboard.general.string = text
-        statusMessage = "Network capture copied."
+        connectivityStatusMessage = "Network capture copied."
         #else
-        statusMessage = "Copy unavailable on this platform."
+        connectivityStatusMessage = "Copy unavailable on this platform."
         #endif
     }
 
-    private func setTransientStatus(_ message: String, autoClearAfter seconds: Double = 3.0) {
-        statusMessage = message
-        statusClearTask?.cancel()
-        statusClearTask = Task { [weak self] in
+    private func setTransientKeyStatus(_ message: String, autoClearAfter seconds: Double = 3.0) {
+        keyStatusMessage = message
+        keyStatusClearTask?.cancel()
+        keyStatusClearTask = Task { [weak self] in
             let delayNanos = UInt64(seconds * 1_000_000_000)
             try? await Task.sleep(nanoseconds: delayNanos)
             await MainActor.run {
                 guard let self else { return }
-                if self.statusMessage == message {
-                    self.statusMessage = nil
+                if self.keyStatusMessage == message {
+                    self.keyStatusMessage = nil
                 }
+            }
+        }
+    }
+
+    private func scheduleRevealAutoHide(after seconds: Double) {
+        keyRevealClearTask?.cancel()
+        keyRevealClearTask = Task { [weak self] in
+            let delayNanos = UInt64(seconds * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: delayNanos)
+            await MainActor.run {
+                self?.revealedAPIKey = nil
+            }
+        }
+    }
+
+    private func scheduleClipboardAutoClear(expectedToken: String, after seconds: Double) {
+        clipboardClearTask?.cancel()
+        clipboardClearTask = Task { [weak self] in
+            let delayNanos = UInt64(seconds * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: delayNanos)
+            await MainActor.run {
+                #if canImport(UIKit)
+                guard UIPasteboard.general.string == expectedToken else { return }
+                UIPasteboard.general.string = ""
+                self?.setTransientKeyStatus("Clipboard key cleared.")
+                #else
+                _ = self
+                #endif
             }
         }
     }

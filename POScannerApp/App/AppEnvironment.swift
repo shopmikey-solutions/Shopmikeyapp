@@ -6,6 +6,8 @@
 import Foundation
 import SwiftUI
 
+private let requireAuthForTokenPreferenceKey = "settings.requireAuthForToken"
+
 protocol DateProviding: Sendable {
     var now: Date { get }
 }
@@ -152,4 +154,11 @@ extension AppEnvironment {
         )
     }
     #endif
+
+    func authenticateForSubmissionIfNeeded() async throws {
+        guard UserDefaults.standard.bool(forKey: requireAuthForTokenPreferenceKey) else { return }
+        _ = try await secureStorage.retrieveTokenRequiringAuthentication(
+            reason: "Authenticate to submit this draft to Shopmonkey."
+        )
+    }
 }

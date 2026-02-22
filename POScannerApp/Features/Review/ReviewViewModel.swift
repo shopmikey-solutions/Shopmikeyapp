@@ -798,6 +798,17 @@ final class ReviewViewModel: ObservableObject {
 
     func submitToShopmonkey(saveHistoryEnabled: Bool, ignoreTaxAndTotals: Bool) async {
         guard !isSubmitting else { return }
+
+        if UserDefaults.standard.bool(forKey: "settings.requireAuthForToken") {
+            do {
+                try await environment.authenticateForSubmissionIfNeeded()
+            } catch {
+                errorMessage = "Authentication required before submission."
+                AppHaptics.error()
+                return
+            }
+        }
+
         isSubmitting = true
         statusMessage = nil
         errorMessage = nil

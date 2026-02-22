@@ -4,6 +4,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 enum AppHaptics {
@@ -41,10 +44,19 @@ enum AppHaptics {
     }
 
     private static func post(_ event: Event) {
+        guard shouldEmitHaptics else { return }
         NotificationCenter.default.post(
             name: eventNotification,
             object: event
         )
+    }
+
+    private static var shouldEmitHaptics: Bool {
+#if canImport(UIKit)
+        return UIApplication.shared.applicationState == .active
+#else
+        return true
+#endif
     }
 
     enum Event {

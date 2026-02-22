@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @AppStorage("saveHistoryEnabled") private var saveHistoryEnabled: Bool = true
@@ -110,7 +111,6 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                     Text(revealedAPIKey)
                         .font(.caption.monospaced())
-                        .textSelection(.enabled)
                         .lineLimit(3)
                         .truncationMode(.middle)
                 }
@@ -127,10 +127,6 @@ struct SettingsView: View {
                 Text(keyStatusMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity
-                    ))
             }
         } header: {
             Text("API Key")
@@ -159,12 +155,14 @@ struct SettingsView: View {
                 .lineLimit(2...4)
                 .accessibilityIdentifier("settings.apiKeyField")
 
-            if #available(iOS 16.0, *) {
-                PasteButton(payloadType: String.self) { values in
-                    guard let first = values.first else { return }
-                    viewModel.pastedKey = first
-                }
+            Button {
+                self.pasteAPIKeyFromClipboard()
+            } label: {
+                Label("Paste from Clipboard", systemImage: "doc.on.clipboard")
             }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.activeKeyAction != nil)
+            .accessibilityIdentifier("settings.pasteApiKeyButton")
 
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
@@ -391,6 +389,18 @@ struct SettingsView: View {
             .clipShape(Capsule())
     }
 
+    private func pasteAPIKeyFromClipboard() {
+        let pastedValue = UIPasteboard.general.string?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !pastedValue.isEmpty else {
+            self.viewModel.keyStatusMessage = "Clipboard is empty."
+            AppHaptics.warning()
+            return
+        }
+        self.viewModel.pastedKey = pastedValue
+        AppHaptics.selection()
+    }
+
 }
 
 private struct SettingsAPIKeyActionsView: View {
@@ -439,7 +449,6 @@ private struct SettingsAPIKeyActionsView: View {
                 Section {
                     Text(revealedAPIKey)
                         .font(.caption.monospaced())
-                        .textSelection(.enabled)
                         .lineLimit(3)
                         .truncationMode(.middle)
                 } header: {

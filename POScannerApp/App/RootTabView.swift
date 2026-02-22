@@ -115,7 +115,13 @@ struct RootTabView: View {
             self.scheduleGlobalLiveActivitySync()
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active else {
+                self.pendingDeepLinkTask?.cancel()
+                self.pendingDeepLinkTask = nil
+                self.liveActivitySyncTask?.cancel()
+                self.liveActivitySyncTask = nil
+                return
+            }
             self.scheduleGlobalLiveActivitySync(force: true)
         }
         .onAppear {

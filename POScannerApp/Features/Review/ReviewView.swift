@@ -217,14 +217,14 @@ struct ReviewView: View {
     private var reviewHealthCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             LabeledContent("Readiness") {
-                Text("\(Int((viewModel.reviewReadinessScore * 100).rounded()))%")
+                Text("\(Int((safeReviewReadinessScore * 100).rounded()))%")
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .foregroundStyle(.secondary)
             }
 
-            ProgressView(value: viewModel.reviewReadinessScore)
-                .animation(.smooth(duration: 0.24), value: viewModel.reviewReadinessScore)
+            ProgressView(value: safeReviewReadinessScore)
+                .animation(.smooth(duration: 0.24), value: safeReviewReadinessScore)
 
             LabeledContent("Line Items") {
                 Text("\(viewModel.items.count)")
@@ -719,7 +719,14 @@ struct ReviewView: View {
     }
 
     private func percentageString(_ value: Double) -> String {
-        "\(Int((value * 100).rounded()))%"
+        let clamped = max(0, min(1, value.isFinite ? value : 0))
+        return "\(Int((clamped * 100).rounded()))%"
+    }
+
+    private var safeReviewReadinessScore: Double {
+        let score = viewModel.reviewReadinessScore
+        guard score.isFinite else { return 0 }
+        return min(1, max(0, score))
     }
 
     private func vendorContactSummary(for vendor: VendorSummary) -> String? {

@@ -7,6 +7,7 @@ import SwiftUI
 import Combine
 
 private struct AppSensoryFeedbackModifier: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectionTrigger: Int = 0
     @State private var successTrigger: Int = 0
     @State private var warningTrigger: Int = 0
@@ -16,6 +17,7 @@ private struct AppSensoryFeedbackModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: AppHaptics.eventNotification)) { notification in
+                guard scenePhase == .active else { return }
                 guard let event = notification.object as? AppHaptics.Event else { return }
                 switch event {
                 case .selection:

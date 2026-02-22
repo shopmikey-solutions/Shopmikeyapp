@@ -275,7 +275,18 @@ struct ScanView: View {
             self.scheduleDraftStoreRefresh()
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active else {
+                self.initialLoadTask?.cancel()
+                self.initialLoadTask = nil
+                self.draftStoreRefreshTask?.cancel()
+                self.draftStoreRefreshTask = nil
+                self.deepLinkConsumeTask?.cancel()
+                self.deepLinkConsumeTask = nil
+                self.deepLinkResumeTask?.cancel()
+                self.deepLinkResumeTask = nil
+                self.activeResumeDraftID = nil
+                return
+            }
             if self.isTabActive || self.lastLiveActivitySignature?.isActive == true {
                 self.scheduleDraftStoreRefresh()
             }
@@ -670,7 +681,8 @@ struct ScanView: View {
     }
 
     private func currentSessionSummary(_ draft: ReviewDraftSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let workflowProgress = self.safeProgressValue(draft.workflowProgressEstimate)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Label(draft.workflowState.statusLabel, systemImage: "clock.arrow.circlepath")
                     .font(.footnote.weight(.semibold))
@@ -690,10 +702,10 @@ struct ScanView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            ProgressView(value: draft.workflowProgressEstimate)
+            ProgressView(value: workflowProgress)
                 .progressViewStyle(.linear)
                 .tint(workflowTint(for: draft.workflowState))
-                .animation(.smooth(duration: 0.22), value: draft.workflowProgressEstimate)
+                .animation(.smooth(duration: 0.22), value: workflowProgress)
 
             Label(journeyNextActionText(for: draft.workflowState), systemImage: "arrow.triangle.branch")
                 .font(.footnote)
@@ -766,7 +778,8 @@ struct ScanView: View {
     }
 
     private var dashboardSummary: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let syncSuccessRate = self.safeProgressValue(viewModel.syncSuccessRate)
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Parts Intake Dashboard")
                 .font(.title3.weight(.semibold))
                 .accessibilityIdentifier("scan.dashboardTitle")
@@ -781,15 +794,15 @@ struct ScanView: View {
                 metricCell(title: "Submitted", value: "\(viewModel.submittedCount)")
             }
 
-            ProgressView(value: viewModel.syncSuccessRate) {
+            ProgressView(value: syncSuccessRate) {
                 Text("Shopmonkey Sync Status")
                     .font(.subheadline.weight(.medium))
             } currentValueLabel: {
-                Text("\(Int((viewModel.syncSuccessRate * 100).rounded()))%")
+                Text("\(Int((syncSuccessRate * 100).rounded()))%")
                     .font(.footnote.monospacedDigit())
                     .contentTransition(.numericText())
             }
-            .animation(.smooth(duration: 0.28), value: viewModel.syncSuccessRate)
+            .animation(.smooth(duration: 0.28), value: syncSuccessRate)
 
             LabeledContent("PO Value Today") {
                 Text(viewModel.todayTotalFormatted)
@@ -1324,6 +1337,11 @@ struct ScanView: View {
         }
         lastDraftReloadAt = now
         viewModel.loadInProgressDrafts(force: force)
+    }
+
+    private func safeProgressValue(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(1, max(0, value))
     }
 }
 

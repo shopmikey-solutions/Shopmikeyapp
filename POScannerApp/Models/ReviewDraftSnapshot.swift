@@ -292,11 +292,11 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
     var liveActivityRecencyWindow: TimeInterval {
         switch workflowState {
         case .scanning, .ocrReview, .parsing:
-            return 20 * 60
+            return 5 * 60
         case .reviewReady, .reviewEdited:
-            return 8 * 60
+            return 5 * 60
         case .submitting:
-            return 25 * 60
+            return 12 * 60
         case .failed:
             return 0
         }
@@ -435,7 +435,7 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
             return "Vendor ready"
         }
         if detail.contains("suggestion") {
-            return "Suggestions applied"
+            return "Suggestions reviewed"
         }
         if detail.contains("line items reordered") || detail.contains("reordered") {
             return "Line order updated"

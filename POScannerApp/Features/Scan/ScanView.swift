@@ -1113,6 +1113,11 @@ struct ScanView: View {
             }
 
         if let preferredID = self.preferredLiveActivityDraftID(),
+           !eligibleDrafts.contains(where: { $0.id == preferredID }) {
+            UserDefaults.standard.removeObject(forKey: self.preferredDraftDefaultsKey)
+        }
+
+        if let preferredID = self.preferredLiveActivityDraftID(),
            let preferred = eligibleDrafts.first(where: { $0.id == preferredID }),
            self.shouldPreferDraftForLiveActivity(preferred, over: sortedDrafts.first) {
             return preferred

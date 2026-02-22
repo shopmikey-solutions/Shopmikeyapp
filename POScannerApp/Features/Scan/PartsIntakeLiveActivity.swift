@@ -42,7 +42,7 @@ final class PartsIntakeLiveActivityManager {
     private var scheduledEndAt: Date?
     private let inactiveWorkflowEndDelay: TimeInterval = 45
     private let terminalCompletionEndDelay: TimeInterval = 12
-    private let crossDraftInFlightGuardWindow: TimeInterval = 12
+    private let crossDraftInFlightGuardWindow: TimeInterval = 6
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
 
     private struct Signature: Equatable {
@@ -88,7 +88,6 @@ final class PartsIntakeLiveActivityManager {
             detailText: detailText,
             progress: progress
         ) else {
-            Self.logger.debug("Live Activity sync skipped: state below visibility threshold.")
             await endCurrent(dismissalPolicy: .immediate)
             return
         }
@@ -119,7 +118,6 @@ final class PartsIntakeLiveActivityManager {
                nextDraftID: nextDraftID,
                preferredDraftID: preferredDraftCandidateID
            ) {
-            Self.logger.debug("Live Activity sync skipped: competing non in-flight draft update.")
             return
         }
         var progressBucket = Int((normalizedProgress(progress) * 100).rounded())
@@ -165,7 +163,6 @@ final class PartsIntakeLiveActivityManager {
         )
 
         if let activity {
-            Self.logger.debug("Live Activity updated. progress=\(clampedProgress, privacy: .public)")
             if shouldRequestProminentUpdate(previous: previousSignature, next: signature),
                let alertConfiguration = alertConfiguration(for: signature) {
                 await activity.update(content, alertConfiguration: alertConfiguration)
@@ -208,7 +205,6 @@ final class PartsIntakeLiveActivityManager {
             self.lastUpdateAt = nil
             self.lastDeepLinkRawValue = nil
             self.clearPreferredDraftID()
-            Self.logger.debug("Live Activity manager dismissed stale local terminal activity.")
         }
 
         var activities = Activity<PartsIntakeActivityAttributes>.activities
@@ -217,7 +213,6 @@ final class PartsIntakeLiveActivityManager {
             for candidate in activities {
                 if isStaleTerminalActivity(candidate) {
                     await candidate.end(nil, dismissalPolicy: .immediate)
-                    Self.logger.debug("Live Activity manager dismissed stale terminal activity.")
                 } else {
                     retained.append(candidate)
                 }
@@ -241,7 +236,7 @@ final class PartsIntakeLiveActivityManager {
         activity = resolved
 
         if activities.count > 1 {
-            Self.logger.debug("Live Activity manager resolved multiple active activities; keeping most recent.")
+            Self.logger.info("Live Activity manager resolved multiple active activities; keeping most recent.")
         }
     }
 
@@ -359,7 +354,6 @@ final class PartsIntakeLiveActivityManager {
             await self?.endCurrent(dismissalPolicy: .immediate)
         }
         scheduledEndAt = targetEndAt
-        Self.logger.debug("Live Activity end scheduled in \(delay, privacy: .public)s.")
     }
 
     private func cancelScheduledEnd() {
@@ -549,9 +543,6 @@ enum PartsIntakeLiveActivityBridge {
 
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.LiveActivity")
     private static var firstForegroundSyncAt: Date?
-    private static var hasLoggedGatePassForForegroundSession: Bool = false
-    private static var hasLoggedInactiveBlockForForegroundSession: Bool = false
-    private static var hasLoggedStartupGateBlockForForegroundSession: Bool = false
     private static var deferredSyncTask: Task<Void, Never>?
     private static var pendingSyncPayload: PendingSyncPayload?
     private static let startupGateInterval: TimeInterval = 0.25
@@ -586,10 +577,6 @@ enum PartsIntakeLiveActivityBridge {
         }
 
         if isActive && !readyForForegroundSync() {
-            if !hasLoggedStartupGateBlockForForegroundSession {
-                logger.debug("Live Activity bridge blocked by startup foreground gate.")
-                hasLoggedStartupGateBlockForForegroundSession = true
-            }
             queueDeferredSync(
                 PendingSyncPayload(
                     isActive: isActive,
@@ -619,34 +606,17 @@ enum PartsIntakeLiveActivityBridge {
         #if canImport(UIKit)
         let state = UIApplication.shared.applicationState
         guard state != .background else {
-            if !hasLoggedInactiveBlockForForegroundSession {
-                logger.debug("Live Activity gate blocked because app is backgrounded.")
-                hasLoggedInactiveBlockForForegroundSession = true
-            }
             firstForegroundSyncAt = nil
-            hasLoggedGatePassForForegroundSession = false
-            hasLoggedStartupGateBlockForForegroundSession = false
             return false
         }
-        hasLoggedInactiveBlockForForegroundSession = false
 
         let now = Date()
         if let firstForegroundSyncAt {
             let isReady = now.timeIntervalSince(firstForegroundSyncAt) >= startupGateInterval
-            if isReady, !hasLoggedGatePassForForegroundSession {
-                logger.debug("Live Activity gate passed after startup delay.")
-                hasLoggedGatePassForForegroundSession = true
-            }
-            if isReady {
-                hasLoggedStartupGateBlockForForegroundSession = false
-            }
             return isReady
         }
 
         firstForegroundSyncAt = now
-        hasLoggedGatePassForForegroundSession = false
-        hasLoggedStartupGateBlockForForegroundSession = false
-        logger.debug("Live Activity foreground gate started.")
         return false
         #else
         return true

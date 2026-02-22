@@ -324,7 +324,6 @@ final class ScanViewModel: ObservableObject {
         if inProgressDraftsTask != nil {
             if force && !pendingInProgressDraftsReload {
                 pendingInProgressDraftsReload = true
-                Self.logger.debug("Queued in-progress drafts reload while existing load is active.")
             }
             return
         }
@@ -344,10 +343,8 @@ final class ScanViewModel: ObservableObject {
                     loadInProgressDrafts(force: true)
                 }
             }
-            Self.logger.debug("Loading in-progress drafts.")
             let drafts = await environment.reviewDraftStore.list()
             guard !Task.isCancelled else {
-                Self.logger.debug("In-progress drafts task cancelled before state update.")
                 return
             }
             lastInProgressDraftsLoadAt = Date()
@@ -357,7 +354,6 @@ final class ScanViewModel: ObservableObject {
             }
             refreshDraftMetrics(from: drafts)
             reconcileActiveWorkflowDraft(with: drafts)
-            Self.logger.debug("Loaded in-progress drafts count=\(drafts.count, privacy: .public).")
         }
     }
 
@@ -970,7 +966,6 @@ final class ScanViewModel: ObservableObject {
         if todayMetricsTask != nil {
             if force && !pendingTodayMetricsReload {
                 pendingTodayMetricsReload = true
-                Self.logger.debug("Queued today-metrics reload while existing load is active.")
             }
             return
         }
@@ -992,10 +987,8 @@ final class ScanViewModel: ObservableObject {
                     loadTodayMetrics(force: true)
                 }
             }
-            Self.logger.debug("Loading dashboard metrics for today.")
             await dataController.waitUntilLoaded()
             guard !Task.isCancelled else {
-                Self.logger.debug("Today-metrics task cancelled before Core Data fetch.")
                 return
             }
             let container = dataController.container
@@ -1103,7 +1096,6 @@ final class ScanViewModel: ObservableObject {
             }
 
             guard !Task.isCancelled else {
-                Self.logger.debug("Today-metrics task cancelled after Core Data fetch.")
                 return
             }
             todayCount = metrics.count
@@ -1114,9 +1106,6 @@ final class ScanViewModel: ObservableObject {
             mostRecentSummary = metrics.recent
             lastTodayMetricsLoadAt = Date()
             lastDashboardRefreshAt = lastTodayMetricsLoadAt
-            Self.logger.debug(
-                "Loaded today metrics scans=\(metrics.count, privacy: .public) submitted=\(metrics.submitted, privacy: .public) pending=\(metrics.pending, privacy: .public) failed=\(metrics.failed, privacy: .public)."
-            )
             publishWidgetSnapshot()
         }
     }

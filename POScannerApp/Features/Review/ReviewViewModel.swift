@@ -992,7 +992,6 @@ final class ReviewViewModel: ObservableObject {
         if todayMetricsTask != nil {
             if !pendingTodayMetricsReload {
                 pendingTodayMetricsReload = true
-                Self.logger.debug("Queued review metrics reload while existing load is active.")
             }
             return
         }
@@ -1011,10 +1010,8 @@ final class ReviewViewModel: ObservableObject {
                     loadTodayMetrics()
                 }
             }
-            Self.logger.debug("Loading review metrics for current day.")
             await dataController.waitUntilLoaded()
             guard !Task.isCancelled else {
-                Self.logger.debug("Review metrics task cancelled before Core Data fetch.")
                 return
             }
             let container = dataController.container
@@ -1043,13 +1040,11 @@ final class ReviewViewModel: ObservableObject {
             }
 
             guard !Task.isCancelled else {
-                Self.logger.debug("Review metrics task cancelled after Core Data fetch.")
                 return
             }
             todayCount = metrics.count
             todayTotal = metrics.total
             lastTodayMetricsLoadAt = Date()
-            Self.logger.debug("Loaded review metrics scans=\(metrics.count, privacy: .public).")
         }
     }
 

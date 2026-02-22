@@ -20,7 +20,11 @@ final class DataController: @unchecked Sendable {
     private let loadStartedAt: Date = Date()
 
     init(inMemory: Bool = false) {
-        Self.logger.info("Persistent store initialization started. inMemory=\(inMemory, privacy: .public)")
+        if inMemory {
+            Self.logger.debug("Persistent store initialization started. inMemory=true")
+        } else {
+            Self.logger.info("Persistent store initialization started. inMemory=false")
+        }
         let model: NSManagedObjectModel
         do {
             model = try Self.resolveModel()
@@ -107,8 +111,6 @@ final class DataController: @unchecked Sendable {
                 cont.resume()
                 return
             }
-            Self.logger.debug("Registered persistent store wait continuation. token=\(token.uuidString, privacy: .public)")
-
             guard timeout > 0 else { return }
             Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
@@ -140,9 +142,15 @@ final class DataController: @unchecked Sendable {
                 "Persistent store load finished with error after \(elapsedText, privacy: .public)s. waitingContinuations=\(continuationCount, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
         } else {
-            Self.logger.info(
-                "Persistent store load succeeded after \(elapsedText, privacy: .public)s. waitingContinuations=\(continuationCount, privacy: .public)"
-            )
+            if isInMemoryStoreConfiguration {
+                Self.logger.debug(
+                    "Persistent store load succeeded after \(elapsedText, privacy: .public)s. waitingContinuations=\(continuationCount, privacy: .public)"
+                )
+            } else {
+                Self.logger.info(
+                    "Persistent store load succeeded after \(elapsedText, privacy: .public)s. waitingContinuations=\(continuationCount, privacy: .public)"
+                )
+            }
         }
 
         for continuation in continuations {
@@ -177,6 +185,10 @@ final class DataController: @unchecked Sendable {
                 userInfo: [NSLocalizedDescriptionKey: "Persistent store load timed out after \(Int(timeout))s."]
             ))
         }
+    }
+
+    private var isInMemoryStoreConfiguration: Bool {
+        container.persistentStoreDescriptions.allSatisfy { $0.type == NSInMemoryStoreType }
     }
 }
 

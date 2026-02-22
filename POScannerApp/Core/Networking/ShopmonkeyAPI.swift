@@ -342,10 +342,6 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
             errorSummary: nil
         )
 
-        #if DEBUG
-        print("Test Connection Status Code: \(httpResponse.statusCode)")
-        #endif
-
         if (200...299).contains(httpResponse.statusCode) {
             return
         }

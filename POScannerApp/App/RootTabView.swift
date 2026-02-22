@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import os
 
 struct RootTabView: View {
     private enum Tab: Hashable {
@@ -13,7 +12,6 @@ struct RootTabView: View {
         case settings
     }
 
-    private static let deepLinkLogger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.DeepLink")
     nonisolated(unsafe) private static var lastGlobalRawDeepLinkSignature: String?
     nonisolated(unsafe) private static var lastGlobalRawDeepLinkHandledAt: Date?
     nonisolated(unsafe) private static var lastGlobalNormalizedDeepLinkSignature: String?
@@ -174,8 +172,6 @@ struct RootTabView: View {
         }
         Self.lastGlobalNormalizedDeepLinkSignature = signature
         Self.lastGlobalNormalizedDeepLinkHandledAt = now
-        Self.deepLinkLogger.debug("Handling deep link: \(url.absoluteString, privacy: .public)")
-
         switch route {
         case let .scan(openComposer, draftID):
             selectedTab = .scan
@@ -339,6 +335,11 @@ struct RootTabView: View {
                 }
                 return $0.updatedAt > $1.updatedAt
             }
+
+        if let preferredDraftID = self.preferredLiveActivityDraftID(),
+           !eligibleDrafts.contains(where: { $0.id == preferredDraftID }) {
+            UserDefaults.standard.removeObject(forKey: self.preferredDraftDefaultsKey)
+        }
 
         if let preferredDraftID = self.preferredLiveActivityDraftID(),
            let preferredDraft = eligibleDrafts.first(where: { $0.id == preferredDraftID }),

@@ -61,6 +61,7 @@ struct ScanView: View {
     @Environment(\.scenePhase) private var scenePhase
     private let resumeDraftRequestDedupInterval: TimeInterval = 8.0
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
+    private let activePresentedScanDraftDefaultsKey = "activePresentedScanDraftID"
     private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
     private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
 
@@ -163,6 +164,7 @@ struct ScanView: View {
             guard self.isTabActive else { return }
             self.scheduleInitialDashboardRefresh(force: true)
             self.scheduleConsumePendingDeepLinkRequests(after: 140_000_000)
+            self.updatePresentedDraftMarker()
         }
         .onDisappear {
             self.initialLoadTask?.cancel()
@@ -176,6 +178,7 @@ struct ScanView: View {
             self.deepLinkConsumeTask?.cancel()
             self.deepLinkConsumeTask = nil
             self.activeResumeDraftID = nil
+            UserDefaults.standard.removeObject(forKey: self.activePresentedScanDraftDefaultsKey)
         }
         .onChange(of: isTabActive) { _, active in
             if active {
@@ -209,6 +212,7 @@ struct ScanView: View {
             }
         }
         .onChange(of: viewModel.parsedInvoiceRoute) { _, route in
+            self.updatePresentedDraftMarker()
             guard route != nil else { return }
             AppHaptics.success()
         }
@@ -287,6 +291,7 @@ struct ScanView: View {
             self.scheduleConsumePendingDeepLinkRequests(after: 180_000_000)
         }
         .onChange(of: isReviewFlowPresented) { _, presented in
+            self.updatePresentedDraftMarker()
             if !presented {
                 self.scheduleConsumePendingDeepLinkRequests(after: 320_000_000)
             } else {
@@ -1188,6 +1193,25 @@ struct ScanView: View {
 
     private var isReviewFlowPresented: Bool {
         viewModel.parsedInvoiceRoute != nil || viewModel.ocrReviewDraft != nil
+    }
+
+    @MainActor
+    private func updatePresentedDraftMarker() {
+        if let reviewDraftID = self.viewModel.parsedInvoiceRoute?.draftSnapshot?.id {
+            UserDefaults.standard.set(
+                reviewDraftID.uuidString,
+                forKey: self.activePresentedScanDraftDefaultsKey
+            )
+            return
+        }
+        if let ocrDraftID = self.viewModel.ocrReviewDraft?.draftID {
+            UserDefaults.standard.set(
+                ocrDraftID.uuidString,
+                forKey: self.activePresentedScanDraftDefaultsKey
+            )
+            return
+        }
+        UserDefaults.standard.removeObject(forKey: self.activePresentedScanDraftDefaultsKey)
     }
 
     @MainActor

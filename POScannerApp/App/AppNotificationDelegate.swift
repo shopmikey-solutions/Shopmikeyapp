@@ -41,6 +41,18 @@ final class AppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         }
 
         await MainActor.run {
+            let now = Date()
+            let signature = deepLinkURL.absoluteString
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if let lastURLSignature = Self.lastURLSignature,
+               let lastURLHandledAt = Self.lastURLHandledAt,
+               lastURLSignature == signature,
+               now.timeIntervalSince(lastURLHandledAt) < Self.urlDedupInterval {
+                return
+            }
+            Self.lastURLSignature = signature
+            Self.lastURLHandledAt = now
             Self.logger.debug("Posting deep link request from local notification.")
             NotificationCenter.default.post(name: .appDeepLinkRequested, object: deepLinkURL)
         }

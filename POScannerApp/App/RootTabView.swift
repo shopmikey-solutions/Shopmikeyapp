@@ -31,6 +31,7 @@ struct RootTabView: View {
     private let deepLinkDedupInterval: TimeInterval = 8.0
     private let rawDeepLinkDedupInterval: TimeInterval = 8.0
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
+    private let activePresentedScanDraftDefaultsKey = "activePresentedScanDraftID"
     private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
     private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
 
@@ -146,11 +147,21 @@ struct RootTabView: View {
 
         guard let parsedRoute = AppDeepLink.parse(url) else { return }
         let route = self.normalizedDeepLinkRoute(from: parsedRoute)
+        if case let .scan(openComposer, draftID) = route,
+           self.shouldIgnoreScanDeepLink(openComposer: openComposer, draftID: draftID) {
+            return
+        }
         if case let .scan(_, draftID) = route,
            let draftID {
             UserDefaults.standard.set(draftID.uuidString, forKey: self.preferredDraftDefaultsKey)
         }
         let signature = self.deepLinkSignature(for: route)
+        if case .scan = route,
+           self.selectedTab == .scan,
+           self.pendingDeepLinkTask == nil,
+           Self.lastGlobalNormalizedDeepLinkSignature == signature {
+            return
+        }
         if self.pendingDeepLinkTask != nil,
            Self.lastGlobalNormalizedDeepLinkSignature == signature {
             return
@@ -199,6 +210,27 @@ struct RootTabView: View {
             pendingDeepLinkTask?.cancel()
             pendingDeepLinkTask = nil
         }
+    }
+
+    private func shouldIgnoreScanDeepLink(openComposer: Bool, draftID: UUID?) -> Bool {
+        guard self.selectedTab == .scan else { return false }
+        guard self.pendingDeepLinkTask == nil else { return false }
+
+        let defaults = UserDefaults.standard
+        if let draftID {
+            if let pendingDraftID = defaults.string(forKey: self.pendingResumeDraftDefaultsKey),
+               pendingDraftID.caseInsensitiveCompare(draftID.uuidString) == .orderedSame {
+                return true
+            }
+            if let presentedDraftID = defaults.string(forKey: self.activePresentedScanDraftDefaultsKey),
+               presentedDraftID.caseInsensitiveCompare(draftID.uuidString) == .orderedSame {
+                return true
+            }
+            return false
+        }
+
+        guard openComposer else { return false }
+        return defaults.bool(forKey: self.pendingOpenComposerDefaultsKey)
     }
 
     private func normalizedDeepLinkRoute(from route: AppDeepLink.Route) -> AppDeepLink.Route {

@@ -30,6 +30,14 @@ final class ReviewViewModel: ObservableObject {
         case itemReorder
     }
 
+    private struct ReviewLiveActivitySignature: Equatable {
+        let draftID: UUID
+        let workflowState: ReviewDraftSnapshot.WorkflowState
+        let status: String
+        let detail: String
+        let progressBucket: Int
+    }
+
     let environment: AppEnvironment
     let shopmonkeyService: ShopmonkeyServicing
     let parsedInvoice: ParsedInvoice
@@ -141,6 +149,9 @@ final class ReviewViewModel: ObservableObject {
     private var isRestoringDraftState: Bool = false
     private var shouldSkipDraftPersistence: Bool = false
     private var isApplyingItemReorder: Bool = false
+    private var lastReviewLiveActivitySignature: ReviewLiveActivitySignature?
+    private var lastReviewLiveActivityPublishedAt: Date?
+    private let reviewLiveActivityDedupInterval: TimeInterval = 0.9
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
 
     init(
@@ -1630,6 +1641,8 @@ final class ReviewViewModel: ObservableObject {
         lastDraftSavedAt = nil
         lastDraftFingerprint = nil
         pendingDraftWorkflowDetail = nil
+        lastReviewLiveActivitySignature = nil
+        lastReviewLiveActivityPublishedAt = nil
     }
 
     private func publishDraftReviewLiveActivity(
@@ -1669,6 +1682,22 @@ final class ReviewViewModel: ObservableObject {
         }
 
         let resolvedDetail = detail ?? fallbackDetail
+        let signature = ReviewLiveActivitySignature(
+            draftID: draftID,
+            workflowState: workflowState,
+            status: status.trimmingCharacters(in: .whitespacesAndNewlines),
+            detail: resolvedDetail.trimmingCharacters(in: .whitespacesAndNewlines),
+            progressBucket: Int((progress * 100).rounded())
+        )
+        let now = Date()
+        if let lastReviewLiveActivitySignature = self.lastReviewLiveActivitySignature,
+           let lastReviewLiveActivityPublishedAt = self.lastReviewLiveActivityPublishedAt,
+           lastReviewLiveActivitySignature == signature,
+           now.timeIntervalSince(lastReviewLiveActivityPublishedAt) < self.reviewLiveActivityDedupInterval {
+            return
+        }
+        self.lastReviewLiveActivitySignature = signature
+        self.lastReviewLiveActivityPublishedAt = now
 
         PartsIntakeLiveActivityBridge.sync(
             isActive: true,

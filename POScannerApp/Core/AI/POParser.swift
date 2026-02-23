@@ -247,7 +247,6 @@ private extension POParser {
         let anchorIndices = lines.indices.filter { isEcommercePartAnchorLine(lines[$0]) }
         guard anchorIndices.count >= 2 else { return [] }
 
-        let primaryPriceIndices = lines.indices.filter { isLikelyEcommercePrimaryPriceLine(lines[$0]) }
         let stepperIndices = lines.indices.filter { hasStepperQuantityControlSignal(in: lines[$0]) }
 
         var items: [ParsedLineItem] = []
@@ -286,11 +285,7 @@ private extension POParser {
                 selectedIndices.insert(quantityIndex)
             }
 
-            let priceIndex = mappedEcommerceRowIndex(
-                rowOffset: anchorOffset,
-                rowCount: anchorIndices.count,
-                candidateIndices: primaryPriceIndices
-            ) ?? nearestPrimaryPriceIndex(
+            let priceIndex = nearestPrimaryPriceIndex(
                 around: anchorIndex,
                 lowerBoundExclusive: previousAnchorIndex,
                 upperBoundExclusive: nextAnchorIndex,
@@ -318,7 +313,28 @@ private extension POParser {
             let uniqueBlock = block.filter { seenLines.insert($0).inserted }
             guard !uniqueBlock.isEmpty else { continue }
 
-            let parsed = parseItemBlock(uniqueBlock, vendorMatch: vendorMatch)
+            var parsed = parseItemBlock(uniqueBlock, vendorMatch: vendorMatch)
+            if let quantityIndex {
+                let quantity = extractQuantity(from: lines[quantityIndex])
+                if quantity.found {
+                    parsed.quantity = quantity.value
+                }
+            }
+            if let priceIndex {
+                let costProbeText: String
+                if let quantityIndex {
+                    costProbeText = "\(lines[priceIndex])\n\(lines[quantityIndex])"
+                } else {
+                    costProbeText = lines[priceIndex]
+                }
+                let lineCost = extractCost(
+                    from: costProbeText,
+                    quantityHint: parsed.quantity
+                )
+                if lineCost.found {
+                    parsed.costCents = lineCost.cents
+                }
+            }
             if isValidParsedItem(parsed) {
                 items.append(parsed)
             }
@@ -377,7 +393,26 @@ private extension POParser {
             let uniqueBlock = block.filter { seenLines.insert($0).inserted }
             guard !uniqueBlock.isEmpty else { continue }
 
-            let parsed = parseItemBlock(uniqueBlock, vendorMatch: vendorMatch)
+            var parsed = parseItemBlock(uniqueBlock, vendorMatch: vendorMatch)
+            let stepperQuantity = extractQuantity(from: lines[stepperIndex])
+            if stepperQuantity.found {
+                parsed.quantity = stepperQuantity.value
+            }
+            if let priceIndex = nearestPrimaryPriceIndex(
+                around: stepperIndex,
+                lowerBoundExclusive: previousStepperIndex,
+                upperBoundExclusive: nextStepperIndex,
+                lines: lines
+            ) {
+                let costProbeText = "\(lines[priceIndex])\n\(lines[stepperIndex])"
+                let lineCost = extractCost(
+                    from: costProbeText,
+                    quantityHint: parsed.quantity
+                )
+                if lineCost.found {
+                    parsed.costCents = lineCost.cents
+                }
+            }
             guard isValidParsedItem(parsed) else { continue }
 
             let signature = ecommerceItemSignature(for: parsed)
@@ -569,6 +604,7 @@ private extension POParser {
         let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if lower.isEmpty { return false }
         if isLikelyEcommerceStatusLine(lower) { return false }
+        if isLikelyEcommerceCheckoutRailLine(lower) { return false }
         if lower.localizedCaseInsensitiveHasPrefix("+ refundable core") { return false }
         if lower.localizedCaseInsensitiveHasPrefix("reg.") { return false }
         if lower.localizedCaseInsensitiveHasPrefix("discount") { return false }
@@ -765,6 +801,7 @@ private extension POParser {
     func isIgnorableLine(_ line: String) -> Bool {
         if InvoiceLineClassifier.isHeaderArtifactLine(line) { return true }
         if isTableHeaderLine(line) { return true }
+        if isLikelyEcommerceCheckoutRailLine(line) { return true }
 
         // Always ignore non-product summary lines (tax/subtotal/total). These must never become items.
         if InvoiceLineClassifier.isNonProductSummaryLine(line) { return true }
@@ -1306,6 +1343,16 @@ private extension POParser {
             let contextRange = NSRange(location: contextStart, length: match.range.location - contextStart)
             let leadingContext = nsText.substring(with: contextRange).lowercased()
 
+            // Suppress ecommerce checkout-rail prices (subtotal/est total/promo summary)
+            // so they are never treated as item-level costs.
+            let windowStart = max(0, match.range.location - 48)
+            let windowEnd = min(nsText.length, match.range.location + match.range.length + 48)
+            let windowRange = NSRange(location: windowStart, length: windowEnd - windowStart)
+            let candidateWindow = nsText.substring(with: windowRange)
+            if isLikelyEcommerceCheckoutRailLine(candidateWindow) {
+                continue
+            }
+
             // Reduce false positives: ignore integers without currency and ignore overly large values.
             if !hadCurrency && !hadDecimal {
                 continue
@@ -1448,6 +1495,11 @@ private extension POParser {
             with: "",
             options: .regularExpression
         )
+        name = name.replacingOccurrences(
+            of: #"(?i)\b(?:item subtotal|cart summary|total discounts|est\.?\s*total|continue to checkout|available payment methods(?: in checkout)?|apply promo code|code apply|pay with)\b"#,
+            with: "",
+            options: .regularExpression
+        )
 
         // Remove common screenshot UI artifacts.
         name = name.replacingOccurrences(
@@ -1549,6 +1601,7 @@ private extension POParser {
     func isLikelyEcommerceStatusLine(_ line: String) -> Bool {
         let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if lower.isEmpty { return false }
+        if isLikelyEcommerceCheckoutRailLine(lower) { return true }
         if isLikelyLegalOrComplianceNoiseLine(lower) { return true }
         if ParserNoiseTaxonomy.ecommerceStatusPrefixKeywords.contains(where: { lower.localizedCaseInsensitiveHasPrefix($0) }) {
             return true
@@ -1561,6 +1614,25 @@ private extension POParser {
         if lower.contains("defects, or other reproductive harm") { return true }
         if lower.contains("warning") && lower.contains("chemicals known") { return true }
         if lower.contains("remove") && !hasStepperQuantityControlSignal(in: line) { return true }
+        return false
+    }
+
+    func isLikelyEcommerceCheckoutRailLine(_ line: String) -> Bool {
+        let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lower.isEmpty else { return false }
+
+        if ParserNoiseTaxonomy.ecommerceCheckoutRailContainsKeywords.contains(where: { lower.contains($0) }) {
+            return true
+        }
+
+        if lower.range(
+            of: #"\b(subtotal|discount|est\.?\s*total|checkout|promo|payment methods|shipping estimates)\b"#,
+            options: .regularExpression
+        ) != nil,
+           lower.range(of: #"\$\s*\d"#, options: .regularExpression) != nil {
+            return true
+        }
+
         return false
     }
 

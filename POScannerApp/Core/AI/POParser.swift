@@ -9,6 +9,9 @@ import Foundation
 ///
 /// - Important: Parsing is pure text -> model only. No Core Data, no networking, no shared state.
 final class POParser: @unchecked Sendable {
+    var decisionTraceEnabled = false
+    private(set) var latestDecisionTrace: POParseDecisionTrace?
+
     func parse(from text: String, ignoreTaxAndTotals: Bool = false) -> ParsedInvoice {
         let lines = nonEmptyLines(from: text)
         let headerLines = vendorHeaderCandidateLines(from: lines)
@@ -22,16 +25,19 @@ final class POParser: @unchecked Sendable {
         if shouldSwapDocumentIdentifiers(invoiceNumber: invoiceNumber, poNumber: poNumber) {
             swap(&poNumber, &invoiceNumber)
         }
+        let traceRecorder = decisionTraceEnabled ? POParseDecisionTraceRecorder() : nil
         let items = extractLineItems(
             from: text,
             skippingFirstNonEmptyLine: vendorName != nil,
             vendorMatch: vendorName != nil,
-            ignoreTaxAndTotals: ignoreTaxAndTotals
+            ignoreTaxAndTotals: ignoreTaxAndTotals,
+            traceRecorder: traceRecorder
         )
         let normalizedItems = normalizeDescriptions(items)
         let totalCents = normalizedItems.reduce(0) { partial, item in
             partial + ((item.costCents ?? 0) * max(1, item.quantity ?? 1))
         }
+        latestDecisionTrace = traceRecorder?.makeTrace()
 
         #if DEBUG
         print("Vendor extracted: \(vendorName ?? "nil")")
@@ -97,7 +103,8 @@ final class POParser: @unchecked Sendable {
         from text: String,
         skippingFirstNonEmptyLine: Bool,
         vendorMatch: Bool,
-        ignoreTaxAndTotals: Bool
+        ignoreTaxAndTotals: Bool,
+        traceRecorder: POParseDecisionTraceRecorder? = nil
     ) -> [ParsedLineItem] {
         var lines = nonEmptyLines(from: text)
         if skippingFirstNonEmptyLine, !lines.isEmpty {
@@ -108,6 +115,7 @@ final class POParser: @unchecked Sendable {
         lines = filterNonProductLines(lines, ignoreTax: ignoreTaxAndTotals)
 
         let profile = documentProfile(for: lines)
+        traceRecorder?.setChosenProfile(profile)
         if profile == .ecommerceCart {
             // Ecommerce cart screenshots commonly include "Part #" anchors and quantity steppers
             // with noisy pickup/promotional side panels.
@@ -117,17 +125,24 @@ final class POParser: @unchecked Sendable {
             if mergedItems.count >= 2 {
                 return mergedItems.filter(isValidParsedItem)
             }
+            traceRecorder?.markFallbackTriggered()
         }
 
         var blocks: [[String]] = []
         var current: [String] = []
 
         for line in lines {
-            if isIgnorableLine(line) {
+            if let traceRecorder {
+                if let reason = ignorableLineReason(line) {
+                    traceRecorder.recordRejectedLine(line, reason: reason)
+                    continue
+                }
+            } else if isIgnorableLine(line) {
                 continue
             }
 
             if InvoiceLineClassifier.isLaborServiceLine(line) {
+                traceRecorder?.recordRejectedLine(line, reason: "laborServiceLine")
                 continue
             }
 
@@ -136,6 +151,7 @@ final class POParser: @unchecked Sendable {
 
             if current.isEmpty {
                 if attributeOnly {
+                    traceRecorder?.recordRejectedLine(line, reason: "attributeOnlyWithoutContext")
                     continue
                 }
                 current = [line]
@@ -692,6 +708,20 @@ private extension POParser {
         text.split(whereSeparator: \.isNewline)
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    func ignorableLineReason(_ line: String) -> String? {
+        guard isIgnorableLine(line) else { return nil }
+        if InvoiceLineClassifier.isHeaderArtifactLine(line) {
+            return "headerArtifactLine"
+        }
+        if isTableHeaderLine(line) {
+            return "tableHeaderLine"
+        }
+        if InvoiceLineClassifier.isNonProductSummaryLine(line) {
+            return "nonProductSummaryLine"
+        }
+        return "suppressedNoiseLine"
     }
 
     func isIgnorableLine(_ line: String) -> Bool {

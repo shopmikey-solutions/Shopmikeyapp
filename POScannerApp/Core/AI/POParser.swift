@@ -10,7 +10,9 @@ import Foundation
 /// - Important: Parsing is pure text -> model only. No Core Data, no networking, no shared state.
 final class POParser: @unchecked Sendable {
     var decisionTraceEnabled = false
+    var arithmeticDiagnosticsEnabled = false
     private(set) var latestDecisionTrace: POParseDecisionTrace?
+    private(set) var latestArithmeticDiagnosticsReport: ParserArithmeticDiagnosticsReport?
 
     func parse(from text: String, ignoreTaxAndTotals: Bool = false) -> ParsedInvoice {
         let lines = nonEmptyLines(from: text)
@@ -38,6 +40,15 @@ final class POParser: @unchecked Sendable {
             partial + ((item.costCents ?? 0) * max(1, item.quantity ?? 1))
         }
         latestDecisionTrace = traceRecorder?.makeTrace()
+        if arithmeticDiagnosticsEnabled {
+            latestArithmeticDiagnosticsReport = arithmeticDiagnosticsReport(
+                from: normalizedItems,
+                computedSubtotalCents: totalCents,
+                parsedTotalCents: totalCents > 0 ? totalCents : nil
+            )
+        } else {
+            latestArithmeticDiagnosticsReport = nil
+        }
 
         #if DEBUG
         print("Vendor extracted: \(vendorName ?? "nil")")
@@ -57,6 +68,33 @@ final class POParser: @unchecked Sendable {
                 vendorInvoiceNumber: invoiceNumber ?? "",
                 poReference: poNumber ?? ""
             )
+        )
+    }
+
+    private func arithmeticDiagnosticsReport(
+        from items: [ParsedLineItem],
+        computedSubtotalCents: Int,
+        parsedTotalCents: Int?
+    ) -> ParserArithmeticDiagnosticsReport {
+        let zeroCostLineCount = items.reduce(into: 0) { count, item in
+            if (item.costCents ?? 0) == 0 {
+                count += 1
+            }
+        }
+        let defaultedQuantityLineCount = items.reduce(into: 0) { count, item in
+            if item.quantity == nil {
+                count += 1
+            }
+        }
+        let delta = computedSubtotalCents - (parsedTotalCents ?? computedSubtotalCents)
+
+        return ParserArithmeticDiagnosticsReport(
+            lineItemCount: items.count,
+            computedSubtotalCents: computedSubtotalCents,
+            parsedTotalCents: parsedTotalCents,
+            totalDeltaCents: delta,
+            zeroCostLineCount: zeroCostLineCount,
+            defaultedQuantityLineCount: defaultedQuantityLineCount
         )
     }
 

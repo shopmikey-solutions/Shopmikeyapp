@@ -165,32 +165,28 @@ private extension String {
     }
 }
 
-private extension POParser {
-    enum DocumentProfile {
+extension POParser {
+    enum DocumentProfile: String {
         case ecommerceCart
         case tabularInvoice
         case generic
     }
 
+    func governanceDocumentProfile(for text: String) -> DocumentProfile {
+        documentProfile(for: nonEmptyLines(from: text))
+    }
+}
+
+private extension POParser {
     func documentProfile(for lines: [String]) -> DocumentProfile {
-        guard !lines.isEmpty else { return .generic }
-
-        let stepperSignals = lines.filter { hasStepperQuantityControlSignal(in: $0) }.count
-        let partAnchorSignals = lines.filter { isEcommercePartAnchorLine($0) }.count
-        let ecommerceStatusSignals = lines.filter { isLikelyEcommerceStatusLine($0) }.count
-        let tableHeaderSignals = lines.filter { isTableHeaderLine($0) }.count
-        let multiPriceSignals = lines.filter { allMonetaryTokenRanges(in: $0).count >= 2 }.count
-
-        if stepperSignals >= 1 && (partAnchorSignals >= 1 || ecommerceStatusSignals >= 2) {
-            return .ecommerceCart
-        }
-        if partAnchorSignals >= 2 && ecommerceStatusSignals >= 2 {
-            return .ecommerceCart
-        }
-        if tableHeaderSignals >= 1 || multiPriceSignals >= 2 {
-            return .tabularInvoice
-        }
-        return .generic
+        Self.defaultDocumentProfileStrategy.resolveProfile(
+            for: lines,
+            hasStepperQuantityControlSignal: { self.hasStepperQuantityControlSignal(in: $0) },
+            isEcommercePartAnchorLine: isEcommercePartAnchorLine,
+            isLikelyEcommerceStatusLine: isLikelyEcommerceStatusLine,
+            isTableHeaderLine: isTableHeaderLine,
+            monetaryTokenCount: { self.allMonetaryTokenRanges(in: $0).count }
+        )
     }
 
     func extractEcommerceCartLineItems(from lines: [String], vendorMatch: Bool) -> [ParsedLineItem] {
@@ -1644,6 +1640,10 @@ private extension POParser {
 
         return nil
     }
+}
+
+private extension POParser {
+    static let defaultDocumentProfileStrategy = DefaultDocumentProfileStrategy()
 }
 
 extension POParser {

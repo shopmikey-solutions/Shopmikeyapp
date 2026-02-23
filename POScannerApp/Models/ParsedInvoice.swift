@@ -17,6 +17,27 @@ struct POHeaderFields: Hashable, Equatable {
     var notes: String = ""
 }
 
+struct ParsedInvoiceConfidenceBreakdown: Hashable {
+    static let vendorWeight = 0.3
+    static let itemsWeight = 0.3
+    static let totalWeight = 0.2
+    static let invoiceWeight = 0.2
+
+    var hasVendorName: Bool
+    var hasItems: Bool
+    var hasTotal: Bool
+    var hasInvoiceNumber: Bool
+
+    var score: Double {
+        var total = 0.0
+        if hasVendorName { total += Self.vendorWeight }
+        if hasItems { total += Self.itemsWeight }
+        if hasTotal { total += Self.totalWeight }
+        if hasInvoiceNumber { total += Self.invoiceWeight }
+        return total
+    }
+}
+
 /// Pure parsing output from OCR/scanner text. No persistence, no networking, no side effects.
 struct ParsedInvoice: Hashable {
     var vendorName: String?
@@ -26,23 +47,17 @@ struct ParsedInvoice: Hashable {
     var items: [ParsedLineItem]
     var header: POHeaderFields = POHeaderFields()
 
+    var confidenceBreakdown: ParsedInvoiceConfidenceBreakdown {
+        ParsedInvoiceConfidenceBreakdown(
+            hasVendorName: vendorName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+            hasItems: !items.isEmpty,
+            hasTotal: totalCents != nil,
+            hasInvoiceNumber: invoiceNumber?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        )
+    }
+
     var confidenceScore: Double {
-        var score = 0.0
-
-        if vendorName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-            score += 0.3
-        }
-        if !items.isEmpty {
-            score += 0.3
-        }
-        if totalCents != nil {
-            score += 0.2
-        }
-        if invoiceNumber?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-            score += 0.2
-        }
-
-        return score
+        confidenceBreakdown.score
     }
 }
 

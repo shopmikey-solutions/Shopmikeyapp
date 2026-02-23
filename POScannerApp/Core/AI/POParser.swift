@@ -84,13 +84,14 @@ final class POParser: @unchecked Sendable {
         #"(?i)(qty|quantity)[:\s]*(\d+)"#,
         #"(?i)\b(\d+)\s*(qty|quantity)\b"#,
         #"(?i)\b(\d+)\s*(ea|pcs|x)\b"#,
+        #"(?i)[\-–—]\s*(\d{1,3})\s*\+"#,
         #"(?i)\bx(\d+)\b"#
     ]
 
     private let costPattern: String = #"\$?\s?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)"#
     private let monetaryTokenPattern: String = #"\$?\s*\d{1,3}(?:,\d{3})*\.\d{2}\b"#
 
-    private let partPattern: String = #"(?i)(pn|p\/n|part#?)[:\s]*([A-Z0-9\-]+)"#
+    private let partPattern: String = #"(?i)(?:pn|p\/n|part(?:\s*(?:number|no\.?|#))?|sku)\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-]{1,})"#
 
     private func extractLineItems(
         from text: String,
@@ -105,6 +106,18 @@ final class POParser: @unchecked Sendable {
 
         // Currency-agnostic semantic filtering for tax/total lines when enabled.
         lines = filterNonProductLines(lines, ignoreTax: ignoreTaxAndTotals)
+
+        let profile = documentProfile(for: lines)
+        if profile == .ecommerceCart {
+            // Ecommerce cart screenshots commonly include "Part #" anchors and quantity steppers
+            // with noisy pickup/promotional side panels.
+            let anchorItems = extractEcommerceCartLineItems(from: lines, vendorMatch: vendorMatch)
+            let stepperItems = extractStepperDrivenEcommerceLineItems(from: lines, vendorMatch: vendorMatch)
+            let mergedItems = mergeEcommerceItems(primary: anchorItems, secondary: stepperItems)
+            if mergedItems.count >= 2 {
+                return mergedItems.filter(isValidParsedItem)
+            }
+        }
 
         var blocks: [[String]] = []
         var current: [String] = []
@@ -153,9 +166,424 @@ private extension String {
 }
 
 private extension POParser {
+    enum DocumentProfile {
+        case ecommerceCart
+        case tabularInvoice
+        case generic
+    }
+
+    func documentProfile(for lines: [String]) -> DocumentProfile {
+        guard !lines.isEmpty else { return .generic }
+
+        let stepperSignals = lines.filter { hasStepperQuantityControlSignal(in: $0) }.count
+        let partAnchorSignals = lines.filter { isEcommercePartAnchorLine($0) }.count
+        let ecommerceStatusSignals = lines.filter { isLikelyEcommerceStatusLine($0) }.count
+        let tableHeaderSignals = lines.filter { isTableHeaderLine($0) }.count
+        let multiPriceSignals = lines.filter { allMonetaryTokenRanges(in: $0).count >= 2 }.count
+
+        if stepperSignals >= 1 && (partAnchorSignals >= 1 || ecommerceStatusSignals >= 2) {
+            return .ecommerceCart
+        }
+        if partAnchorSignals >= 2 && ecommerceStatusSignals >= 2 {
+            return .ecommerceCart
+        }
+        if tableHeaderSignals >= 1 || multiPriceSignals >= 2 {
+            return .tabularInvoice
+        }
+        return .generic
+    }
+
+    func extractEcommerceCartLineItems(from lines: [String], vendorMatch: Bool) -> [ParsedLineItem] {
+        let anchorIndices = lines.indices.filter { isEcommercePartAnchorLine(lines[$0]) }
+        guard anchorIndices.count >= 2 else { return [] }
+
+        let primaryPriceIndices = lines.indices.filter { isLikelyEcommercePrimaryPriceLine(lines[$0]) }
+        let stepperIndices = lines.indices.filter { hasStepperQuantityControlSignal(in: lines[$0]) }
+
+        var items: [ParsedLineItem] = []
+
+        for (anchorOffset, anchorIndex) in anchorIndices.enumerated() {
+            let previousAnchorIndex = anchorOffset > 0 ? anchorIndices[anchorOffset - 1] : nil
+            let nextAnchorIndex = anchorOffset + 1 < anchorIndices.count ? anchorIndices[anchorOffset + 1] : lines.count
+
+            var block: [String] = []
+            var selectedIndices = Set<Int>()
+
+            if let titleIndex = nearestEcommerceTitleIndex(
+                before: anchorIndex,
+                lowerBoundExclusive: previousAnchorIndex,
+                lines: lines
+            ) {
+                block.append(lines[titleIndex])
+                selectedIndices.insert(titleIndex)
+            }
+
+            block.append(lines[anchorIndex])
+            selectedIndices.insert(anchorIndex)
+
+            let quantityIndex = mappedEcommerceRowIndex(
+                rowOffset: anchorOffset,
+                rowCount: anchorIndices.count,
+                candidateIndices: stepperIndices
+            ) ?? nearestQuantityIndex(
+                around: anchorIndex,
+                lowerBoundExclusive: previousAnchorIndex,
+                upperBoundExclusive: nextAnchorIndex,
+                lines: lines
+            )
+            if let quantityIndex {
+                block.append(lines[quantityIndex])
+                selectedIndices.insert(quantityIndex)
+            }
+
+            let priceIndex = mappedEcommerceRowIndex(
+                rowOffset: anchorOffset,
+                rowCount: anchorIndices.count,
+                candidateIndices: primaryPriceIndices
+            ) ?? nearestPrimaryPriceIndex(
+                around: anchorIndex,
+                lowerBoundExclusive: previousAnchorIndex,
+                upperBoundExclusive: nextAnchorIndex,
+                lines: lines
+            )
+            if let priceIndex {
+                block.append(lines[priceIndex])
+                selectedIndices.insert(priceIndex)
+            }
+
+            if anchorIndex + 1 < nextAnchorIndex {
+                for index in (anchorIndex + 1)..<nextAnchorIndex {
+                    if selectedIndices.contains(index) { continue }
+                    let line = lines[index]
+                    if isLikelyEcommerceStatusLine(line) { continue }
+                    if isLikelyEcommercePrimaryPriceLine(line) { continue }
+                    if hasExplicitQuantitySignal(in: line)
+                        || line.lowercased().localizedCaseInsensitiveHasPrefix("+ refundable core") {
+                        block.append(line)
+                    }
+                }
+            }
+
+            var seenLines = Set<String>()
+            let uniqueBlock = block.filter { seenLines.insert($0).inserted }
+            guard !uniqueBlock.isEmpty else { continue }
+
+            let parsed = parseItemBlock(uniqueBlock, vendorMatch: vendorMatch)
+            if isValidParsedItem(parsed) {
+                items.append(parsed)
+            }
+        }
+
+        return items
+    }
+
+    func extractStepperDrivenEcommerceLineItems(from lines: [String], vendorMatch: Bool) -> [ParsedLineItem] {
+        let stepperIndices = lines.indices.filter { hasStepperQuantityControlSignal(in: lines[$0]) }
+        guard stepperIndices.count >= 1 else { return [] }
+
+        var items: [ParsedLineItem] = []
+        var seenSignatures = Set<String>()
+
+        for (rowOffset, stepperIndex) in stepperIndices.enumerated() {
+            let previousStepperIndex = rowOffset > 0 ? stepperIndices[rowOffset - 1] : nil
+            let nextStepperIndex = rowOffset + 1 < stepperIndices.count ? stepperIndices[rowOffset + 1] : lines.count
+
+            var block: [String] = []
+            var selectedIndices = Set<Int>()
+
+            if let titleIndex = nearestEcommerceTitleIndex(
+                before: stepperIndex,
+                lowerBoundExclusive: previousStepperIndex,
+                lines: lines
+            ) {
+                block.append(lines[titleIndex])
+                selectedIndices.insert(titleIndex)
+            }
+
+            if let anchorIndex = nearestEcommercePartAnchorIndex(
+                around: stepperIndex,
+                lowerBoundExclusive: previousStepperIndex,
+                upperBoundExclusive: nextStepperIndex,
+                lines: lines
+            ) {
+                block.append(lines[anchorIndex])
+                selectedIndices.insert(anchorIndex)
+            }
+
+            block.append(lines[stepperIndex])
+            selectedIndices.insert(stepperIndex)
+
+            if let priceIndex = nearestPrimaryPriceIndex(
+                around: stepperIndex,
+                lowerBoundExclusive: previousStepperIndex,
+                upperBoundExclusive: nextStepperIndex,
+                lines: lines
+            ) {
+                block.append(lines[priceIndex])
+                selectedIndices.insert(priceIndex)
+            }
+
+            var seenLines = Set<String>()
+            let uniqueBlock = block.filter { seenLines.insert($0).inserted }
+            guard !uniqueBlock.isEmpty else { continue }
+
+            let parsed = parseItemBlock(uniqueBlock, vendorMatch: vendorMatch)
+            guard isValidParsedItem(parsed) else { continue }
+
+            let signature = ecommerceItemSignature(for: parsed)
+            if seenSignatures.insert(signature).inserted {
+                items.append(parsed)
+            }
+        }
+
+        return items
+    }
+
+    func nearestEcommercePartAnchorIndex(
+        around stepperIndex: Int,
+        lowerBoundExclusive: Int?,
+        upperBoundExclusive: Int,
+        lines: [String]
+    ) -> Int? {
+        let lowerBound = max(0, (lowerBoundExclusive ?? -1) + 1, stepperIndex - 5)
+        let beforeUpperBound = min(lines.count, upperBoundExclusive, stepperIndex)
+        guard lowerBound < beforeUpperBound else {
+            return nil
+        }
+
+        // Prefer anchors that appear before the stepper to avoid borrowing the next row's part #.
+        for index in stride(from: beforeUpperBound - 1, through: lowerBound, by: -1)
+        where isEcommercePartAnchorLine(lines[index]) {
+            return index
+        }
+
+        // Rare fallback: allow an immediate post-stepper anchor line only.
+        let immediateAfterUpperBound = min(lines.count, upperBoundExclusive, stepperIndex + 2)
+        if stepperIndex + 1 < immediateAfterUpperBound {
+            for index in (stepperIndex + 1)..<immediateAfterUpperBound
+            where isEcommercePartAnchorLine(lines[index]) {
+                return index
+            }
+        }
+
+        return nil
+    }
+
+    func ecommerceItemSignature(for item: ParsedLineItem) -> String {
+        let normalizedName = item.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let normalizedPart = (item.partNumber ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return [
+            normalizedName,
+            normalizedPart,
+            String(item.quantity ?? 1),
+            String(item.costCents ?? 0)
+        ].joined(separator: "|")
+    }
+
+    func ecommerceItemIdentityKey(for item: ParsedLineItem) -> String {
+        let normalizedPart = (item.partNumber ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if !normalizedPart.isEmpty {
+            return "part:\(normalizedPart)"
+        }
+        let normalizedName = item.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return "name:\(normalizedName)|qty:\(item.quantity ?? 1)"
+    }
+
+    func shouldPreferEcommerceItem(_ candidate: ParsedLineItem, over current: ParsedLineItem) -> Bool {
+        let candidateHasPart = !(candidate.partNumber ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let currentHasPart = !(current.partNumber ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if candidateHasPart != currentHasPart {
+            return candidateHasPart && !currentHasPart
+        }
+
+        let candidateHasCost = (candidate.costCents ?? 0) > 0
+        let currentHasCost = (current.costCents ?? 0) > 0
+        if candidateHasCost != currentHasCost {
+            return candidateHasCost && !currentHasCost
+        }
+
+        if candidate.confidence != current.confidence {
+            return candidate.confidence > current.confidence
+        }
+
+        return candidate.name.count > current.name.count
+    }
+
+    func mergeEcommerceItems(primary: [ParsedLineItem], secondary: [ParsedLineItem]) -> [ParsedLineItem] {
+        var merged: [ParsedLineItem] = []
+        var indexByKey: [String: Int] = [:]
+
+        for item in primary + secondary {
+            let key = ecommerceItemIdentityKey(for: item)
+            if let existingIndex = indexByKey[key] {
+                if shouldPreferEcommerceItem(item, over: merged[existingIndex]) {
+                    merged[existingIndex] = item
+                }
+                continue
+            }
+            indexByKey[key] = merged.count
+            merged.append(item)
+        }
+
+        return merged
+    }
+
+    func mappedEcommerceRowIndex(
+        rowOffset: Int,
+        rowCount: Int,
+        candidateIndices: [Int]
+    ) -> Int? {
+        // Only rely on positional mapping when row cardinality matches exactly.
+        // If counts diverge (for example, a cart row missing "Part #" anchor),
+        // use proximity-based selection to avoid cross-row misalignment.
+        guard candidateIndices.count == rowCount else { return nil }
+        guard candidateIndices.indices.contains(rowOffset) else { return nil }
+        return candidateIndices[rowOffset]
+    }
+
+    func nearestQuantityIndex(
+        around anchorIndex: Int,
+        lowerBoundExclusive: Int?,
+        upperBoundExclusive: Int,
+        lines: [String]
+    ) -> Int? {
+        let lowerBound = max(0, (lowerBoundExclusive ?? -1) + 1, anchorIndex - 3)
+        let upperBound = min(lines.count, upperBoundExclusive, anchorIndex + 8)
+        guard lowerBound < upperBound else { return nil }
+
+        let candidates = (lowerBound..<upperBound)
+            .filter { hasExplicitQuantitySignal(in: lines[$0]) }
+        guard !candidates.isEmpty else { return nil }
+
+        return candidates.min { lhs, rhs in
+            let lhsDistance = abs(lhs - anchorIndex)
+            let rhsDistance = abs(rhs - anchorIndex)
+            if lhsDistance != rhsDistance {
+                return lhsDistance < rhsDistance
+            }
+
+            // Cart layouts place quantity controls after the part anchor most often.
+            let lhsIsAfterAnchor = lhs >= anchorIndex
+            let rhsIsAfterAnchor = rhs >= anchorIndex
+            if lhsIsAfterAnchor != rhsIsAfterAnchor {
+                return lhsIsAfterAnchor && !rhsIsAfterAnchor
+            }
+
+            return lhs < rhs
+        }
+    }
+
+    func nearestPrimaryPriceIndex(
+        around anchorIndex: Int,
+        lowerBoundExclusive: Int?,
+        upperBoundExclusive: Int,
+        lines: [String]
+    ) -> Int? {
+        let searchLowerBound = max(0, (lowerBoundExclusive ?? -1) + 1, anchorIndex - 2)
+        let searchUpperBound = min(lines.count, upperBoundExclusive + 2)
+        guard searchLowerBound < searchUpperBound else { return nil }
+
+        let candidates = (searchLowerBound..<searchUpperBound)
+            .filter { index in
+                index < lines.count && isLikelyEcommercePrimaryPriceLine(lines[index])
+            }
+        guard !candidates.isEmpty else { return nil }
+
+        return candidates.min { lhs, rhs in
+            let lhsDistance = abs(lhs - anchorIndex)
+            let rhsDistance = abs(rhs - anchorIndex)
+            if lhsDistance != rhsDistance {
+                return lhsDistance < rhsDistance
+            }
+
+            let lhsIsAfterAnchor = lhs >= anchorIndex
+            let rhsIsAfterAnchor = rhs >= anchorIndex
+            if lhsIsAfterAnchor != rhsIsAfterAnchor {
+                return lhsIsAfterAnchor && !rhsIsAfterAnchor
+            }
+
+            return lhs < rhs
+        }
+    }
+
+    func isLikelyEcommercePrimaryPriceLine(_ line: String) -> Bool {
+        guard extractCost(from: line).found else { return false }
+        let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lower.isEmpty { return false }
+        if isLikelyEcommerceStatusLine(lower) { return false }
+        if lower.localizedCaseInsensitiveHasPrefix("+ refundable core") { return false }
+        if lower.localizedCaseInsensitiveHasPrefix("reg.") { return false }
+        if lower.localizedCaseInsensitiveHasPrefix("discount") { return false }
+        if lower.contains("deal applied") { return false }
+        if lower.contains("core charge") { return false }
+        if lower.contains("gift certificate") || lower.contains("store credit") { return false }
+        if InvoiceLineClassifier.isNonProductSummaryLine(lower) { return false }
+        return true
+    }
+
+    func nearestEcommerceTitleIndex(
+        before anchorIndex: Int,
+        lowerBoundExclusive: Int?,
+        lines: [String]
+    ) -> Int? {
+        guard anchorIndex > 0 else { return nil }
+        let lowerBound = max(0, (lowerBoundExclusive ?? -1) + 1, anchorIndex - 6)
+        for index in stride(from: anchorIndex - 1, through: lowerBound, by: -1) {
+            let line = lines[index]
+            if isLikelyEcommerceItemTitleLine(line) {
+                return index
+            }
+        }
+        return nil
+    }
+
+    func isLikelyEcommerceItemTitleLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if isEcommercePartAnchorLine(trimmed) { return false }
+        if isLikelyEcommerceStatusLine(trimmed) { return false }
+        if isLikelyLegalOrComplianceNoiseLine(trimmed) { return false }
+        if isLikelyEcommercePrimaryPriceLine(trimmed) { return false }
+        if isAttributeOnlyLine(trimmed) { return false }
+        if trimmed.lowercased().contains("warning:")
+            || trimmed.lowercased().contains("p65warnings")
+            || trimmed.lowercased().contains("defects, or other reproductive harm") {
+            return false
+        }
+        if trimmed.range(of: #"^\d{4}\s+[A-Z0-9].*"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return false
+        }
+        if trimmed.range(of: #"(?i)\b(subaru|toyota|honda|ford|chevy|vehicle)\b"#, options: .regularExpression) != nil,
+           !trimmed.contains("-") {
+            return false
+        }
+        return trimmed.rangeOfCharacter(from: .letters) != nil
+    }
+
+    func isEcommercePartAnchorLine(_ line: String) -> Bool {
+        line.range(
+            of: #"(?i)\bpart\s*#\s*[A-Z0-9][A-Z0-9\-]{1,}\b"#,
+            options: .regularExpression
+        ) != nil
+    }
+
     func isValidParsedItem(_ item: ParsedLineItem) -> Bool {
         let description = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if description.isEmpty {
+            return false
+        }
+
+        // Never surface legal/promo/status rows as editable line items.
+        if isLikelyEcommerceStatusLine(description)
+            || isLikelyLegalOrComplianceNoiseLine(description) {
             return false
         }
 
@@ -206,7 +634,7 @@ private extension POParser {
         }
 
         // Treat financial summary labels as invalid rows unless the line looks product-like.
-        let summaryKeywords = ["SUBTOTAL", "TOTAL", "TAX", "BALANCE"]
+        let summaryKeywords = ParserNoiseTaxonomy.parserSummaryUpperKeywords
         if summaryKeywords.contains(where: { upper.contains($0) }) {
             if InvoiceLineClassifier.isNonProductSummaryLine(description) {
                 return false
@@ -278,6 +706,32 @@ private extension POParser {
         if InvoiceLineClassifier.isNonProductSummaryLine(line) { return true }
 
         let lower = line.lowercased()
+        if isLikelyLegalOrComplianceNoiseLine(line) { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("my cart") { return true }
+        if lower == "print" { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("non vehicle specific") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("warning:") { return true }
+        if lower.contains("http://") || lower.contains("https://") { return true }
+        if lower.contains("www.") && lower.contains(".com") { return true }
+        if lower.contains("rockauto.com/orderstatus") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("visit ") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("reg.") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("discount:") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("fits ") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("in stock") { return true }
+        if lower.localizedCaseInsensitiveHasPrefix("purchase of") { return true }
+        if lower.contains("free pick up") || lower.contains("pick up today") { return true }
+        if lower.contains("deliver by") { return true }
+        if lower.contains("available within") { return true }
+        if lower.contains("call store to order") { return true }
+        if lower.contains("check other stores") { return true }
+        if lower.contains("same day eligible") { return true }
+        if lower.contains("same dayeligible") { return true }
+        if lower.contains("deal applied") { return true }
+        if lower.contains("in stock") && lower.contains("ready in") { return true }
+        if lower.contains("p65warnings.ca.gov") { return true }
+        if lower.contains("defects, or other reproductive harm") { return true }
+        if lower.contains("remove"), !hasStepperQuantityControlSignal(in: line) { return true }
         if lower.contains("tap to expand") { return true }
         if lower == "info" { return true }
         if lower == "help" { return true }
@@ -431,6 +885,11 @@ private extension POParser {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
 
+        // Cart steppers (e.g. "- 6 + REMOVE") carry quantity but not product description.
+        if hasStepperQuantityControlSignal(in: trimmed) {
+            return true
+        }
+
         // Pure cost lines like "$129.99".
         if trimmed.rangeOfCharacter(from: .letters) == nil, extractCost(from: trimmed).found {
             return true
@@ -472,6 +931,9 @@ private extension POParser {
             return false
         }
         if isAttributeOnlyLine(line) {
+            return false
+        }
+        if isLikelyEcommerceStatusLine(line) {
             return false
         }
 
@@ -568,6 +1030,7 @@ private extension POParser {
             guard !trimmed.isEmpty else { return false }
             guard trimmed.rangeOfCharacter(from: .letters) != nil else { return false }
             guard !isAttributeOnlyLine(trimmed) else { return false }
+            guard !isLikelyEcommerceStatusLine(trimmed) else { return false }
             guard !InvoiceLineClassifier.isNonProductSummaryLine(trimmed) else { return false }
             guard !InvoiceLineClassifier.isHeaderArtifactLine(trimmed) else { return false }
             return true
@@ -599,6 +1062,18 @@ private extension POParser {
         }
         if lower.contains("rockauto") && lower.contains("order confirmation") {
             score -= 80
+        }
+        if lower.contains("http://")
+            || lower.contains("https://")
+            || (lower.contains("www.") && lower.contains(".com"))
+            || lower.localizedCaseInsensitiveHasPrefix("visit ") {
+            score -= 160
+        }
+        if lower.localizedCaseInsensitiveHasPrefix("part #") {
+            score -= 110
+        }
+        if isLikelyEcommerceStatusLine(line) {
+            score -= 180
         }
         if lower == "info"
             || lower.contains("tracking:")
@@ -763,8 +1238,20 @@ private extension POParser {
             let fullMatch = nsText.substring(with: match.range)
             let hadCurrency = fullMatch.contains("$")
 
+            let contextStart = max(0, match.range.location - 24)
+            let contextRange = NSRange(location: contextStart, length: match.range.location - contextStart)
+            let leadingContext = nsText.substring(with: contextRange).lowercased()
+
             // Reduce false positives: ignore integers without currency and ignore overly large values.
             if !hadCurrency && !hadDecimal {
+                continue
+            }
+            if leadingContext.contains("reg.")
+                || leadingContext.hasSuffix("reg")
+                || leadingContext.contains("discount")
+                || leadingContext.contains("deal applied")
+                || leadingContext.contains("refundable core")
+                || leadingContext.contains("core charge") {
                 continue
             }
             if cents < 0 || cents >= maxCents {
@@ -794,6 +1281,18 @@ private extension POParser {
                 }
             }
 
+            // Ecommerce cart rows often show only line totals with a stepper quantity control.
+            if candidates.count == 1, hasStepperQuantityControlSignal(in: text) {
+                let candidate = candidates[0]
+                if candidate.cents > 0 {
+                    let exactUnit = Double(candidate.cents) / Double(quantityHint)
+                    let roundedUnit = Int(exactUnit.rounded())
+                    if roundedUnit > 0 {
+                        return (roundedUnit, true, candidate.hadCurrency)
+                    }
+                }
+            }
+
             // Fallback for tabular OCR rows where unit price appears first.
             if let firstByLocation = candidates.min(by: { $0.location < $1.location }) {
                 return (firstByLocation.cents, true, firstByLocation.hadCurrency)
@@ -818,8 +1317,8 @@ private extension POParser {
         if let regex = try? NSRegularExpression(pattern: partPattern) {
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
             if let match = regex.firstMatch(in: text, options: [], range: range),
-               match.numberOfRanges >= 3,
-               let r = Range(match.range(at: 2), in: text) {
+               match.numberOfRanges >= 2,
+               let r = Range(match.range(at: 1), in: text) {
                 let value = String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !value.isEmpty {
                     explicitPartNumber = value
@@ -850,6 +1349,12 @@ private extension POParser {
             name = name.replacingOccurrences(of: partNumber, with: "", options: [.caseInsensitive])
         }
 
+        name = name.replacingOccurrences(
+            of: #"(?i)\bline\s+[A-Z0-9]{2,6}\b"#,
+            with: "",
+            options: .regularExpression
+        )
+
         // Remove leading quantity.
         if let regex = try? NSRegularExpression(pattern: #"^\s*\d+\s+"#) {
             let range = NSRange(name.startIndex..<name.endIndex, in: name)
@@ -863,6 +1368,22 @@ private extension POParser {
                 name = regex.stringByReplacingMatches(in: name, options: [], range: range, withTemplate: "")
             }
         }
+
+        name = name.replacingOccurrences(
+            of: #"(?i)[\-–—]\s*\d{1,3}\s*\+\s*remove\b"#,
+            with: "",
+            options: .regularExpression
+        )
+        name = name.replacingOccurrences(
+            of: #"(?i)\bremove\b"#,
+            with: "",
+            options: .regularExpression
+        )
+        name = name.replacingOccurrences(
+            of: #"(?i)\b(?:free pick up|pick up today|deliver by|available within|call store to order|check other stores|same day eligible|deal applied)\b"#,
+            with: "",
+            options: .regularExpression
+        )
 
         // Remove common screenshot UI artifacts.
         name = name.replacingOccurrences(
@@ -945,10 +1466,60 @@ private extension POParser {
     }
 
     func hasExplicitQuantitySignal(in text: String) -> Bool {
-        text.range(
+        if hasStepperQuantityControlSignal(in: text) {
+            return true
+        }
+        return text.range(
             of: #"\b(qty|quantity|x\d+|\d+\s*(ea|pcs|pc|qty|quantity|x))\b"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
+    }
+
+    func hasStepperQuantityControlSignal(in text: String) -> Bool {
+        text.range(
+            of: #"(?i)(?:^|\s)[\-–—]\s*\d{1,3}\s*\+"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    func isLikelyEcommerceStatusLine(_ line: String) -> Bool {
+        let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lower.isEmpty { return false }
+        if isLikelyLegalOrComplianceNoiseLine(lower) { return true }
+        if ParserNoiseTaxonomy.ecommerceStatusPrefixKeywords.contains(where: { lower.localizedCaseInsensitiveHasPrefix($0) }) {
+            return true
+        }
+        if ParserNoiseTaxonomy.ecommerceStatusContainsKeywords.contains(where: { lower.contains($0) }) {
+            return true
+        }
+        if lower.contains("in stock") && lower.contains("ready in") { return true }
+        if lower.contains("p65warnings.ca.gov") { return true }
+        if lower.contains("defects, or other reproductive harm") { return true }
+        if lower.contains("warning") && lower.contains("chemicals known") { return true }
+        if lower.contains("remove") && !hasStepperQuantityControlSignal(in: line) { return true }
+        return false
+    }
+
+    func isLikelyLegalOrComplianceNoiseLine(_ line: String) -> Bool {
+        let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lower.isEmpty { return false }
+
+        if ParserNoiseTaxonomy.legalComplianceContainsKeywords.contains(where: { lower.contains($0) }) {
+            return true
+        }
+        if lower.contains(ParserNoiseTaxonomy.legalComplianceInfoPairKeywords.trigger)
+            && ParserNoiseTaxonomy.legalComplianceInfoPairKeywords.secondary.contains(where: { lower.contains($0) }) {
+            return true
+        }
+        if lower.localizedCaseInsensitiveHasPrefix("please print this page as your receipt") {
+            return true
+        }
+        if ParserNoiseTaxonomy.legalComplianceOrderStatusPairKeywords.contains(where: { lower.contains($0) })
+            && lower.contains(ParserNoiseTaxonomy.legalComplianceOrderStatusSecondaryKeyword) {
+            return true
+        }
+
+        return false
     }
 
     func shouldSwapDocumentIdentifiers(invoiceNumber: String?, poNumber: String?) -> Bool {
@@ -1072,6 +1643,20 @@ private extension POParser {
         }
 
         return nil
+    }
+}
+
+extension POParser {
+    static var governanceStatusPrefixKeywords: [String] {
+        ParserNoiseTaxonomy.ecommerceStatusPrefixKeywords
+    }
+
+    static var governanceStatusContainsKeywords: [String] {
+        ParserNoiseTaxonomy.ecommerceStatusContainsKeywords
+    }
+
+    static var governanceLegalContainsKeywords: [String] {
+        ParserNoiseTaxonomy.legalComplianceContainsKeywords
     }
 }
 

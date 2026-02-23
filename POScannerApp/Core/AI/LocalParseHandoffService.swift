@@ -115,17 +115,59 @@ final class LocalParseHandoffService: @unchecked Sendable {
     }
 
     private func deduplicate(lines: [String]) -> [String] {
-        var seen = Set<String>()
+        var seenLowSignal = Set<String>()
         var ordered: [String] = []
+        var previousKey: String?
 
         for line in lines {
             let key = line.lowercased()
-            if seen.insert(key).inserted {
+            let preserveDuplicate = shouldPreserveDuplicateLine(line)
+
+            // Keep repeated high-signal rows (item lines, quantity steppers, prices) so
+            // ecommerce carts can be reconstructed deterministically.
+            if preserveDuplicate {
+                ordered.append(line)
+                previousKey = key
+                continue
+            }
+
+            // Collapse adjacent duplicate boilerplate lines first.
+            if previousKey == key {
+                continue
+            }
+
+            // For low-signal text, keep only the first occurrence.
+            if seenLowSignal.insert(key).inserted {
                 ordered.append(line)
             }
+            previousKey = key
         }
 
         return ordered
+    }
+
+    private func shouldPreserveDuplicateLine(_ line: String) -> Bool {
+        if line.range(of: "\\$?\\s*\\d{1,3}(?:,\\d{3})*(?:\\.\\d{2})\\b", options: .regularExpression) != nil {
+            return true
+        }
+        if line.range(of: "(?i)(qty|quantity)[:\\s]*\\d+", options: .regularExpression) != nil {
+            return true
+        }
+        if line.range(of: "(?i)[\\-–—]\\s*\\d{1,3}\\s*\\+", options: .regularExpression) != nil {
+            return true
+        }
+        if line.range(of: "(?i)\\bpart\\s*#\\s*[A-Z0-9][A-Z0-9\\-]{1,}\\b", options: .regularExpression) != nil {
+            return true
+        }
+        // Preserve part-like tokens that include at least one digit (e.g. SC1078, R113721).
+        // This avoids treating repeated boilerplate words like "FREE" as high-signal rows.
+        if line.range(of: "(?i)\\b(?=[A-Z0-9-]{3,}\\b)(?=[A-Z0-9-]*\\d)[A-Z0-9]+(?:-[A-Z0-9]+)*\\b", options: .regularExpression) != nil {
+            return true
+        }
+        if line.range(of: "\\b\\d{3}/\\d{2}/\\d{2}\\b|\\b\\d{3}/\\d{2}R?\\d{2}\\b", options: .regularExpression) != nil {
+            return true
+        }
+        return false
     }
 
     private func prioritizedModelLines(from lines: [String]) -> [String] {
@@ -179,7 +221,7 @@ final class LocalParseHandoffService: @unchecked Sendable {
         if line.range(of: "(?i)(qty|quantity)[:\\s]*\\d+", options: .regularExpression) != nil {
             score += 3
         }
-        if line.range(of: "(?i)[A-Z]{1,6}-?[A-Z0-9]{2,}", options: .regularExpression) != nil {
+        if line.range(of: "(?i)\\b(?=[A-Z0-9-]{3,}\\b)(?=[A-Z0-9-]*\\d)[A-Z0-9]+(?:-[A-Z0-9]+)*\\b", options: .regularExpression) != nil {
             score += 2
         }
         if line.range(of: "\\b\\d{3}/\\d{2}/\\d{2}\\b|\\b\\d{3}/\\d{2}R?\\d{2}\\b", options: .regularExpression) != nil {
@@ -250,12 +292,11 @@ final class LocalParseHandoffService: @unchecked Sendable {
         "invoice date"
     ]
 
-    private static let lowSignalKeywords: Set<String> = [
-        "remittance",
-        "wire transfer",
-        "terms and conditions",
-        "thank you for your business",
-        "payment instructions",
-        "ach preferred"
-    ]
+    private static let lowSignalKeywords: Set<String> = ParserNoiseTaxonomy.handoffLowSignalKeywords
+}
+
+extension LocalParseHandoffService {
+    static var governanceLowSignalKeywords: Set<String> {
+        lowSignalKeywords
+    }
 }

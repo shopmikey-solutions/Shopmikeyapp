@@ -12,17 +12,17 @@ struct RootTabView: View {
         case settings
     }
 
-    nonisolated(unsafe) private static var lastGlobalRawDeepLinkSignature: String?
-    nonisolated(unsafe) private static var lastGlobalRawDeepLinkHandledAt: Date?
-    nonisolated(unsafe) private static var lastGlobalNormalizedDeepLinkSignature: String?
-    nonisolated(unsafe) private static var lastGlobalNormalizedDeepLinkHandledAt: Date?
-
     @Environment(\.appEnvironment) private var environment
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: Tab = .scan
     @State private var loadedTabs: Set<Tab> = [.scan]
+    @State private var lastRawDeepLinkSignature: String?
+    @State private var lastRawDeepLinkHandledAt: Date?
+    @State private var lastNormalizedDeepLinkSignature: String?
+    @State private var lastNormalizedDeepLinkHandledAt: Date?
     @State private var pendingDeepLinkTask: Task<Void, Never>?
     @State private var liveActivitySyncTask: Task<Void, Never>?
+    @State private var inventorySyncTask: Task<Void, Never>?
     @State private var lastLiveActivitySyncAt: Date?
     @State private var lastLiveActivitySignature: String?
     private let minimumLiveActivitySyncInterval: TimeInterval = 0.9
@@ -32,6 +32,7 @@ struct RootTabView: View {
     private let activePresentedScanDraftDefaultsKey = "activePresentedScanDraftID"
     private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
     private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
+    private let captureFlowBusyDefaultsKey = "activeScanCaptureFlowTransition"
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -115,6 +116,9 @@ struct RootTabView: View {
             self.scheduleGlobalLiveActivitySync()
         }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .background {
+                self.scheduleInventorySync(trigger: .background)
+            }
             guard phase == .active else {
                 self.pendingDeepLinkTask?.cancel()
                 self.pendingDeepLinkTask = nil
@@ -122,9 +126,11 @@ struct RootTabView: View {
                 self.liveActivitySyncTask = nil
                 return
             }
+            self.scheduleInventorySync(trigger: .foreground)
             self.scheduleGlobalLiveActivitySync(force: true)
         }
         .onAppear {
+            self.scheduleInventorySync(trigger: .foreground)
             self.scheduleGlobalLiveActivitySync(force: true)
         }
         .onDisappear {
@@ -132,6 +138,8 @@ struct RootTabView: View {
             self.pendingDeepLinkTask = nil
             self.liveActivitySyncTask?.cancel()
             self.liveActivitySyncTask = nil
+            self.inventorySyncTask?.cancel()
+            self.inventorySyncTask = nil
         }
     }
 
@@ -140,14 +148,14 @@ struct RootTabView: View {
         let rawSignature = url.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        if let lastRawDeepLinkSignature = Self.lastGlobalRawDeepLinkSignature,
-           let lastRawDeepLinkHandledAt = Self.lastGlobalRawDeepLinkHandledAt,
+        if let lastRawDeepLinkSignature = self.lastRawDeepLinkSignature,
+           let lastRawDeepLinkHandledAt = self.lastRawDeepLinkHandledAt,
            rawSignature == lastRawDeepLinkSignature,
            now.timeIntervalSince(lastRawDeepLinkHandledAt) < self.rawDeepLinkDedupInterval {
             return
         }
-        Self.lastGlobalRawDeepLinkSignature = rawSignature
-        Self.lastGlobalRawDeepLinkHandledAt = now
+        self.lastRawDeepLinkSignature = rawSignature
+        self.lastRawDeepLinkHandledAt = now
 
         guard let parsedRoute = AppDeepLink.parse(url) else { return }
         let route = self.normalizedDeepLinkRoute(from: parsedRoute)
@@ -163,21 +171,21 @@ struct RootTabView: View {
         if case .scan = route,
            self.selectedTab == .scan,
            self.pendingDeepLinkTask == nil,
-           Self.lastGlobalNormalizedDeepLinkSignature == signature {
+           self.lastNormalizedDeepLinkSignature == signature {
             return
         }
         if self.pendingDeepLinkTask != nil,
-           Self.lastGlobalNormalizedDeepLinkSignature == signature {
+           self.lastNormalizedDeepLinkSignature == signature {
             return
         }
-        if let lastDeepLinkSignature = Self.lastGlobalNormalizedDeepLinkSignature,
-           let lastDeepLinkHandledAt = Self.lastGlobalNormalizedDeepLinkHandledAt,
+        if let lastDeepLinkSignature = self.lastNormalizedDeepLinkSignature,
+           let lastDeepLinkHandledAt = self.lastNormalizedDeepLinkHandledAt,
            lastDeepLinkSignature == signature,
            now.timeIntervalSince(lastDeepLinkHandledAt) < deepLinkDedupInterval {
             return
         }
-        Self.lastGlobalNormalizedDeepLinkSignature = signature
-        Self.lastGlobalNormalizedDeepLinkHandledAt = now
+        self.lastNormalizedDeepLinkSignature = signature
+        self.lastNormalizedDeepLinkHandledAt = now
         switch route {
         case let .scan(openComposer, draftID):
             selectedTab = .scan
@@ -228,10 +236,17 @@ struct RootTabView: View {
                presentedDraftID.caseInsensitiveCompare(draftID.uuidString) == .orderedSame {
                 return true
             }
+            if let preferredDraftID = defaults.string(forKey: self.preferredDraftDefaultsKey),
+               preferredDraftID.caseInsensitiveCompare(draftID.uuidString) == .orderedSame {
+                return true
+            }
             return false
         }
 
         guard openComposer else { return false }
+        if defaults.bool(forKey: self.captureFlowBusyDefaultsKey) {
+            return true
+        }
         return defaults.bool(forKey: self.pendingOpenComposerDefaultsKey)
     }
 
@@ -324,6 +339,25 @@ struct RootTabView: View {
         )
     }
 
+    @MainActor
+    private func scheduleInventorySync(trigger: InventorySyncTrigger, force: Bool = false) {
+        self.inventorySyncTask?.cancel()
+        self.inventorySyncTask = Task { @MainActor in
+            defer { self.inventorySyncTask = nil }
+            guard !Task.isCancelled else { return }
+
+            let now = self.environment.dateProvider.now
+            _ = await self.environment.inventorySyncCoordinator.runScheduledPull(
+                trigger: trigger,
+                now: now,
+                force: force
+            ) { _ in
+                let orders = try await self.environment.orderRepository.fetchOrders()
+                return InventorySyncPullPayload(orders: orders)
+            }
+        }
+    }
+
     private func liveActivityCandidate(
         from drafts: [ReviewDraftSnapshot],
         now: Date
@@ -370,7 +404,10 @@ struct RootTabView: View {
 
     private func isDraftEligibleForGlobalLiveActivity(_ draft: ReviewDraftSnapshot, now: Date) -> Bool {
         switch draft.workflowState {
-        case .reviewReady, .reviewEdited, .submitting:
+        case .reviewReady, .reviewEdited:
+            // Keep launch/resume behavior calm: only surface review states that were very recently edited.
+            return now.timeIntervalSince(draft.updatedAt) <= min(draft.liveActivityRecencyWindow, 90)
+        case .submitting:
             return now.timeIntervalSince(draft.updatedAt) <= draft.liveActivityRecencyWindow
         case .scanning, .ocrReview, .parsing:
             // Global sync runs outside the scan tab; keep only resumable review/submission states here.

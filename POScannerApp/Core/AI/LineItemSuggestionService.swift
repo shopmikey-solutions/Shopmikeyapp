@@ -110,6 +110,10 @@ final class LineItemSuggestionService {
             addScore(.part, amount: 0.16, reason: "contains part term '\(term)'")
         }
 
+        for phrase in partPhraseSignals where joinedContext.contains(phrase) {
+            addScore(.part, amount: 0.28, reason: "matches part phrase '\(phrase)'")
+        }
+
         if hasBatterySignal {
             addScore(.part, amount: 0.30, reason: "contains battery term")
         }
@@ -117,6 +121,13 @@ final class LineItemSuggestionService {
         let suggestedPartNumber = suggestedPartNumber(from: normalizedDescription, explicitPartNumber: partNumber)
         if let suggestedPartNumber, !suggestedPartNumber.isEmpty {
             addScore(.part, amount: 0.40, reason: "has part-number token '\(suggestedPartNumber)'")
+        }
+
+        let partTermHitCount = partSignals.reduce(into: 0) { partial, term in
+            if joinedContext.contains(term) { partial += 1 }
+        }
+        if partTermHitCount >= 2 {
+            addScore(.part, amount: 0.20, reason: "contains multiple part signals")
         }
 
         let rankedKinds = scores
@@ -369,9 +380,14 @@ private extension LineItemSuggestionService {
         "part",
         "battery",
         "filter",
+        "spark",
+        "plug",
         "pad",
         "rotor",
         "brake",
+        "axle",
+        "clutch",
+        "flywheel",
         "compressor",
         "assembly",
         "kit",
@@ -385,8 +401,21 @@ private extension LineItemSuggestionService {
         "gasket",
         "hub",
         "bearing",
+        "belt",
+        "tensioner",
         "alternator",
-        "starter"
+        "starter",
+        "remanufactured"
+    ]
+
+    static let partPhraseSignals: [String] = [
+        "cv axle",
+        "clutch kit",
+        "spark plug",
+        "drive belt tensioner",
+        "performance axle",
+        "drive axle",
+        "solid flywheel"
     ]
 
     static func normalizeWhitespace(_ value: String) -> String {
@@ -422,7 +451,8 @@ private extension LineItemSuggestionService {
         let explicit = normalizeWhitespace(explicitPartNumber ?? "").uppercased()
         if !explicit.isEmpty {
             let normalized = normalizePartNumberToken(explicit)
-            if scoreForPartNumberCandidate(normalized, in: source) >= 24 {
+            if isLikelyExplicitPartNumberToken(normalized)
+                || scoreForPartNumberCandidate(normalized, in: source) >= 24 {
                 return normalized
             }
         }
@@ -445,9 +475,18 @@ private extension LineItemSuggestionService {
         for raw in rawTokens {
             let token = normalizePartNumberToken(raw)
             guard token.count >= 4 else { continue }
-            guard token.rangeOfCharacter(from: .letters) != nil else { continue }
-            guard token.rangeOfCharacter(from: .decimalDigits) != nil else { continue }
-            guard token.rangeOfCharacter(from: CharacterSet.decimalDigits.inverted) != nil else { continue }
+            let hasLetters = token.rangeOfCharacter(from: .letters) != nil
+            let hasDigits = token.rangeOfCharacter(from: .decimalDigits) != nil
+            guard hasDigits else { continue }
+            let hasNonDigits = token.rangeOfCharacter(from: CharacterSet.decimalDigits.inverted) != nil
+
+            let isNumericHyphenCode = token.range(
+                of: #"^\d{2,6}-\d{2,6}$"#,
+                options: .regularExpression
+            ) != nil
+            if !hasLetters && !(hasNonDigits && isNumericHyphenCode) {
+                continue
+            }
 
             let score = scoreForPartNumberCandidate(token, in: source)
             if let best, best.score > score {
@@ -466,6 +505,26 @@ private extension LineItemSuggestionService {
             .uppercased()
     }
 
+    private static func isLikelyExplicitPartNumberToken(_ token: String) -> Bool {
+        guard token.count >= 4 else { return false }
+        guard token.rangeOfCharacter(from: .decimalDigits) != nil else { return false }
+        guard firstTireSize(in: token) == nil else { return false }
+        guard token.range(of: #"^[A-Z0-9-]{4,}$"#, options: .regularExpression) != nil else {
+            return false
+        }
+
+        let disallowed: Set<String> = [
+            "QTY",
+            "EA",
+            "PCS",
+            "TOTAL",
+            "SUBTOTAL",
+            "ORDER",
+            "LINE"
+        ]
+        return !disallowed.contains(token)
+    }
+
     private static func scoreForPartNumberCandidate(_ token: String, in source: String) -> Int {
         guard !token.isEmpty else { return .min }
 
@@ -478,6 +537,7 @@ private extension LineItemSuggestionService {
         if token.contains("-") { score += 28 }
         if token.range(of: #"^[A-Z]{2,8}[-][A-Z0-9-]{2,}$"#, options: .regularExpression) != nil { score += 24 }
         if token.range(of: #"^[A-Z]{1,6}\d[A-Z0-9-]{1,}$"#, options: .regularExpression) != nil { score += 18 }
+        if token.range(of: #"^\d{2,6}-\d{2,6}$"#, options: .regularExpression) != nil { score += 16 }
         if token.range(of: #"[A-Z]"#, options: .regularExpression) != nil { score += 8 }
         if token.range(of: #"\d"#, options: .regularExpression) != nil { score += 8 }
 

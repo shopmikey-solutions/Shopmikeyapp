@@ -410,6 +410,11 @@ final class PartsIntakeLiveActivityManager {
         preferredDraftID: UUID?
     ) -> Bool {
         guard let nextDraftID else { return false }
+        guard let previousDraftID else {
+            // When capture starts from composer (no draft ID yet), do not let stale preferred
+            // review drafts immediately override the in-flight capture activity.
+            return false
+        }
         if previousDraftID == nextDraftID {
             return true
         }
@@ -576,6 +581,19 @@ enum PartsIntakeLiveActivityBridge {
             cancelDeferredSync()
         }
 
+        if isActive && isImmediateInFlightStage(stageToken) {
+            cancelDeferredSync()
+            dispatchToManager(
+                isActive: isActive,
+                statusText: statusText,
+                detailText: detailText,
+                progress: progress,
+                deepLinkURL: deepLinkURL,
+                stageToken: stageToken
+            )
+            return
+        }
+
         if isActive && !readyForForegroundSync() {
             queueDeferredSync(
                 PendingSyncPayload(
@@ -666,6 +684,20 @@ enum PartsIntakeLiveActivityBridge {
     private static func remainingGateDelay() -> TimeInterval {
         guard let firstForegroundSyncAt else { return startupGateInterval }
         return max(0, startupGateInterval - Date().timeIntervalSince(firstForegroundSyncAt))
+    }
+
+    @MainActor
+    private static func isImmediateInFlightStage(_ stageToken: String?) -> Bool {
+        guard let stageToken else { return false }
+        let normalized = stageToken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch normalized {
+        case "capture", "ocr", "parse":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func dispatchToManager(

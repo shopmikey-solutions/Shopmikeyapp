@@ -61,6 +61,7 @@ private func fetchVendors(in context: NSManagedObjectContext) throws -> [Vendor]
     return try context.fetch(request)
 }
 
+@Suite(.serialized)
 struct VendorDedupTests {
     @Test func normalizationCollapsesWhitespaceAndCase() async throws {
         #expect(" ACME   Parts ".normalizedVendorName == "acme parts")
@@ -200,7 +201,7 @@ struct VendorDedupTests {
         #expect(api.searchCalls == 1)
         #expect(api.createCalls == 0)
         #expect(api.createPartCalls == 0)
-        #expect(result.message == "Select an existing vendor from suggestions before submitting.")
+        #expect(result.message == "Select or create a vendor before submitting.")
 
         let cached = try fetchVendors(in: controller.viewContext)
         #expect(cached.isEmpty)

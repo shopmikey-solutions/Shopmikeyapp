@@ -37,8 +37,11 @@ private final class StubURLProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+@Suite(.serialized)
 struct APIClientRetryAfterTests {
     @Test func retriesOnceOn429ThenThrowsRateLimited() async throws {
+        StubURLProtocol.requestHandler = nil
+        defer { StubURLProtocol.requestHandler = nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -94,6 +97,8 @@ struct APIClientRetryAfterTests {
     }
 
     @Test func retriesOnceOnTransientGetServerErrorThenSucceeds() async throws {
+        StubURLProtocol.requestHandler = nil
+        defer { StubURLProtocol.requestHandler = nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -153,6 +158,8 @@ struct APIClientRetryAfterTests {
     }
 
     @Test func doesNotRetryPostOnTransientServerError() async throws {
+        StubURLProtocol.requestHandler = nil
+        defer { StubURLProtocol.requestHandler = nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -211,6 +218,8 @@ struct APIClientRetryAfterTests {
     }
 
     @Test func retriesOnceOnTransientGetNetworkErrorThenSucceeds() async throws {
+        StubURLProtocol.requestHandler = nil
+        defer { StubURLProtocol.requestHandler = nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         let session = URLSession(configuration: configuration)

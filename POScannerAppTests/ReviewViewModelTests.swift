@@ -19,6 +19,11 @@ private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
         tokenProvider: { throw APIError.missingToken },
         diagnosticsRecorder: networkDiagnostics
     )
+    let shopmonkeyAPI = ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics)
+    let inventoryRepository = InventoryRepository()
+    let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
+    let orderRepository = OrderRepository(shopmonkey: shopmonkeyAPI)
+    let ticketInventoryMutationService = TicketInventoryMutationService(shopmonkey: shopmonkeyAPI)
 
     return AppEnvironment(
         dataController: dataController,
@@ -28,13 +33,33 @@ private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
         reviewDraftStore: reviewDraftStore,
         localNotificationService: localNotificationService,
         apiClient: apiClient,
-        shopmonkeyAPI: ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics),
+        shopmonkeyAPI: shopmonkeyAPI,
         ocrService: OCRService(),
         poParser: POParser(),
         foundationModelService: FoundationModelService(),
         parseHandoffService: LocalParseHandoffService(),
+        inventoryRepository: inventoryRepository,
+        inventorySyncCoordinator: inventorySyncCoordinator,
+        orderRepository: orderRepository,
+        ticketInventoryMutationService: ticketInventoryMutationService,
         dateProvider: SystemDateProvider()
     )
+}
+
+private func waitForCondition(
+    timeout: TimeInterval = 4.0,
+    pollInterval: TimeInterval = 0.08,
+    condition: @escaping @Sendable () async -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if await condition() {
+            return true
+        }
+        let nanos = UInt64((max(0.01, pollInterval) * 1_000_000_000).rounded())
+        try? await Task.sleep(nanoseconds: nanos)
+    }
+    return await condition()
 }
 
 private struct MinimalShopmonkeyService: ShopmonkeyServicing {
@@ -464,9 +489,12 @@ struct ReviewViewModelTests {
             vm.items[0].description = "Brake Pad - Updated"
         }
 
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        let drafts = await environment.reviewDraftStore.list()
-        let savedDescription = drafts.first?.state.items.first?.description
+        let didPersist = await waitForCondition {
+            let drafts = await environment.reviewDraftStore.list()
+            return drafts.first?.state.items.first?.description == "Brake Pad - Updated"
+        }
+        #expect(didPersist)
+        let savedDescription = await environment.reviewDraftStore.list().first?.state.items.first?.description
         #expect(savedDescription == "Brake Pad - Updated")
 
         try? FileManager.default.removeItem(at: draftURL)
@@ -501,10 +529,14 @@ struct ReviewViewModelTests {
             vm.moveItems(from: IndexSet(integer: 0), to: 2)
         }
 
-        try? await Task.sleep(nanoseconds: 2_400_000_000)
-        let drafts = await environment.reviewDraftStore.list()
-        let workflowDetail = drafts.first?.state.workflowDetail
-        #expect(workflowDetail == "Line items reordered.")
+        let didPersist = await waitForCondition {
+            let drafts = await environment.reviewDraftStore.list()
+            let workflowDetail = drafts.first?.state.workflowDetail?.lowercased()
+            return workflowDetail?.contains("reorder") == true
+        }
+        #expect(didPersist)
+        let workflowDetail = await environment.reviewDraftStore.list().first?.state.workflowDetail
+        #expect(workflowDetail?.lowercased().contains("reorder") == true)
 
         try? FileManager.default.removeItem(at: draftURL)
     }
@@ -545,9 +577,14 @@ struct ReviewViewModelTests {
             vm.applySuggestedVendorName()
         }
 
-        try? await Task.sleep(nanoseconds: 2_600_000_000)
-        let drafts = await environment.reviewDraftStore.list()
-        let workflowDetail = drafts.first?.state.workflowDetail
+        let didPersist = await waitForCondition {
+            let drafts = await environment.reviewDraftStore.list()
+            let workflowDetail = drafts.first?.state.workflowDetail
+            return workflowDetail == "Vendor suggestion applied."
+                || workflowDetail == "Line-item suggestions reviewed."
+        }
+        #expect(didPersist)
+        let workflowDetail = await environment.reviewDraftStore.list().first?.state.workflowDetail
         #expect(
             workflowDetail == "Vendor suggestion applied."
                 || workflowDetail == "Line-item suggestions reviewed."

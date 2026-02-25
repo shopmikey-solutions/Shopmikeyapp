@@ -77,9 +77,32 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    func removeKey() {
+    func removeKey() async {
         guard beginKeyAction(.removing) else { return }
         defer { endKeyAction(.removing) }
+
+        guard hasSavedKey else {
+            setTransientKeyStatus("No key available.")
+            return
+        }
+
+        do {
+            _ = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
+                reason: "Authenticate to remove your Shopmonkey API key.",
+                preferCached: false
+            )
+        } catch let error as SecureStorage.SecureStorageError {
+            switch error {
+            case .userCancelled:
+                setTransientKeyStatus("Authentication cancelled.")
+            case .authenticationFailed, .biometricsUnavailable:
+                setTransientKeyStatus("Authentication failed.")
+            }
+            return
+        } catch {
+            setTransientKeyStatus("Authentication failed.")
+            return
+        }
 
         do {
             try environment.keychainService.deleteToken()
@@ -96,34 +119,29 @@ final class SettingsViewModel: ObservableObject {
         guard beginKeyAction(.verifying) else { return nil }
         defer { endKeyAction(.verifying) }
 
-        if isBiometricRequired {
-            do {
-                let token = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
-                    reason: "Authenticate to access your Shopmonkey API key."
-                )
-                setTransientKeyStatus("Stored key is available.")
-                return token
-            } catch let error as SecureStorage.SecureStorageError {
-                switch error {
-                case .userCancelled:
-                    setTransientKeyStatus("Authentication cancelled.")
-                case .authenticationFailed, .biometricsUnavailable:
-                    setTransientKeyStatus("Authentication failed.")
-                }
-                return nil
-            } catch {
+        guard hasSavedKey else {
+            setTransientKeyStatus("No key available.")
+            return nil
+        }
+
+        do {
+            let token = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
+                reason: "Authenticate to access your Shopmonkey API key.",
+                preferCached: false
+            )
+            setTransientKeyStatus("Stored key is available.")
+            return token
+        } catch let error as SecureStorage.SecureStorageError {
+            switch error {
+            case .userCancelled:
+                setTransientKeyStatus("Authentication cancelled.")
+            case .authenticationFailed, .biometricsUnavailable:
                 setTransientKeyStatus("Authentication failed.")
-                return nil
             }
-        } else {
-            do {
-                let token = try environment.keychainService.retrieveToken()
-                setTransientKeyStatus("Stored key is available.")
-                return token
-            } catch {
-                setTransientKeyStatus("No key available.")
-                return nil
-            }
+            return nil
+        } catch {
+            setTransientKeyStatus("Authentication failed.")
+            return nil
         }
     }
 
@@ -227,14 +245,36 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func pasteAPIKeyFromClipboard() -> Bool {
+        #if canImport(UIKit)
+        let pastedValue = UIPasteboard.general.string?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !pastedValue.isEmpty else {
+            setTransientKeyStatus("Clipboard is empty.")
+            return false
+        }
+        pastedKey = pastedValue
+        return true
+        #else
+        setTransientKeyStatus("Clipboard is unavailable on this platform.")
+        return false
+        #endif
+    }
+
     func testConnection() async {
         isTestingConnection = true
         connectivityStatusMessage = nil
 
         do {
             try storeTokenFromInputIfNeeded()
+            try await authenticateForConnectivityAction(
+                reason: "Authenticate to verify your Shopmonkey connection."
+            )
             try await environment.shopmonkeyAPI.testConnection()
             connectivityStatusMessage = "Shopmonkey connection verified."
+        } catch let error as SecureStorage.SecureStorageError {
+            connectivityStatusMessage = connectivityAuthMessage(for: error)
         } catch {
             connectivityStatusMessage = userMessage(for: error)
         }
@@ -250,6 +290,9 @@ final class SettingsViewModel: ObservableObject {
 
         do {
             try storeTokenFromInputIfNeeded()
+            try await authenticateForConnectivityAction(
+                reason: "Authenticate to run Shopmonkey endpoint diagnostics."
+            )
             let report = try await environment.shopmonkeyAPI.runEndpointProbe()
             endpointProbeReport = report
 
@@ -258,6 +301,8 @@ final class SettingsViewModel: ObservableObject {
             } else {
                 connectivityStatusMessage = "Probe complete: purchase-order routes not fully confirmed."
             }
+        } catch let error as SecureStorage.SecureStorageError {
+            connectivityStatusMessage = connectivityAuthMessage(for: error)
         } catch {
             connectivityStatusMessage = userMessage(for: error)
         }
@@ -338,5 +383,22 @@ final class SettingsViewModel: ObservableObject {
     private func endKeyAction(_ action: KeyAction) {
         guard activeKeyAction == action else { return }
         activeKeyAction = nil
+    }
+
+    private func authenticateForConnectivityAction(reason: String) async throws {
+        guard hasSavedKey else { return }
+        _ = try await environment.secureStorage.retrieveTokenRequiringAuthentication(
+            reason: reason,
+            preferCached: false
+        )
+    }
+
+    private func connectivityAuthMessage(for error: SecureStorage.SecureStorageError) -> String {
+        switch error {
+        case .userCancelled:
+            return "Authentication cancelled."
+        case .authenticationFailed, .biometricsUnavailable:
+            return "Authentication failed."
+        }
     }
 }

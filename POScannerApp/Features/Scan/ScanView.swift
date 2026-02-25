@@ -55,6 +55,7 @@ struct ScanView: View {
     @State private var lastResumeDraftRequestAt: Date?
     @State private var activeResumeDraftID: UUID?
     @State private var captureFlowIntentStartedAt: Date?
+    @State private var lastCaptureSourceSheetDismissedAt: Date?
     @State private var deepLinkResumeTask: Task<Void, Never>?
     @State private var deepLinkConsumeTask: Task<Void, Never>?
     @StateObject private var viewModel: ScanViewModel
@@ -64,6 +65,8 @@ struct ScanView: View {
     private let activePresentedScanDraftDefaultsKey = "activePresentedScanDraftID"
     private let pendingResumeDraftDefaultsKey = "pendingResumeDraftID"
     private let pendingOpenComposerDefaultsKey = "pendingOpenScanComposer"
+    private let captureFlowBusyDefaultsKey = "activeScanCaptureFlowTransition"
+    private let captureSourceSheetDismissCooldown: TimeInterval = 0.75
 
     private var captureFlowActivityState: CaptureFlowActivityState {
         CaptureFlowActivityState(
@@ -84,7 +87,7 @@ struct ScanView: View {
         .listStyle(.insetGrouped)
         .nativeListSurface()
         .refreshable {
-            self.viewModel.loadTodayMetrics()
+            await self.viewModel.performManualDashboardRefresh()
         }
         .sensoryFeedback(.selection, trigger: ignoreTaxAndTotals)
         .navigationTitle("ShopMikey")
@@ -162,6 +165,7 @@ struct ScanView: View {
         }
         .onAppear {
             guard self.isTabActive else { return }
+            self.updateCaptureFlowBusyMarker()
             self.scheduleInitialDashboardRefresh(force: true)
             self.scheduleConsumePendingDeepLinkRequests(after: 140_000_000)
             self.updatePresentedDraftMarker()
@@ -179,14 +183,17 @@ struct ScanView: View {
             self.deepLinkConsumeTask = nil
             self.activeResumeDraftID = nil
             UserDefaults.standard.removeObject(forKey: self.activePresentedScanDraftDefaultsKey)
+            UserDefaults.standard.removeObject(forKey: self.captureFlowBusyDefaultsKey)
         }
         .onChange(of: isTabActive) { _, active in
             if active {
+                self.updateCaptureFlowBusyMarker()
                 self.scheduleInitialDashboardRefresh()
                 self.scheduleDraftStoreRefresh()
                 self.syncLiveActivity()
                 self.scheduleConsumePendingDeepLinkRequests(after: 140_000_000)
             } else {
+                UserDefaults.standard.removeObject(forKey: self.captureFlowBusyDefaultsKey)
                 self.initialLoadTask?.cancel()
                 self.initialLoadTask = nil
                 self.draftStoreRefreshTask?.cancel()
@@ -204,6 +211,7 @@ struct ScanView: View {
             }
         }
         .onChange(of: viewModel.isProcessing) { oldValue, newValue in
+            self.updateCaptureFlowBusyMarker()
             if self.isTabActive || oldValue || newValue || self.lastLiveActivitySignature != nil {
                 self.syncLiveActivity()
             }
@@ -228,12 +236,18 @@ struct ScanView: View {
             Task { await self.importPhoto(item) }
         }
         .onChange(of: captureFlowActivityState) { _, _ in
+            self.updateCaptureFlowBusyMarker()
             self.syncLiveActivity()
             self.clearCaptureFlowIntentIfIdle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .appOpenScanComposer)) { _ in
             Task { @MainActor in
                 await Task.yield()
+                if let lastCaptureSourceSheetDismissedAt = self.lastCaptureSourceSheetDismissedAt,
+                   Date().timeIntervalSince(lastCaptureSourceSheetDismissedAt) < self.captureSourceSheetDismissCooldown {
+                    UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+                    return
+                }
                 if self.canPresentCaptureFlow {
                     UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
                     UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
@@ -512,8 +526,10 @@ struct ScanView: View {
     private func presentCaptureFlow() {
         guard self.canPresentCaptureFlow else { return }
         Self.logger.debug("Capture flow requested from scan surface.")
+        self.clearPendingScanDeepLinkIntents()
         self.captureFlowIntentStartedAt = self.captureFlowIntentStartedAt ?? Date()
         self.viewModel.prepareForNewCaptureSession()
+        self.updateCaptureFlowBusyMarker()
         AppHaptics.impact(.medium, intensity: 0.9)
         self.presentCaptureSourcePicker()
         self.syncLiveActivity()
@@ -529,6 +545,8 @@ struct ScanView: View {
     private func handleCaptureSourceSheetDismissed() {
         guard let pendingCaptureSource else {
             Self.logger.debug("Capture source sheet dismissed without selection.")
+            self.lastCaptureSourceSheetDismissedAt = Date()
+            self.clearPendingScanDeepLinkIntents()
             self.clearCaptureFlowIntentIfIdle()
             return
         }
@@ -599,6 +617,10 @@ struct ScanView: View {
         guard !self.isReviewFlowPresented else { return }
         guard !self.isCaptureFlowTransitionActive else { return }
         guard !self.showSourceSheet, !self.showPhotoPicker, !self.showScanner else { return }
+        if let lastCaptureSourceSheetDismissedAt = self.lastCaptureSourceSheetDismissedAt,
+           Date().timeIntervalSince(lastCaptureSourceSheetDismissedAt) < self.captureSourceSheetDismissCooldown {
+            return
+        }
 
         let defaults = UserDefaults.standard
 
@@ -1274,6 +1296,19 @@ struct ScanView: View {
         guard !self.isImportingPhoto else { return }
         guard !self.viewModel.isProcessing else { return }
         self.captureFlowIntentStartedAt = nil
+        self.viewModel.markCaptureFlowSessionPending(false)
+        self.updateCaptureFlowBusyMarker()
+    }
+
+    @MainActor
+    private func clearPendingScanDeepLinkIntents() {
+        UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
+    }
+
+    @MainActor
+    private func updateCaptureFlowBusyMarker() {
+        UserDefaults.standard.set(self.isCaptureFlowTransitionActive, forKey: self.captureFlowBusyDefaultsKey)
     }
 
     @MainActor

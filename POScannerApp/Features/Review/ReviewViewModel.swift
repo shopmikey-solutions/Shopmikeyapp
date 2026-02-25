@@ -1549,15 +1549,31 @@ final class ReviewViewModel: ObservableObject {
         guard hasMeaningfulDraftContent else { return }
 
         let fingerprint = draftFingerprint
-        guard lastDraftFingerprint != fingerprint else {
-            if let workflowDetail,
-               pendingDraftWorkflowDetail == workflowDetail {
-                pendingDraftWorkflowDetail = nil
+        let resolvedWorkflowDetail = pendingDraftWorkflowDetail ?? workflowDetail
+
+        if lastDraftFingerprint == fingerprint {
+            let shouldPersistDetailOnlyUpdate: Bool
+            if let requestedDetail = trimmedOrNil(resolvedWorkflowDetail) {
+                if let activeDraftID,
+                   let existingSnapshot = await environment.reviewDraftStore.load(id: activeDraftID) {
+                    let existingDetail = trimmedOrNil(existingSnapshot.state.workflowDetail)
+                    shouldPersistDetailOnlyUpdate = existingDetail != requestedDetail
+                } else {
+                    shouldPersistDetailOnlyUpdate = true
+                }
+            } else {
+                shouldPersistDetailOnlyUpdate = false
             }
-            return
+
+            guard shouldPersistDetailOnlyUpdate else {
+                if let workflowDetail,
+                   pendingDraftWorkflowDetail == workflowDetail {
+                    pendingDraftWorkflowDetail = nil
+                }
+                return
+            }
         }
 
-        let resolvedWorkflowDetail = pendingDraftWorkflowDetail ?? workflowDetail
         let persistedSnapshot = try? await persistDraft(
             showStatusMessage: false,
             workflowState: workflowState,

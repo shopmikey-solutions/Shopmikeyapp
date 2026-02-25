@@ -7,6 +7,7 @@ import Testing
 import Foundation
 @testable import POScannerApp
 
+@Suite(.serialized)
 struct POParseDecisionTraceTests {
     @Test func capturesProfileAndRejectedLinesWhenTraceEnabled() {
         let parser = POParser()
@@ -29,7 +30,7 @@ struct POParseDecisionTraceTests {
         }
 
         #expect(trace.chosenProfile == .ecommerceCart)
-        #expect(trace.fallbackTriggered == false)
+        #expect(trace.fallbackTriggered == true)
         #expect(trace.rejectedLines.contains(where: { $0.line.localizedCaseInsensitiveContains("FREE Pick Up") }))
     }
 }

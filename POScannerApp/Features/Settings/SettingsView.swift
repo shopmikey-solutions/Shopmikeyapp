@@ -4,13 +4,14 @@
 //
 
 import SwiftUI
-import UIKit
 
 struct SettingsView: View {
     @AppStorage("saveHistoryEnabled") private var saveHistoryEnabled: Bool = true
     @AppStorage("scanLiveActivitiesEnabled") private var scanLiveActivitiesEnabled: Bool = true
     @AppStorage("scanWidgetRefreshEnabled") private var scanWidgetRefreshEnabled: Bool = true
     @AppStorage(LocalNotificationService.enabledKey) private var scanLocalNotificationsEnabled: Bool = true
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var viewModel: SettingsViewModel
     @State private var showsAPIKeyEditor: Bool = false
 
@@ -164,15 +165,15 @@ struct SettingsView: View {
             .disabled(viewModel.activeKeyAction != nil)
             .accessibilityIdentifier("settings.pasteApiKeyButton")
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
+            if shouldStackAPIKeyEditorActions {
+                VStack(alignment: .leading, spacing: 8) {
                     saveAPIKeyButton
                     if viewModel.hasSavedKey {
                         cancelEditingAPIKeyButton
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 8) {
+            } else {
+                HStack(spacing: 12) {
                     saveAPIKeyButton
                     if viewModel.hasSavedKey {
                         cancelEditingAPIKeyButton
@@ -364,6 +365,10 @@ struct SettingsView: View {
         }
     }
 
+    private var shouldStackAPIKeyEditorActions: Bool {
+        dynamicTypeSize >= .accessibility1 || horizontalSizeClass == .compact
+    }
+
     private func preferenceToggle(
         title: String,
         isOn: Binding<Bool>,
@@ -390,15 +395,11 @@ struct SettingsView: View {
     }
 
     private func pasteAPIKeyFromClipboard() {
-        let pastedValue = UIPasteboard.general.string?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !pastedValue.isEmpty else {
-            self.viewModel.keyStatusMessage = "Clipboard is empty."
+        if self.viewModel.pasteAPIKeyFromClipboard() {
+            AppHaptics.selection()
+        } else {
             AppHaptics.warning()
-            return
         }
-        self.viewModel.pastedKey = pastedValue
-        AppHaptics.selection()
     }
 
 }
@@ -461,9 +462,13 @@ private struct SettingsAPIKeyActionsView: View {
             Section {
                 Button(role: .destructive) {
                     AppHaptics.warning()
-                    viewModel.removeKey()
-                    onRemoveKey()
-                    dismiss()
+                    Task {
+                        await viewModel.removeKey()
+                        if !viewModel.hasSavedKey {
+                            onRemoveKey()
+                            dismiss()
+                        }
+                    }
                 } label: {
                     if viewModel.activeKeyAction == .removing {
                         Label("Removing…", systemImage: "hourglass")

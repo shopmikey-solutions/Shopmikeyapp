@@ -30,6 +30,27 @@ enum ParserNoiseTaxonomy {
         "arrange a return"
     ]
 
+    // Checkout/cart-summary rail content that should never be treated as item detail.
+    static let ecommerceCheckoutRailContainsKeywords: [String] = [
+        "cart summary",
+        "item subtotal",
+        "total discounts",
+        "applied deal",
+        "apply promo code",
+        "o'rewards reward",
+        "core charges",
+        "est. total",
+        "continue to checkout",
+        "pay with",
+        "available payment methods",
+        "pickup at",
+        "have questions or need help",
+        "shipping estimates",
+        "privacy policy",
+        "calculated at checkout",
+        "code apply"
+    ]
+
     // Legal/compliance footer lines that should be filtered from item parsing.
     static let legalComplianceContainsKeywords: [String] = [
         "p65warnings",

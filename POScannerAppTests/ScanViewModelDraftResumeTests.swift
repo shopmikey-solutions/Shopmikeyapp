@@ -19,6 +19,11 @@ private func makeScanTestEnvironment(draftFileURL: URL) -> AppEnvironment {
         tokenProvider: { throw APIError.missingToken },
         diagnosticsRecorder: networkDiagnostics
     )
+    let shopmonkeyAPI = ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics)
+    let inventoryRepository = InventoryRepository()
+    let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
+    let orderRepository = OrderRepository(shopmonkey: shopmonkeyAPI)
+    let ticketInventoryMutationService = TicketInventoryMutationService(shopmonkey: shopmonkeyAPI)
 
     return AppEnvironment(
         dataController: dataController,
@@ -28,11 +33,15 @@ private func makeScanTestEnvironment(draftFileURL: URL) -> AppEnvironment {
         reviewDraftStore: reviewDraftStore,
         localNotificationService: localNotificationService,
         apiClient: apiClient,
-        shopmonkeyAPI: ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics),
+        shopmonkeyAPI: shopmonkeyAPI,
         ocrService: OCRService(),
         poParser: POParser(),
         foundationModelService: FoundationModelService(),
         parseHandoffService: LocalParseHandoffService(),
+        inventoryRepository: inventoryRepository,
+        inventorySyncCoordinator: inventorySyncCoordinator,
+        orderRepository: orderRepository,
+        ticketInventoryMutationService: ticketInventoryMutationService,
         dateProvider: SystemDateProvider()
     )
 }
@@ -149,5 +158,26 @@ struct ScanViewModelDraftResumeTests {
         #expect(resumed == false)
         #expect(viewModel.activeWorkflowDraftIDForLiveActivity == nil)
     }
-}
 
+    @MainActor
+    @Test func captureFlowPendingPreventsAutoSelectingOlderDraft() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scan_resume_pending_capture_\(UUID().uuidString).json")
+        let environment = makeScanTestEnvironment(draftFileURL: fileURL)
+        let draft = makeDraftSnapshot(workflowState: .reviewReady)
+        try await environment.reviewDraftStore.upsert(draft)
+
+        let viewModel = ScanViewModel(environment: environment)
+        viewModel.markCaptureFlowSessionPending(true)
+        viewModel.loadInProgressDrafts(force: true)
+        try? await Task.sleep(nanoseconds: 220_000_000)
+
+        #expect(viewModel.activeWorkflowDraftIDForLiveActivity == nil)
+
+        viewModel.markCaptureFlowSessionPending(false)
+        viewModel.loadInProgressDrafts(force: true)
+        try? await Task.sleep(nanoseconds: 220_000_000)
+
+        #expect(viewModel.activeWorkflowDraftIDForLiveActivity == draft.id)
+    }
+}

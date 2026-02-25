@@ -15,6 +15,15 @@ import os
 @MainActor
 final class ScanViewModel: ObservableObject {
     private static let logger = Logger(subsystem: "com.mikey.POScannerApp", category: "Startup.Scan")
+    private nonisolated static let fallbackRenderableImage: UIImage = {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = true
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1), format: format).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+    }()
 
     enum ProcessingStage: String {
         case extractingText = "Reading parts invoice"
@@ -95,6 +104,7 @@ final class ScanViewModel: ObservableObject {
     private let minimumParseFlowDuration: TimeInterval = 1.80
     private let preferredDraftDefaultsKey = "liveActivityPreferredDraftID"
     private var activeWorkflowDraftID: UUID?
+    private var captureFlowSessionPending: Bool = false
     private var cachedOCRReviewDrafts: [UUID: OCRReviewDraft] = [:]
     private var todayMetricsTask: Task<Void, Never>?
     private var pendingTodayMetricsReload: Bool = false
@@ -152,6 +162,7 @@ final class ScanViewModel: ObservableObject {
     }
 
     func cancelOCRReview() {
+        guard ocrReviewDraft != nil else { return }
         ocrReviewDraft = nil
         Self.logger.debug("OCR review cancelled.")
     }
@@ -163,6 +174,7 @@ final class ScanViewModel: ObservableObject {
             "Continuing from OCR review. draftID=\(draft.draftID.uuidString, privacy: .public) includeBarcodes=\(includeDetectedBarcodes, privacy: .public)"
         )
         activeWorkflowDraftID = draft.draftID
+        captureFlowSessionPending = false
         setPreferredLiveActivityDraftID(draft.draftID)
         cachedOCRReviewDrafts[draft.draftID] = nil
         ocrReviewDraft = nil
@@ -184,8 +196,14 @@ final class ScanViewModel: ObservableObject {
         } else {
             Self.logger.debug("Preparing new capture session.")
         }
+        captureFlowSessionPending = true
         activeWorkflowDraftID = nil
         clearPreferredLiveActivityDraftID()
+    }
+
+    func markCaptureFlowSessionPending(_ pending: Bool) {
+        guard captureFlowSessionPending != pending else { return }
+        captureFlowSessionPending = pending
     }
 
     private func parseReviewedText(
@@ -376,6 +394,7 @@ final class ScanViewModel: ObservableObject {
     func resumeOCRReview(_ draft: ReviewDraftSnapshot) {
         guard let cached = cachedOCRReviewDrafts[draft.id] else { return }
         activeWorkflowDraftID = draft.id
+        captureFlowSessionPending = false
         setPreferredLiveActivityDraftID(draft.id)
         parsedInvoiceRoute = nil
         ocrReviewDraft = cached
@@ -383,6 +402,7 @@ final class ScanViewModel: ObservableObject {
 
     func resumeDraft(_ draft: ReviewDraftSnapshot) {
         activeWorkflowDraftID = draft.id
+        captureFlowSessionPending = false
         setPreferredLiveActivityDraftID(draft.id)
         parsedInvoiceRoute = ParsedInvoiceRoute(invoice: draft.state.parsedInvoice.parsedInvoice, draftSnapshot: draft)
     }
@@ -391,6 +411,7 @@ final class ScanViewModel: ObservableObject {
     func resumeDraft(id: UUID) async -> Bool {
         if parsedInvoiceRoute?.draftSnapshot?.id == id || ocrReviewDraft?.draftID == id {
             activeWorkflowDraftID = id
+            captureFlowSessionPending = false
             setPreferredLiveActivityDraftID(id)
             return true
         }
@@ -440,6 +461,7 @@ final class ScanViewModel: ObservableObject {
         ignoreTaxAndTotals: Bool
     ) async {
         _ = orientation
+        captureFlowSessionPending = false
         activeWorkflowDraftID = UUID()
         if let activeWorkflowDraftID {
             setPreferredLiveActivityDraftID(activeWorkflowDraftID)
@@ -534,10 +556,12 @@ final class ScanViewModel: ObservableObject {
                 return cgImage
             }
 
+            guard let size = sanitizedRenderableSize(from: image.size) else {
+                return fallbackRenderableImage.cgImage
+            }
             let format = UIGraphicsImageRendererFormat.default()
             format.opaque = true
             format.scale = 1
-            let size = CGSize(width: max(1, image.size.width), height: max(1, image.size.height))
             let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
                 image.draw(in: CGRect(origin: .zero, size: size))
             }
@@ -553,17 +577,13 @@ final class ScanViewModel: ObservableObject {
     }
 
     private nonisolated static func normalizedUprightImage(from image: UIImage) -> UIImage {
-        guard image.size.width.isFinite,
-              image.size.height.isFinite,
-              image.size.width > 0,
-              image.size.height > 0 else {
-            return image
+        guard let size = sanitizedRenderableSize(from: image.size) else {
+            return fallbackRenderableImage
         }
         guard image.imageOrientation != .up || image.cgImage == nil else {
             return image
         }
 
-        let size = CGSize(width: image.size.width, height: image.size.height)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = true
         format.scale = image.scale > 0 ? image.scale : 1
@@ -625,21 +645,25 @@ final class ScanViewModel: ObservableObject {
 
     private nonisolated static func makePreviewImage(from image: UIImage, maxDimension: CGFloat = 1800) async -> UIImage {
         await Task.detached(priority: .userInitiated) {
-            let originalSize = image.size
-            guard originalSize.width > 0, originalSize.height > 0 else {
-                return image
+            guard let originalSize = sanitizedRenderableSize(from: image.size) else {
+                return fallbackRenderableImage
             }
 
             let largestSide = max(originalSize.width, originalSize.height)
-            guard largestSide > maxDimension else {
+            guard largestSide.isFinite, largestSide > maxDimension else {
                 return image
             }
 
             let scale = maxDimension / largestSide
-            let targetSize = CGSize(
-                width: max(1, (originalSize.width * scale).rounded(.down)),
-                height: max(1, (originalSize.height * scale).rounded(.down))
-            )
+            guard scale.isFinite, scale > 0 else { return image }
+            guard let targetSize = sanitizedRenderableSize(
+                from: CGSize(
+                    width: originalSize.width * scale,
+                    height: originalSize.height * scale
+                )
+            ) else {
+                return image
+            }
 
             let format = UIGraphicsImageRendererFormat.default()
             format.opaque = true
@@ -648,6 +672,19 @@ final class ScanViewModel: ObservableObject {
                 image.draw(in: CGRect(origin: .zero, size: targetSize))
             }
         }.value
+    }
+
+    private nonisolated static func sanitizedRenderableSize(from size: CGSize) -> CGSize? {
+        guard size.width.isFinite,
+              size.height.isFinite,
+              size.width > 0,
+              size.height > 0 else {
+            return nil
+        }
+        let width = max(1, size.width.rounded(.towardZero))
+        let height = max(1, size.height.rounded(.towardZero))
+        guard width.isFinite, height.isFinite else { return nil }
+        return CGSize(width: width, height: height)
     }
 
     private func ensureMinimumProcessingDuration(since start: Date, minimum: TimeInterval) async {
@@ -962,6 +999,45 @@ final class ScanViewModel: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    @discardableResult
+    func performScheduledInventorySync(
+        trigger: InventorySyncTrigger,
+        force: Bool = false
+    ) async -> InventorySyncRunResult {
+        let coordinator = environment.inventorySyncCoordinator
+        let orderRepository = environment.orderRepository
+        let now = environment.dateProvider.now
+
+        return await coordinator.runScheduledPull(
+            trigger: trigger,
+            now: now,
+            force: force
+        ) { _ in
+            let orders = try await orderRepository.fetchOrders()
+            return InventorySyncPullPayload(orders: orders)
+        }
+    }
+
+    func performManualDashboardRefresh() async {
+        _ = await performScheduledInventorySync(trigger: .manual, force: true)
+        loadInProgressDrafts(force: true)
+        loadTodayMetrics(force: true)
+        await waitForDashboardLoadsToSettle(timeout: 2.4)
+    }
+
+    private func waitForDashboardLoadsToSettle(timeout: TimeInterval) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if todayMetricsTask == nil,
+               inProgressDraftsTask == nil,
+               !isLoadingTodayMetrics,
+               !isLoadingInProgressDrafts {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 80_000_000)
+        }
+    }
+
     func loadTodayMetrics(force: Bool = false) {
         if todayMetricsTask != nil {
             if force && !pendingTodayMetricsReload {
@@ -1147,7 +1223,7 @@ final class ScanViewModel: ObservableObject {
             clearPreferredLiveActivityDraftID()
         }
 
-        if activeWorkflowDraftID == nil, !isProcessing {
+        if activeWorkflowDraftID == nil, !isProcessing, !captureFlowSessionPending {
             if let preferredDraftID = preferredLiveActivityDraftID(),
                let preferredDraft = drafts.first(where: { $0.id == preferredDraftID }),
                isStoredDraftEligibleForLiveActivity(preferredDraft) {

@@ -5,16 +5,86 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_PATH="$ROOT_DIR/Shopmikey.xcodeproj"
 SCHEME_NAME="${SCHEME_NAME:-POScannerApp}"
 RUN_UI_SMOKE="${RUN_UI_SMOKE:-0}"
+CI_ARTIFACTS_DIR="${CI_ARTIFACTS_DIR:-$ROOT_DIR/artifacts/release-gate}"
+CI_XCRESULT_DIR="${CI_XCRESULT_DIR:-$CI_ARTIFACTS_DIR/xcresult}"
+CI_REPORTS_DIR="${CI_REPORTS_DIR:-$CI_ARTIFACTS_DIR/reports}"
+STAGE_STATUS_FILE="${CI_STAGE_STATUS_FILE:-$CI_ARTIFACTS_DIR/stage_status.tsv}"
+BUILD_XCRESULT_PATH="$CI_XCRESULT_DIR/build.xcresult"
+TARGETED_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/targeted-tests.xcresult"
+UNIT_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/unit-tests.xcresult"
+UI_SMOKE_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/ui-smoke-tests.xcresult"
 
 if [[ ! -d "$PROJECT_PATH" ]]; then
   echo "error: missing Xcode project at $PROJECT_PATH" >&2
   exit 1
 fi
 
+mkdir -p "$CI_ARTIFACTS_DIR"
+rm -rf "$CI_XCRESULT_DIR" "$CI_REPORTS_DIR"
+mkdir -p "$CI_XCRESULT_DIR" "$CI_REPORTS_DIR"
+printf "stage\tstatus\tlabel\tresult_bundle\n" > "$STAGE_STATUS_FILE"
+
 log_step() {
   echo
   echo "==> $1"
 }
+
+record_stage_status() {
+  local stage="$1"
+  local status="$2"
+  local label="$3"
+  local result_bundle="$4"
+  printf "%s\t%s\t%s\t%s\n" "$stage" "$status" "$label" "$result_bundle" >> "$STAGE_STATUS_FILE"
+}
+
+run_gate_step() {
+  local stage="$1"
+  local label="$2"
+  local result_bundle="$3"
+  shift 3
+
+  log_step "$label"
+  rm -rf "$result_bundle"
+
+  set +e
+  "$@" -resultBundlePath "$result_bundle"
+  local exit_code=$?
+  set -e
+
+  if [[ "$exit_code" -eq 0 ]]; then
+    record_stage_status "$stage" "passed" "$label" "$result_bundle"
+    return 0
+  fi
+
+  record_stage_status "$stage" "failed" "$label" "$result_bundle"
+  echo "error: $label failed." >&2
+  return "$exit_code"
+}
+
+finalize_release_gate() {
+  local exit_code=$?
+  set +e
+  CI_ARTIFACTS_DIR="$CI_ARTIFACTS_DIR" \
+  CI_XCRESULT_DIR="$CI_XCRESULT_DIR" \
+  CI_REPORTS_DIR="$CI_REPORTS_DIR" \
+  CI_STAGE_STATUS_FILE="$STAGE_STATUS_FILE" \
+  CI_RELEASE_GATE_EXIT_CODE="$exit_code" \
+  CI_RELEASE_GATE_RUN_UI_SMOKE="$RUN_UI_SMOKE" \
+  bash "$ROOT_DIR/scripts/ci_collect_reports.sh"
+  local collect_exit_code=$?
+  set -e
+
+  if [[ "$collect_exit_code" -ne 0 ]]; then
+    echo "warning: failed to collect release gate reports (exit $collect_exit_code)." >&2
+  fi
+
+  if [[ "$exit_code" -ne 0 ]]; then
+    echo
+    echo "Release gate failed."
+  fi
+}
+
+trap finalize_release_gate EXIT
 
 resolve_sim_destination() {
   if [[ -n "${SIM_DESTINATION:-}" ]]; then
@@ -50,43 +120,59 @@ resolve_sim_destination() {
   echo "id=$destination_id"
 }
 
-SIM_DESTINATION_RESOLVED="$(resolve_sim_destination)"
 TEST_PARALLEL_FLAGS=(-parallel-testing-enabled NO -maximum-parallel-testing-workers 1)
 
-log_step "Release gate: build iOS app"
-xcodebuild \
+run_gate_step \
+  "build" \
+  "Release gate: build iOS app" \
+  "$BUILD_XCRESULT_PATH" \
+  xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME_NAME" \
   -configuration Debug \
   -destination "generic/platform=iOS" \
   build
 
-log_step "Release gate: targeted stability tests"
-xcodebuild \
+SIM_DESTINATION_RESOLVED="$(resolve_sim_destination)"
+
+run_gate_step \
+  "targeted-tests" \
+  "Release gate: targeted stability tests" \
+  "$TARGETED_TESTS_XCRESULT_PATH" \
+  xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME_NAME" \
   -destination "$SIM_DESTINATION_RESOLVED" \
+  -enableCodeCoverage YES \
   "${TEST_PARALLEL_FLAGS[@]}" \
   -only-testing:POScannerAppTests/ReviewViewModelTests \
   -only-testing:POScannerAppTests/APIClientRetryAfterTests \
   -only-testing:POScannerAppTests/SandboxInvariantTests \
   test
 
-log_step "Release gate: full unit test suite"
-xcodebuild \
+run_gate_step \
+  "unit-tests" \
+  "Release gate: full unit test suite" \
+  "$UNIT_TESTS_XCRESULT_PATH" \
+  xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME_NAME" \
   -destination "$SIM_DESTINATION_RESOLVED" \
+  -enableCodeCoverage YES \
   "${TEST_PARALLEL_FLAGS[@]}" \
   -only-testing:POScannerAppTests \
   test
 
 if [[ "$RUN_UI_SMOKE" == "1" ]]; then
-  log_step "Release gate: UI smoke tests"
-  xcodebuild \
+  run_gate_step \
+    "ui-smoke-tests" \
+    "Release gate: UI smoke tests" \
+    "$UI_SMOKE_TESTS_XCRESULT_PATH" \
+    xcodebuild \
     -project "$PROJECT_PATH" \
     -scheme "$SCHEME_NAME" \
     -destination "$SIM_DESTINATION_RESOLVED" \
+    -enableCodeCoverage YES \
     "${TEST_PARALLEL_FLAGS[@]}" \
     -only-testing:POScannerAppUITests/POScannerAppUITests/testTabNavigationAndSettingsControls \
     -only-testing:POScannerAppUITests/POScannerAppUITests/testSmokeFlowLaunchToReviewFixtureAndHistory \

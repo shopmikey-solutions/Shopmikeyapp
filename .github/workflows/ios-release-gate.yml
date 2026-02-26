@@ -21,4 +21,21 @@ jobs:
         run: bash scripts/audit_ios_capabilities.sh
 
       - name: Build, Unit, and UI Smoke Release Gate
-        run: RUN_UI_SMOKE=1 bash scripts/ci_release_gate.sh
+        id: release_gate
+        continue-on-error: true
+        run: RUN_UI_SMOKE=1 CI_ARTIFACTS_DIR="$GITHUB_WORKSPACE/artifacts/release-gate" bash scripts/ci_release_gate.sh
+
+      - name: Upload Release Gate Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-artifacts-${{ github.run_id }}
+          path: artifacts/release-gate
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Enforce Release Gate Outcome
+        if: steps.release_gate.outcome == 'failure'
+        run: |
+          echo "Release gate failed. Review uploaded artifacts for test/build failures."
+          exit 1

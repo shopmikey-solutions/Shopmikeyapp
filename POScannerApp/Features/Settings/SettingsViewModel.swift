@@ -21,6 +21,13 @@ final class SettingsViewModel: ObservableObject {
         case removing
     }
 
+    struct FallbackBranchCount: Identifiable, Hashable {
+        let branch: String
+        let count: Int
+
+        var id: String { branch }
+    }
+
     let environment: AppEnvironment
 
     private var keyStatusClearTask: Task<Void, Never>?
@@ -52,11 +59,18 @@ final class SettingsViewModel: ObservableObject {
         guard let lastErrorMessage, let lastDiagnosticID else { return nil }
         return "Error: \(lastErrorMessage) (ID: \(lastDiagnosticID))"
     }
+    @Published var fallbackAnalyticsTotalEvents: Int = 0
+    @Published var fallbackAnalyticsTopBranches: [FallbackBranchCount] = []
+    @Published var fallbackAnalyticsLastBranch: String?
+    @Published var fallbackAnalyticsLastTimestamp: Date?
 
     init(environment: AppEnvironment) {
         self.environment = environment
         self.hasSavedKey = environment.keychainService.tokenExists()
         self.updateStatus()
+        Task { @MainActor [weak self] in
+            await self?.refreshFallbackAnalytics()
+        }
     }
 
     func storeTokenFromInputIfNeeded() throws {
@@ -296,6 +310,7 @@ final class SettingsViewModel: ObservableObject {
         }
 
         await refreshNetworkDiagnostics()
+        await refreshFallbackAnalytics()
         isTestingConnection = false
     }
 
@@ -329,6 +344,7 @@ final class SettingsViewModel: ObservableObject {
         }
 
         await refreshNetworkDiagnostics()
+        await refreshFallbackAnalytics()
         isRunningProbe = false
     }
 
@@ -340,6 +356,21 @@ final class SettingsViewModel: ObservableObject {
         await environment.networkDiagnostics.clear()
         networkDiagnostics = []
         connectivityStatusMessage = "Network capture cleared."
+    }
+
+    func refreshFallbackAnalytics() async {
+        let snapshot = await FallbackAnalyticsStore.shared.snapshot()
+        fallbackAnalyticsTotalEvents = snapshot.totalEvents
+        fallbackAnalyticsLastBranch = snapshot.lastUsedBranch
+        fallbackAnalyticsLastTimestamp = snapshot.lastUsedTimestamp
+        fallbackAnalyticsTopBranches = snapshot.topBranches(limit: 5).map { branch in
+            FallbackBranchCount(branch: branch.branch, count: branch.count)
+        }
+    }
+
+    func clearFallbackAnalytics() async {
+        await FallbackAnalyticsStore.shared.clear()
+        await refreshFallbackAnalytics()
     }
 
     func copyNetworkDiagnostics() async {

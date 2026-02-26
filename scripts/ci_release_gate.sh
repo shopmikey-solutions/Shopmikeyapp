@@ -26,6 +26,14 @@ rm -rf "$CI_XCRESULT_DIR" "$CI_REPORTS_DIR"
 mkdir -p "$CI_XCRESULT_DIR" "$CI_REPORTS_DIR"
 printf "stage\tstatus\tlabel\tresult_bundle\n" > "$STAGE_STATUS_FILE"
 
+PARSER_METRICS_THRESHOLD_FILE="$CI_REPORTS_DIR/parser_metrics_min_f1.txt"
+if [[ -n "${PARSER_METRICS_MIN_F1:-}" ]]; then
+  printf "%s\n" "$PARSER_METRICS_MIN_F1" > "$PARSER_METRICS_THRESHOLD_FILE"
+  echo "Parser metrics threshold enabled: overall_f1 >= $PARSER_METRICS_MIN_F1"
+else
+  rm -f "$PARSER_METRICS_THRESHOLD_FILE"
+fi
+
 log_step() {
   echo
   echo "==> $1"

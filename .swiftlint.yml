@@ -1,0 +1,68 @@
+included:
+  - POScannerApp
+  - POScannerAppTests
+  - POScannerAppUITests
+  - ShopMikey Scanner
+
+excluded:
+  - POScannerApp/Resources
+  - Shopmikey.xcodeproj
+  - scripts
+  - docs
+  - .github
+  - build
+  - artifacts
+
+reporter: "xcode"
+
+# Analyzer rules require `swiftlint analyze` + compiler log, but we define them
+# here so the rule set is explicit for CI and local advanced runs.
+analyzer_rules:
+  - unused_import
+
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - first_where
+  - sorted_imports
+
+line_length:
+  warning: 180
+  error: 220
+  ignores_comments: true
+  ignores_urls: true
+
+cyclomatic_complexity:
+  warning: 20
+  error: 28
+
+identifier_name:
+  min_length:
+    warning: 2
+    error: 1
+  max_length:
+    warning: 48
+    error: 64
+  excluded:
+    - id
+    - x
+    - y
+    - z
+    - i
+    - j
+    - k
+    - po
+    - api
+    - ui
+    - os
+
+type_name:
+  min_length: 3
+  max_length:
+    warning: 52
+    error: 64
+  excluded:
+    - PO
+    - API
+    - UI
+    - OCR

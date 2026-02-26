@@ -12,6 +12,22 @@ bash /Users/mikey/Documents/Shopmikey/scripts/ci_release_gate.sh
 RUN_UI_SMOKE=1 bash /Users/mikey/Documents/Shopmikey/scripts/ci_release_gate.sh
 ```
 
+## Local Lint Command
+```bash
+bash /Users/mikey/Documents/Shopmikey/scripts/lint.sh
+```
+
+## Lint Scope Controls
+- Default scope: changed Swift files only (relative to `LINT_BASE_REF`, default `origin/main`).
+- Full lint run:
+```bash
+LINT_SCOPE=all bash /Users/mikey/Documents/Shopmikey/scripts/lint.sh
+```
+- Override base ref for changed-file lint:
+```bash
+LINT_BASE_REF=origin/main bash /Users/mikey/Documents/Shopmikey/scripts/lint.sh
+```
+
 ## Local Artifacts Output
 - Gate artifacts are written to:
   - `/Users/mikey/Documents/Shopmikey/artifacts/release-gate/xcresult`
@@ -29,17 +45,18 @@ bash /Users/mikey/Documents/Shopmikey/scripts/ci_collect_reports.sh
 ```
 
 ## What the Gate Enforces
-1. Device-targeted build:
+1. SwiftLint on changed Swift files (PR base branch diff).
+2. Device-targeted build:
 ```bash
 xcodebuild -project Shopmikey.xcodeproj -scheme POScannerApp -configuration Debug -destination 'generic/platform=iOS' build
 ```
-2. Targeted stability tests:
+3. Targeted stability tests:
 - `POScannerAppTests/ReviewViewModelTests`
 - `POScannerAppTests/APIClientRetryAfterTests`
 - `POScannerAppTests/SandboxInvariantTests`
-3. Full unit test bundle:
+4. Full unit test bundle:
 - `POScannerAppTests`
-4. Optional UI smoke tests:
+5. Optional UI smoke tests:
 - `POScannerAppUITests/testTabNavigationAndSettingsControls`
 - `POScannerAppUITests/testSmokeFlowLaunchToReviewFixtureAndHistory`
 

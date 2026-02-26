@@ -13,6 +13,37 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install SwiftLint (Pinned)
+        env:
+          SWIFTLINT_VERSION: "0.56.2"
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          if command -v swiftlint >/dev/null 2>&1; then
+            CURRENT_VERSION="$(swiftlint version || true)"
+            if [[ "$CURRENT_VERSION" == "$SWIFTLINT_VERSION" ]]; then
+              echo "SwiftLint $CURRENT_VERSION already available."
+              echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+              exit 0
+            fi
+          fi
+          curl -fsSL -o /tmp/swiftlint.zip "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip"
+          rm -rf /tmp/swiftlint-bin
+          mkdir -p /tmp/swiftlint-bin
+          unzip -qo /tmp/swiftlint.zip -d /tmp/swiftlint-bin
+          install -m 0755 /tmp/swiftlint-bin/swiftlint "$HOME/.local/bin/swiftlint"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/swiftlint" version
+
+      - name: SwiftLint (Changed Swift Files)
+        run: |
+          set -euo pipefail
+          BASE_REF="${GITHUB_BASE_REF:-main}"
+          git fetch --no-tags --prune --depth=1 origin "$BASE_REF"
+          LINT_BASE_REF="origin/$BASE_REF" bash scripts/lint.sh
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer

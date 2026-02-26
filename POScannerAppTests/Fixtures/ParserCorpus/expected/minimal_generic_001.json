@@ -1,0 +1,28 @@
+{
+  "caseId" : "minimal_generic_001",
+  "document" : {
+    "invoiceNumber" : "INV-1001",
+    "vendorName" : "ACME PARTS"
+  },
+  "lineItems" : [
+    {
+      "description" : "Invoice",
+      "partNumber" : "INV-1001",
+      "type" : "unknown"
+    },
+    {
+      "description" : "Unit Total",
+      "extendedPriceCents" : 3000,
+      "partNumber" : "BP-100",
+      "quantity" : 2,
+      "type" : "part",
+      "unitPriceCents" : 1500
+    }
+  ],
+  "profile" : "generic",
+  "schemaVersion" : 1,
+  "totals" : {
+    "subtotalCents" : 3000,
+    "totalCents" : 3000
+  }
+}

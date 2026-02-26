@@ -7,6 +7,11 @@ import Foundation
 import Testing
 @testable import POScannerApp
 
+private func fallbackBranchCount(_ branch: String) async -> Int {
+    let snapshot = await FallbackAnalyticsStore.shared.snapshot()
+    return snapshot.branchCounts[branch, default: 0]
+}
+
 private final class MissingTokenURLProtocol: URLProtocol {
     static var requestCount: Int = 0
 
@@ -423,6 +428,8 @@ struct ShopmonkeyAPISandboxTests {
     }
 
     @Test func createPurchaseOrderSkipsBodyAndCostFallbackWhenStatusIsInvalid() async throws {
+        await FallbackAnalyticsStore.shared.clear()
+        let initialStatusFallbackCount = await fallbackBranchCount(FallbackBranch.submitStatusFallback)
         UserDefaults.standard.removeObject(forKey: "shopmonkey.preferred_po_status")
 
         let configuration = URLSessionConfiguration.ephemeral
@@ -507,5 +514,7 @@ struct ShopmonkeyAPISandboxTests {
         #expect(postBodies.count == 2)
         #expect(postBodies.first?.contains(#""status":"draft""#) == true)
         #expect(postBodies.last?.contains(#""status":"draft""#) == false)
+        #expect(await fallbackBranchCount(FallbackBranch.submitStatusFallback) == initialStatusFallbackCount + 1)
+        await FallbackAnalyticsStore.shared.clear()
     }
 }

@@ -102,6 +102,12 @@ private func fetchPurchaseOrders(in context: NSManagedObjectContext) throws -> [
     return try context.fetch(request)
 }
 
+private func submissionFallbackBranchCount(_ branch: String) async -> Int {
+    let snapshot = await FallbackAnalyticsStore.shared.snapshot()
+    return snapshot.branchCounts[branch, default: 0]
+}
+
+@Suite(.serialized)
 struct POSubmissionServiceTests {
     @Test func userMessageMapsGatewayTimeoutToDraftSafeGuidance() {
         let message = userMessage(for: APIError.serverError(504))
@@ -274,6 +280,8 @@ struct POSubmissionServiceTests {
     }
 
     @Test @MainActor func quickAddPostsInventoryAndFeesToSelectedService() async throws {
+        await FallbackAnalyticsStore.shared.clear()
+        let initialQuickAddCount = await submissionFallbackBranchCount(FallbackBranch.submitPayloadQuickAdd)
         let controller = DataController(inMemory: true)
         await controller.waitUntilLoaded()
         #expect(controller.loadError == nil)
@@ -316,6 +324,8 @@ struct POSubmissionServiceTests {
         #expect(counts.createFee == 1)
         #expect(counts.createTire == 0)
         #expect(mock.capturedPurchaseOrderRequests.isEmpty)
+        #expect(await submissionFallbackBranchCount(FallbackBranch.submitPayloadQuickAdd) == initialQuickAddCount + 1)
+        await FallbackAnalyticsStore.shared.clear()
     }
 
     @Test @MainActor func quickAddRoutesPartFeeAndTireToServiceEndpoints() async throws {

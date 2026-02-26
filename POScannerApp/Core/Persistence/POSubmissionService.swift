@@ -353,6 +353,10 @@ final class POSubmissionService {
         let resolvedMode = mode ?? .attachToExistingPO
         switch resolvedMode {
         case .attachToExistingPO:
+            await FallbackAnalyticsStore.shared.record(
+                branch: FallbackBranch.submitPayloadAttach,
+                context: "Submission mode attach"
+            )
             if mode == nil {
                 // Backward-compatible behavior for legacy callsites/tests.
                 guard let orderId = payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
@@ -377,6 +381,10 @@ final class POSubmissionService {
             )
 
         case .quickAddToTicket:
+            await FallbackAnalyticsStore.shared.record(
+                branch: FallbackBranch.submitPayloadQuickAdd,
+                context: "Submission mode quickAdd"
+            )
             guard let orderId = payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                   let serviceId = payload.serviceId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else {
                 throw ValidationError.invalidPayload("Quick Add requires both work order ID and service ID.")
@@ -397,6 +405,10 @@ final class POSubmissionService {
             return .empty
 
         case .inventoryRestock:
+            await FallbackAnalyticsStore.shared.record(
+                branch: FallbackBranch.submitPayloadRestock,
+                context: "Submission mode restock"
+            )
             return try await submitDraftPurchaseOrder(
                 payload: payload,
                 vendorId: vendorId,

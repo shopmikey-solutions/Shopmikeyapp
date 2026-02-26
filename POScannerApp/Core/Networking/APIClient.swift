@@ -104,6 +104,10 @@ final class APIClient {
                     errorSummary: "Decoding failed"
                 )
             )
+            await FallbackAnalyticsStore.shared.record(
+                branch: FallbackBranch.apiDecodeFallback,
+                context: "Decoding failed for \(method.rawValue)"
+            )
             throw APIError.decodingFailed
         }
     }
@@ -137,6 +141,10 @@ final class APIClient {
             if method == .get,
                !didRetryTransientGET,
                shouldRetryTransientNetworkError(error) {
+                await FallbackAnalyticsStore.shared.record(
+                    branch: FallbackBranch.submitRetryPath,
+                    context: "Transient network retry"
+                )
                 await diagnosticsRecorder.record(
                     entry(
                         for: request,
@@ -177,6 +185,14 @@ final class APIClient {
             if !didRetryOn429,
                let retryAfter = http.value(forHTTPHeaderField: "Retry-After"),
                let delay = Double(retryAfter) {
+                await FallbackAnalyticsStore.shared.record(
+                    branch: FallbackBranch.netRateLimitRetry,
+                    context: "Retry-After \(delay)s"
+                )
+                await FallbackAnalyticsStore.shared.record(
+                    branch: FallbackBranch.submitRetryPath,
+                    context: "HTTP 429 retry"
+                )
                 try await sleeper(delay)
                 return try await send(
                     request,
@@ -201,6 +217,10 @@ final class APIClient {
         if method == .get,
            !didRetryTransientGET,
            isTransientServerStatus(http.statusCode) {
+            await FallbackAnalyticsStore.shared.record(
+                branch: FallbackBranch.submitRetryPath,
+                context: "Transient status \(http.statusCode)"
+            )
             await diagnosticsRecorder.record(
                 entry(
                     for: request,

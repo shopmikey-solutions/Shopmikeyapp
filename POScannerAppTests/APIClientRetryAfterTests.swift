@@ -7,6 +7,11 @@ import Foundation
 import Testing
 @testable import POScannerApp
 
+private func fallbackBranchCount(_ branch: String) async -> Int {
+    let snapshot = await FallbackAnalyticsStore.shared.snapshot()
+    return snapshot.branchCounts[branch, default: 0]
+}
+
 private final class StubURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
@@ -40,8 +45,11 @@ private final class StubURLProtocol: URLProtocol {
 @Suite(.serialized)
 struct APIClientRetryAfterTests {
     @Test func retriesOnceOn429ThenThrowsRateLimited() async throws {
+        await FallbackAnalyticsStore.shared.clear()
         StubURLProtocol.requestHandler = nil
         defer { StubURLProtocol.requestHandler = nil }
+        let initialRateLimitRetryCount = await fallbackBranchCount(FallbackBranch.netRateLimitRetry)
+        let initialRetryPathCount = await fallbackBranchCount(FallbackBranch.submitRetryPath)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -94,6 +102,9 @@ struct APIClientRetryAfterTests {
         let sleeps = await recorder.sleeps
         #expect(callCount == 2)
         #expect(sleeps.count == 1)
+        #expect(await fallbackBranchCount(FallbackBranch.netRateLimitRetry) == initialRateLimitRetryCount + 1)
+        #expect(await fallbackBranchCount(FallbackBranch.submitRetryPath) == initialRetryPathCount + 1)
+        await FallbackAnalyticsStore.shared.clear()
     }
 
     @Test func retriesOnceOnTransientGetServerErrorThenSucceeds() async throws {

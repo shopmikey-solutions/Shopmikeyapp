@@ -238,6 +238,10 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     /// POST /purchase_order
     func createPurchaseOrder(_ request: CreatePurchaseOrderRequest) async throws -> CreatePurchaseOrderResponse {
         // Try canonical singular route first. Only use plural if singular route itself is unavailable.
+        await FallbackAnalyticsStore.shared.record(
+            branch: FallbackBranch.submitPrimaryEndpoint,
+            context: "POST /purchase_order"
+        )
         do {
             return try await createPurchaseOrderOnRoute("/purchase_order", request: request)
         } catch let error as APIError {
@@ -247,6 +251,10 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
         }
 
         // Tenant fallback: some deployments expose plural route only.
+        await FallbackAnalyticsStore.shared.record(
+            branch: FallbackBranch.submitAlternateEndpoint,
+            context: "POST /purchase_orders"
+        )
         return try await createPurchaseOrderOnRoute("/purchase_orders", request: request)
     }
 
@@ -592,6 +600,10 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
                     // When status is invalid, skip cost/body compatibility retries and move to next status.
                     if await isStatusValidationFailure(for: path) {
+                        await FallbackAnalyticsStore.shared.record(
+                            branch: FallbackBranch.submitStatusFallback,
+                            context: "Status fallback on \(path)"
+                        )
                         lastValidationError = firstError
                         if let status,
                            statusCandidateKey(status) == statusCandidateKey(preferredPurchaseOrderStatus()) {
@@ -629,6 +641,10 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
                         // Status validation errors should immediately rotate to another status candidate.
                         if await isStatusValidationFailure(for: path) {
+                            await FallbackAnalyticsStore.shared.record(
+                                branch: FallbackBranch.submitStatusFallback,
+                                context: "Status fallback on \(path)"
+                            )
                             if let status,
                                statusCandidateKey(status) == statusCandidateKey(preferredPurchaseOrderStatus()) {
                                 persistPreferredPurchaseOrderStatus(nil)
@@ -658,6 +674,10 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
             }
         }
 
+        await FallbackAnalyticsStore.shared.record(
+            branch: FallbackBranch.submitFallbackExhausted,
+            context: "Exhausted fallback on \(path)"
+        )
         throw lastValidationError ?? APIError.serverError(400)
     }
 

@@ -1,0 +1,3 @@
+#include "Base.xcconfig"
+ENABLE_TESTABILITY = YES
+SWIFT_OPTIMIZATION_LEVEL = -Onone

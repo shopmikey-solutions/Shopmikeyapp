@@ -40,3 +40,25 @@ extension APIError: LocalizedError {
     }
 }
 
+extension APIError {
+    var diagnosticCode: DiagnosticCode? {
+        switch self {
+        case .invalidURL:
+            return .cfgURLInvalid
+        case .encodingFailed:
+            return .submitPOEncode
+        case .decodingFailed:
+            return .apiDecodeBadJSON
+        case .network(let error):
+            return DiagnosticCode.forNetworkError(error)
+        case .unauthorized:
+            return .authUnauthorized401
+        case .rateLimited:
+            return .netRate429
+        case .serverError(let statusCode):
+            return DiagnosticCode.forHTTPStatusCode(statusCode)
+        case .missingToken:
+            return .authMissingToken
+        }
+    }
+}

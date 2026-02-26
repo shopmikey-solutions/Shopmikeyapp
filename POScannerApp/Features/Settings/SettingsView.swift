@@ -265,7 +265,21 @@ struct SettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                if let connectivityStatusMessage = viewModel.connectivityStatusMessage, !connectivityStatusMessage.isEmpty {
+                if let formattedLastErrorMessage = viewModel.formattedLastErrorMessage, !formattedLastErrorMessage.isEmpty {
+                    Text(formattedLastErrorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+
+                    Button {
+                        AppHaptics.selection()
+                        Task { await viewModel.copyDiagnosticInfo() }
+                    } label: {
+                        Label("Copy Diagnostic Info", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("settings.copyDiagnosticInfoButton")
+                } else if let connectivityStatusMessage = viewModel.connectivityStatusMessage, !connectivityStatusMessage.isEmpty {
                     Text(connectivityStatusMessage)
                         .font(.footnote)
                         .foregroundStyle(.secondary)

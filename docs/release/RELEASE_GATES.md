@@ -7,6 +7,24 @@ Last updated: 2026-02-26
 bash /Users/mikey/Documents/Shopmikey/scripts/ci_release_gate.sh
 ```
 
+## Local Gate Behavior
+- Default local behavior is simulator-first and provisioning-safe.
+- By default, the gate runs:
+  - simulator Debug build
+  - targeted stability tests
+  - full unit test suite
+  - optional UI smoke tests when `RUN_UI_SMOKE=1`
+- Device/archive build path is opt-in and strict:
+```bash
+RELEASE_DEVICE_BUILD=1 bash /Users/mikey/Documents/Shopmikey/scripts/ci_release_gate.sh
+```
+- Equivalent CI opt-in flag is also supported:
+```bash
+CI_DEVICE_BUILD=1 bash /Users/mikey/Documents/Shopmikey/scripts/ci_release_gate.sh
+```
+- When device build is not enabled, the gate prints:
+  - `Skipping device/archive build (RELEASE_DEVICE_BUILD not set)`
+
 ## Optional UI Smoke in Gate
 ```bash
 RUN_UI_SMOKE=1 bash /Users/mikey/Documents/Shopmikey/scripts/ci_release_gate.sh
@@ -46,17 +64,21 @@ bash /Users/mikey/Documents/Shopmikey/scripts/ci_collect_reports.sh
 
 ## What the Gate Enforces
 1. SwiftLint on changed Swift files (PR base branch diff).
-2. Device-targeted build:
+2. Simulator-targeted Debug build:
 ```bash
-xcodebuild -project Shopmikey.xcodeproj -scheme POScannerApp -configuration Debug -destination 'generic/platform=iOS' build
+xcodebuild -project Shopmikey.xcodeproj -scheme POScannerApp -configuration Debug -destination '<resolved iOS Simulator>' build
 ```
-3. Targeted stability tests:
+3. Optional strict device/archive build when explicitly enabled:
+```bash
+RELEASE_DEVICE_BUILD=1 bash /Users/mikey/Documents/Shopmikey/scripts/ci_release_gate.sh
+```
+4. Targeted stability tests:
 - `POScannerAppTests/ReviewViewModelTests`
 - `POScannerAppTests/APIClientRetryAfterTests`
 - `POScannerAppTests/SandboxInvariantTests`
-4. Full unit test bundle:
+5. Full unit test bundle:
 - `POScannerAppTests`
-5. Optional UI smoke tests:
+6. Optional UI smoke tests:
 - `POScannerAppUITests/testTabNavigationAndSettingsControls`
 - `POScannerAppUITests/testSmokeFlowLaunchToReviewFixtureAndHistory`
 

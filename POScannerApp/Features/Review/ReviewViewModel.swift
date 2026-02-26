@@ -79,11 +79,13 @@ final class ReviewViewModel: ObservableObject {
     }
     @Published var items: [POItem] = [] {
         didSet {
+            pruneSelectionForCurrentItems()
             guard !isApplyingItemReorder else { return }
             refreshUnknownKindRate()
             scheduleDraftAutosaveIfNeeded(trigger: .regularChange)
         }
     }
+    @Published var selectedItemIDs: Set<UUID> = []
 
     @Published private(set) var typeOverrideCount: Int = 0
     @Published private(set) var unknownKindRate: Double = 0
@@ -301,6 +303,10 @@ final class ReviewViewModel: ObservableObject {
 
     var isGlobalIgnoreTaxEnabled: Bool {
         ignoreTaxAndTotalsSetting
+    }
+
+    var hasSelection: Bool {
+        !selectedItemIDs.isEmpty
     }
 
     var canSubmit: Bool {
@@ -530,6 +536,84 @@ final class ReviewViewModel: ObservableObject {
 
     func removeItem(id: UUID) {
         items.removeAll { $0.id == id }
+    }
+
+    func toggleSelection(id: UUID) {
+        guard items.contains(where: { $0.id == id }) else {
+            selectedItemIDs.remove(id)
+            return
+        }
+
+        if selectedItemIDs.contains(id) {
+            selectedItemIDs.remove(id)
+        } else {
+            selectedItemIDs.insert(id)
+        }
+    }
+
+    func selectAll() {
+        selectedItemIDs = Set(items.map(\.id))
+    }
+
+    func clearSelection() {
+        selectedItemIDs.removeAll()
+    }
+
+    func bulkSetLineType(_ type: POItem.LineType) {
+        let selectedIndexes = selectedItemIndexesInDisplayOrder()
+        guard !selectedIndexes.isEmpty else { return }
+
+        var updatedItems = items
+        var changedKinds: [(old: POItemKind, new: POItemKind)] = []
+        for index in selectedIndexes {
+            let oldKind = updatedItems[index].kind
+            guard oldKind != type else { continue }
+            updatedItems[index].apply(lineType: type)
+            applyManualKindReviewMetadata(to: &updatedItems[index], selectedKind: type)
+            changedKinds.append((old: oldKind, new: type))
+        }
+
+        guard !changedKinds.isEmpty else { return }
+        items = updatedItems
+        for changedKind in changedKinds {
+            recordTypeOverride(from: changedKind.old, to: changedKind.new)
+        }
+        let noun = changedKinds.count == 1 ? "line item" : "line items"
+        trackReviewAction("Updated \(changedKinds.count) \(noun) to \(type.displayName).")
+        clearSelection()
+    }
+
+    func bulkSetUnitCost(_ cost: Decimal) {
+        let selectedIndexes = selectedItemIndexesInDisplayOrder()
+        guard !selectedIndexes.isEmpty else { return }
+
+        let normalizedCost = max(0, cost)
+        var updatedItems = items
+        var changedCount = 0
+        for index in selectedIndexes {
+            guard updatedItems[index].unitCost != normalizedCost else { continue }
+            updatedItems[index].apply(unitCost: normalizedCost)
+            changedCount += 1
+        }
+
+        guard changedCount > 0 else { return }
+        items = updatedItems
+        let noun = changedCount == 1 ? "line item" : "line items"
+        trackReviewAction("Updated unit cost for \(changedCount) \(noun).")
+        clearSelection()
+    }
+
+    func bulkDeleteSelected() {
+        guard !selectedItemIDs.isEmpty else { return }
+        let selectedIDs = selectedItemIDs
+        let remainingItems = items.filter { !selectedIDs.contains($0.id) }
+        let removedCount = items.count - remainingItems.count
+        guard removedCount > 0 else { return }
+
+        items = remainingItems
+        let noun = removedCount == 1 ? "line item" : "line items"
+        trackReviewAction("Removed \(removedCount) \(noun).")
+        clearSelection()
     }
 
     func selectOrder(_ order: OrderSummary) {
@@ -1855,24 +1939,38 @@ final class ReviewViewModel: ObservableObject {
         return workflowDetail
     }
 
+    private func selectedItemIndexesInDisplayOrder() -> [Int] {
+        items.indices.filter { selectedItemIDs.contains(items[$0].id) }
+    }
+
+    private func pruneSelectionForCurrentItems() {
+        guard !selectedItemIDs.isEmpty else { return }
+        let validIDs = Set(items.map(\.id))
+        selectedItemIDs.formIntersection(validIDs)
+    }
+
     private func applyManualKindReviewMetadata(at index: Int, selectedKind: POItemKind) {
         guard items.indices.contains(index) else { return }
+        applyManualKindReviewMetadata(to: &items[index], selectedKind: selectedKind)
+    }
+
+    private func applyManualKindReviewMetadata(to item: inout POItem, selectedKind: POItemKind) {
         let manualReason = "Reviewed manually in intake."
 
         if selectedKind == .unknown {
-            items[index].kindConfidence = 0
-            if items[index].kindReasons.isEmpty {
-                items[index].kindReasons = [manualReason]
+            item.kindConfidence = 0
+            if item.kindReasons.isEmpty {
+                item.kindReasons = [manualReason]
             }
             return
         }
 
-        items[index].kindConfidence = max(0.9, items[index].kindConfidence)
-        var reasons = items[index].kindReasons.filter {
+        item.kindConfidence = max(0.9, item.kindConfidence)
+        var reasons = item.kindReasons.filter {
             !$0.localizedCaseInsensitiveContains("reviewed manually in intake")
         }
         reasons.insert(manualReason, at: 0)
-        items[index].kindReasons = reasons
+        item.kindReasons = reasons
     }
 
     private func setPreferredLiveActivityDraftID(_ draftID: UUID) {

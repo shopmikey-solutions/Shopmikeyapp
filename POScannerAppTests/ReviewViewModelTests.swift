@@ -244,6 +244,202 @@ struct ReviewViewModelTests {
         #expect(descriptions == ["Line B", "Line A", "Line C"])
     }
 
+    @Test func selectionModelIsDeterministic() async throws {
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 6_000,
+            items: [
+                ParsedLineItem(name: "Line A", quantity: 1, costCents: 1_000, partNumber: "A-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: []),
+                ParsedLineItem(name: "Line B", quantity: 1, costCents: 2_000, partNumber: "B-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: []),
+                ParsedLineItem(name: "Line C", quantity: 1, costCents: 3_000, partNumber: "C-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: [])
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(environment: .preview, parsedInvoice: parsed, shopmonkeyService: MinimalShopmonkeyService())
+        }
+
+        let ids = await MainActor.run { vm.items.map(\.id) }
+        await MainActor.run {
+            vm.toggleSelection(id: ids[0])
+        }
+        let firstSelection = await MainActor.run { vm.selectedItemIDs }
+        let hasSelectionAfterFirstToggle = await MainActor.run { vm.hasSelection }
+        #expect(firstSelection == Set([ids[0]]))
+        #expect(hasSelectionAfterFirstToggle)
+
+        await MainActor.run {
+            vm.toggleSelection(id: ids[0])
+        }
+        let selectionEmptyAfterSecondToggle = await MainActor.run { vm.selectedItemIDs.isEmpty }
+        #expect(selectionEmptyAfterSecondToggle)
+
+        await MainActor.run {
+            vm.selectAll()
+        }
+        let selectAllIDs = await MainActor.run { vm.selectedItemIDs }
+        #expect(selectAllIDs.count == 3)
+        #expect(selectAllIDs == Set(ids))
+
+        await MainActor.run {
+            vm.clearSelection()
+        }
+        let clearedSelection = await MainActor.run { vm.selectedItemIDs.isEmpty }
+        let hasSelectionAfterClear = await MainActor.run { vm.hasSelection }
+        #expect(clearedSelection)
+        #expect(!hasSelectionAfterClear)
+    }
+
+    @Test func bulkSetLineTypeUpdatesOnlySelectedItemsAndPreservesOrder() async throws {
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 6_000,
+            items: [
+                ParsedLineItem(name: "Line A", quantity: 1, costCents: 1_000, partNumber: "A-1", confidence: 0.8, kind: .unknown, kindConfidence: 0.3, kindReasons: []),
+                ParsedLineItem(name: "Line B", quantity: 1, costCents: 2_000, partNumber: "B-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: []),
+                ParsedLineItem(name: "Line C", quantity: 1, costCents: 3_000, partNumber: "C-1", confidence: 0.8, kind: .tire, kindConfidence: 0.8, kindReasons: [])
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(environment: .preview, parsedInvoice: parsed, shopmonkeyService: MinimalShopmonkeyService())
+        }
+
+        let ids = await MainActor.run { vm.items.map(\.id) }
+        await MainActor.run {
+            vm.toggleSelection(id: ids[0])
+            vm.toggleSelection(id: ids[2])
+            vm.bulkSetLineType(.fee)
+        }
+
+        let resultingKinds = await MainActor.run { vm.items.map(\.kind) }
+        let descriptions = await MainActor.run { vm.items.map(\.description) }
+        let selectionCleared = await MainActor.run { vm.selectedItemIDs.isEmpty }
+        #expect(resultingKinds == [.fee, .part, .fee])
+        #expect(descriptions == ["Line A", "Line B", "Line C"])
+        #expect(selectionCleared)
+    }
+
+    @Test func bulkSetUnitCostUpdatesOnlySelectedItems() async throws {
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 6_000,
+            items: [
+                ParsedLineItem(name: "Line A", quantity: 1, costCents: 1_000, partNumber: "A-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: []),
+                ParsedLineItem(name: "Line B", quantity: 1, costCents: 2_000, partNumber: "B-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: []),
+                ParsedLineItem(name: "Line C", quantity: 1, costCents: 3_000, partNumber: "C-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: [])
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(environment: .preview, parsedInvoice: parsed, shopmonkeyService: MinimalShopmonkeyService())
+        }
+
+        let ids = await MainActor.run { vm.items.map(\.id) }
+        let overrideCost = Decimal(string: "12.34")!
+        await MainActor.run {
+            vm.toggleSelection(id: ids[0])
+            vm.toggleSelection(id: ids[2])
+            vm.bulkSetUnitCost(overrideCost)
+        }
+
+        let costs = await MainActor.run { vm.items.map(\.unitCost) }
+        let selectionCleared = await MainActor.run { vm.selectedItemIDs.isEmpty }
+        #expect(costs[0] == overrideCost)
+        #expect(costs[1] == Decimal(string: "20")!)
+        #expect(costs[2] == overrideCost)
+        #expect(selectionCleared)
+    }
+
+    @Test func bulkDeleteSelectedRemovesRowsAndPreservesRemainingOrder() async throws {
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 10_000,
+            items: [
+                ParsedLineItem(name: "Line A", quantity: 1, costCents: 1_000, partNumber: "A-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: []),
+                ParsedLineItem(name: "Line B", quantity: 1, costCents: 2_000, partNumber: "B-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: []),
+                ParsedLineItem(name: "Line C", quantity: 1, costCents: 3_000, partNumber: "C-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: []),
+                ParsedLineItem(name: "Line D", quantity: 1, costCents: 4_000, partNumber: "D-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: [])
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(environment: .preview, parsedInvoice: parsed, shopmonkeyService: MinimalShopmonkeyService())
+        }
+
+        let ids = await MainActor.run { vm.items.map(\.id) }
+        await MainActor.run {
+            vm.toggleSelection(id: ids[1])
+            vm.toggleSelection(id: ids[3])
+            vm.bulkDeleteSelected()
+        }
+
+        let remainingDescriptions = await MainActor.run { vm.items.map(\.description) }
+        let selectionCleared = await MainActor.run { vm.selectedItemIDs.isEmpty }
+        #expect(remainingDescriptions == ["Line A", "Line C"])
+        #expect(selectionCleared)
+    }
+
+    @Test func bulkApplyTriggersAutosaveAndNoOpRepeatPreservesDraftFingerprint() async throws {
+        let draftURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("review-bulk-autosave-\(UUID().uuidString).json")
+        let environment = makeReviewTestEnvironment(draftFileURL: draftURL)
+
+        let parsed = ParsedInvoice(
+            vendorName: "ACME Parts",
+            poNumber: nil,
+            invoiceNumber: nil,
+            totalCents: 3_000,
+            items: [
+                ParsedLineItem(name: "Line A", quantity: 1, costCents: 1_000, partNumber: "A-1", confidence: 0.8, kind: .unknown, kindConfidence: 0.3, kindReasons: []),
+                ParsedLineItem(name: "Line B", quantity: 1, costCents: 2_000, partNumber: "B-1", confidence: 0.8, kind: .part, kindConfidence: 0.8, kindReasons: [])
+            ]
+        )
+
+        let vm = await MainActor.run {
+            ReviewViewModel(
+                environment: environment,
+                parsedInvoice: parsed,
+                shopmonkeyService: MinimalShopmonkeyService()
+            )
+        }
+
+        let firstItemID = await MainActor.run { vm.items[0].id }
+        await MainActor.run {
+            vm.toggleSelection(id: firstItemID)
+            vm.bulkSetLineType(.fee)
+        }
+
+        let didPersist = await waitForCondition {
+            let drafts = await environment.reviewDraftStore.list()
+            return drafts.first?.state.items.first?.kind == .fee
+        }
+        #expect(didPersist)
+
+        let firstSnapshot = await environment.reviewDraftStore.list().first
+        #expect(firstSnapshot?.workflowState == .reviewEdited)
+        let initialUpdatedAt = firstSnapshot?.updatedAt
+
+        await MainActor.run {
+            vm.toggleSelection(id: firstItemID)
+            vm.bulkSetLineType(.fee)
+        }
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+
+        let secondSnapshot = await environment.reviewDraftStore.list().first
+        #expect(secondSnapshot?.updatedAt == initialUpdatedAt)
+
+        try? FileManager.default.removeItem(at: draftURL)
+    }
+
     @Test func selectVendorSuggestionPopulatesVendorContactDetails() async throws {
         let vm = await MainActor.run {
             ReviewViewModel(

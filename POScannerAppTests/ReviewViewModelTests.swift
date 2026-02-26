@@ -5,7 +5,7 @@
 
 import Testing
 import Foundation
-@testable import POScannerApp
+@preconcurrency @testable import POScannerApp
 
 private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
     let dataController = DataController(inMemory: true)
@@ -49,7 +49,7 @@ private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
 private func waitForCondition(
     timeout: TimeInterval = 4.0,
     pollInterval: TimeInterval = 0.08,
-    condition: @escaping @Sendable () async -> Bool
+    condition: @escaping () async -> Bool
 ) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
@@ -80,7 +80,7 @@ private struct MinimalShopmonkeyService: ShopmonkeyServicing {
     func testConnection() async throws {}
 }
 
-private final class VendorContactShopmonkeyService: ShopmonkeyServicing {
+private final class VendorContactShopmonkeyService: ShopmonkeyServicing, @unchecked Sendable {
     var createVendorRequests: [CreateVendorRequest] = []
 
     func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse {
@@ -101,7 +101,7 @@ private final class VendorContactShopmonkeyService: ShopmonkeyServicing {
     func testConnection() async throws {}
 }
 
-private final class VendorLookupCountingService: ShopmonkeyServicing {
+private final class VendorLookupCountingService: ShopmonkeyServicing, @unchecked Sendable {
     private(set) var searchCalls: [String] = []
     var cannedVendors: [VendorSummary] = [
         VendorSummary(id: "v_advance", name: "Advance Auto Parts", phone: "555-7000", email: "parts@advance.example")

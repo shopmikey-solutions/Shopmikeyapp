@@ -7,6 +7,14 @@ import Testing
 import Foundation
 @testable import POScannerApp
 
+private actor OperationInvocationCounter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
+    }
+}
+
 private struct StubShopmonkeyService: ShopmonkeyServicing {
     var orders: [OrderSummary] = []
     var servicesByOrderId: [String: [ServiceSummary]] = [:]
@@ -328,14 +336,14 @@ struct ShopmonkeyOrderServiceTests {
         let repository = InventoryRepository()
         let coordinator = InventorySyncCoordinator(repository: repository)
         let runDate = Date(timeIntervalSince1970: 1_736_100_000)
-        var operationInvocationCount = 0
+        let operationInvocationCounter = OperationInvocationCounter()
 
         let result = await coordinator.runScheduledPull(
             trigger: .foreground,
             now: runDate,
             force: false
         ) { checkpoint in
-            operationInvocationCount += 1
+            await operationInvocationCounter.increment()
             #expect(checkpoint.cursor == nil)
             return InventorySyncPullPayload(
                 cursor: "cursor_after_pull",
@@ -352,6 +360,7 @@ struct ShopmonkeyOrderServiceTests {
         let freshness = await coordinator.currentFreshnessState()
         let cachedOrders = await repository.cachedOrders()
         let cachedServices = await repository.cachedServices(orderID: "ord_11")
+        let operationInvocationCount = await operationInvocationCounter.value
 
         #expect(operationInvocationCount == 1)
         #expect(result.didRun == true)
@@ -377,14 +386,14 @@ struct ShopmonkeyOrderServiceTests {
         )
 
         let startDate = Date(timeIntervalSince1970: 1_736_200_000)
-        var operationInvocationCount = 0
+        let operationInvocationCounter = OperationInvocationCounter()
 
         _ = await coordinator.runScheduledPull(
             trigger: .foreground,
             now: startDate,
             force: false
         ) { _ in
-            operationInvocationCount += 1
+            await operationInvocationCounter.increment()
             return InventorySyncPullPayload(cursor: "cursor_1")
         }
 
@@ -393,7 +402,7 @@ struct ShopmonkeyOrderServiceTests {
             now: startDate.addingTimeInterval(30),
             force: false
         ) { _ in
-            operationInvocationCount += 1
+            await operationInvocationCounter.increment()
             return InventorySyncPullPayload(cursor: "cursor_2")
         }
 
@@ -402,9 +411,11 @@ struct ShopmonkeyOrderServiceTests {
             now: startDate.addingTimeInterval(31),
             force: false
         ) { _ in
-            operationInvocationCount += 1
+            await operationInvocationCounter.increment()
             return InventorySyncPullPayload(cursor: "cursor_3")
         }
+
+        let operationInvocationCount = await operationInvocationCounter.value
 
         #expect(throttledResult.didRun == false)
         #expect(throttledResult.skipReason == .throttled)

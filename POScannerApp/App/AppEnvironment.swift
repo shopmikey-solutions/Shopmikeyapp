@@ -317,7 +317,7 @@ protocol InventorySyncCoordinating {
         trigger: InventorySyncTrigger,
         now: Date,
         force: Bool,
-        operation: (InventorySyncCheckpoint) async throws -> InventorySyncPullPayload
+        operation: @MainActor (InventorySyncCheckpoint) async throws -> InventorySyncPullPayload
     ) async -> InventorySyncRunResult
 }
 
@@ -398,7 +398,7 @@ actor InventorySyncCoordinator: InventorySyncCoordinating {
         trigger: InventorySyncTrigger,
         now: Date,
         force: Bool = false,
-        operation: (InventorySyncCheckpoint) async throws -> InventorySyncPullPayload
+        operation: @MainActor (InventorySyncCheckpoint) async throws -> InventorySyncPullPayload
     ) async -> InventorySyncRunResult {
         let checkpoint = await repository.inventorySyncCheckpoint()
         let minimumInterval = minimumInterval(for: trigger)

@@ -28,6 +28,13 @@ final class SettingsViewModel: ObservableObject {
         var id: String { branch }
     }
 
+    struct TelemetryEventCount: Identifiable, Hashable {
+        let eventName: String
+        let count: Int
+
+        var id: String { eventName }
+    }
+
     let environment: AppEnvironment
 
     private var keyStatusClearTask: Task<Void, Never>?
@@ -37,6 +44,7 @@ final class SettingsViewModel: ObservableObject {
     @AppStorage("ignoreTaxAndTotals") var ignoreTaxAndTotals: Bool = false
     @AppStorage("experimentalOrderPOLinking") var experimentalOrderPOLinking: Bool = false
     @AppStorage("settings.requireAuthForToken") var isBiometricRequired: Bool = false
+    @AppStorage(TelemetryQueue.enabledPreferenceKey) var isTelemetryEnabled: Bool = false
 
     @Published var pastedKey: String = ""
     @Published var hasSavedKey: Bool = false
@@ -63,13 +71,18 @@ final class SettingsViewModel: ObservableObject {
     @Published var fallbackAnalyticsTopBranches: [FallbackBranchCount] = []
     @Published var fallbackAnalyticsLastBranch: String?
     @Published var fallbackAnalyticsLastTimestamp: Date?
+    @Published var telemetryTotalEvents: Int = 0
+    @Published var telemetryLastEventTimestamp: Date?
+    @Published var telemetryTopEvents: [TelemetryEventCount] = []
 
     init(environment: AppEnvironment) {
         self.environment = environment
         self.hasSavedKey = environment.keychainService.tokenExists()
         self.updateStatus()
         Task { @MainActor [weak self] in
-            await self?.refreshFallbackAnalytics()
+            guard let self else { return }
+            await self.refreshFallbackAnalytics()
+            await self.setTelemetryEnabled(self.isTelemetryEnabled, clearWhenDisabled: false)
         }
     }
 
@@ -371,6 +384,36 @@ final class SettingsViewModel: ObservableObject {
     func clearFallbackAnalytics() async {
         await FallbackAnalyticsStore.shared.clear()
         await refreshFallbackAnalytics()
+    }
+
+    func refreshTelemetrySummary() async {
+        let summary = await environment.telemetryQueue.snapshotSummary()
+        telemetryTotalEvents = summary.totalEvents
+        telemetryLastEventTimestamp = summary.lastEventTimestamp
+        telemetryTopEvents = summary.topEventCounts(limit: 5).map { entry in
+            TelemetryEventCount(eventName: entry.eventName, count: entry.count)
+        }
+    }
+
+    func setTelemetryEnabled(_ enabled: Bool, clearWhenDisabled: Bool) async {
+        await environment.telemetryQueue.setEnabled(enabled, clearWhenDisabled: clearWhenDisabled)
+        await refreshTelemetrySummary()
+    }
+
+    func clearTelemetryData() async {
+        await environment.telemetryQueue.clear()
+        await refreshTelemetrySummary()
+        connectivityStatusMessage = "Telemetry data cleared."
+    }
+
+    func copyTelemetrySummary() async {
+        let text = await environment.telemetryQueue.exportSummaryText(limit: 10)
+        #if canImport(UIKit)
+        UIPasteboard.general.string = text
+        connectivityStatusMessage = "Telemetry summary copied."
+        #else
+        connectivityStatusMessage = "Copy unavailable on this platform."
+        #endif
     }
 
     func copyNetworkDiagnostics() async {

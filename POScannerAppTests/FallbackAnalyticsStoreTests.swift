@@ -10,21 +10,25 @@ import Testing
 @Suite(.serialized)
 struct FallbackAnalyticsStoreTests {
     private struct StoreHarness {
-        let suiteName: String
         let storageKey: String
-        let defaults: UserDefaults
         let store: FallbackAnalyticsStore
 
         init() {
-            suiteName = "FallbackAnalyticsStoreTests.\(UUID().uuidString)"
             storageKey = "fallback_analytics_test_\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: suiteName)!
-            defaults.removePersistentDomain(forName: suiteName)
-            store = FallbackAnalyticsStore(defaults: defaults, storageKey: storageKey)
+            UserDefaults.standard.removeObject(forKey: storageKey)
+            store = FallbackAnalyticsStore(storageKey: storageKey)
         }
 
         func cleanup() {
-            defaults.removePersistentDomain(forName: suiteName)
+            UserDefaults.standard.removeObject(forKey: storageKey)
+        }
+
+        func makeReloadedStore() -> FallbackAnalyticsStore {
+            FallbackAnalyticsStore(storageKey: storageKey)
+        }
+
+        func persistedData() -> Data? {
+            UserDefaults.standard.data(forKey: storageKey)
         }
     }
 
@@ -61,7 +65,7 @@ struct FallbackAnalyticsStoreTests {
         await harness.store.record(branch: FallbackBranch.submitRetryPath)
         await harness.store.record(branch: FallbackBranch.submitRetryPath)
 
-        let reloadedStore = FallbackAnalyticsStore(defaults: harness.defaults, storageKey: harness.storageKey)
+        let reloadedStore = harness.makeReloadedStore()
         let snapshot = await reloadedStore.snapshot()
 
         #expect(snapshot.totalEvents == 2)
@@ -81,7 +85,7 @@ struct FallbackAnalyticsStoreTests {
         #expect(snapshot.branchCounts.isEmpty)
         #expect(snapshot.lastUsedBranch == nil)
         #expect(snapshot.lastUsedTimestamp == nil)
-        #expect(harness.defaults.data(forKey: harness.storageKey) == nil)
+        #expect(harness.persistedData() == nil)
     }
 
     @Test func persistedDataDoesNotContainSensitiveStrings() async {
@@ -93,7 +97,7 @@ struct FallbackAnalyticsStoreTests {
             context: "Authorization: Bearer token_value"
         )
 
-        guard let persistedData = harness.defaults.data(forKey: harness.storageKey) else {
+        guard let persistedData = harness.persistedData() else {
             Issue.record("Expected fallback analytics data to persist")
             return
         }

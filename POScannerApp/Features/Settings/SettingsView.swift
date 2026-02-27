@@ -27,6 +27,7 @@ struct SettingsView: View {
             appExperienceSection
             diagnosticsSection
             fallbackAnalyticsSection
+            telemetrySection
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
@@ -36,6 +37,8 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.large)
         .task {
             await viewModel.refreshFallbackAnalytics()
+            await viewModel.setTelemetryEnabled(viewModel.isTelemetryEnabled, clearWhenDisabled: false)
+            await viewModel.refreshTelemetrySummary()
         }
         .onChange(of: saveHistoryEnabled) { _, _ in
             AppHaptics.selection()
@@ -65,6 +68,12 @@ struct SettingsView: View {
         }
         .onChange(of: viewModel.experimentalOrderPOLinking) { _, _ in
             AppHaptics.selection()
+        }
+        .onChange(of: viewModel.isTelemetryEnabled) { _, enabled in
+            AppHaptics.selection()
+            Task {
+                await viewModel.setTelemetryEnabled(enabled, clearWhenDisabled: !enabled)
+            }
         }
         .onChange(of: viewModel.connectivityStatusMessage) { _, message in
             guard let message, !message.isEmpty else { return }
@@ -414,6 +423,66 @@ struct SettingsView: View {
                 Task { await viewModel.clearFallbackAnalytics() }
             }
             .accessibilityIdentifier("settings.clearFallbackAnalyticsButton")
+        }
+    }
+
+    private var telemetrySection: some View {
+        Section("Telemetry") {
+            Toggle("Share Diagnostics (Telemetry)", isOn: $viewModel.isTelemetryEnabled)
+                .accessibilityIdentifier("settings.telemetryToggle")
+
+            Text("Off by default. When enabled, only redacted diagnostics metadata is stored locally in a bounded queue.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            if viewModel.isTelemetryEnabled {
+                LabeledContent("Total events") {
+                    Text("\(viewModel.telemetryTotalEvents)")
+                        .font(.subheadline.monospacedDigit())
+                }
+
+                if let timestamp = viewModel.telemetryLastEventTimestamp {
+                    LabeledContent("Last event") {
+                        Text(timestamp.formatted(date: .abbreviated, time: .shortened))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if viewModel.telemetryTopEvents.isEmpty {
+                    Text("No telemetry events queued.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Top events")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(viewModel.telemetryTopEvents) { event in
+                            HStack {
+                                Text(event.eventName)
+                                    .font(.caption.monospaced())
+                                Spacer(minLength: 12)
+                                Text("\(event.count)")
+                                    .font(.caption.monospacedDigit())
+                            }
+                        }
+                    }
+                }
+
+                Button("Export Telemetry Summary") {
+                    AppHaptics.selection()
+                    Task { await viewModel.copyTelemetrySummary() }
+                }
+                .accessibilityIdentifier("settings.exportTelemetrySummaryButton")
+
+                Button("Clear Telemetry Data", role: .destructive) {
+                    AppHaptics.selection()
+                    Task { await viewModel.clearTelemetryData() }
+                }
+                .accessibilityIdentifier("settings.clearTelemetryButton")
+            }
         }
     }
 

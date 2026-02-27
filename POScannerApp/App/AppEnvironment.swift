@@ -626,6 +626,7 @@ struct AppEnvironment {
     let keychainService: KeychainService
     let secureStorage: SecureStorage
     let networkDiagnostics: NetworkDiagnosticsRecorder
+    let telemetryQueue: TelemetryQueue
     let reviewDraftStore: any ReviewDraftStoring
     let localNotificationService: LocalNotificationService
     let apiClient: APIClient
@@ -639,6 +640,46 @@ struct AppEnvironment {
     let orderRepository: any OrderRepositorying
     let ticketInventoryMutationService: any TicketInventoryMutationServicing
     let dateProvider: any DateProviding
+
+    init(
+        dataController: DataController,
+        keychainService: KeychainService,
+        secureStorage: SecureStorage,
+        networkDiagnostics: NetworkDiagnosticsRecorder,
+        telemetryQueue: TelemetryQueue = .shared,
+        reviewDraftStore: any ReviewDraftStoring,
+        localNotificationService: LocalNotificationService,
+        apiClient: APIClient,
+        shopmonkeyAPI: any ShopmonkeyServicing,
+        ocrService: OCRService,
+        poParser: POParser,
+        foundationModelService: FoundationModelService,
+        parseHandoffService: LocalParseHandoffService,
+        inventoryRepository: any InventoryRepositorying,
+        inventorySyncCoordinator: any InventorySyncCoordinating,
+        orderRepository: any OrderRepositorying,
+        ticketInventoryMutationService: any TicketInventoryMutationServicing,
+        dateProvider: any DateProviding
+    ) {
+        self.dataController = dataController
+        self.keychainService = keychainService
+        self.secureStorage = secureStorage
+        self.networkDiagnostics = networkDiagnostics
+        self.telemetryQueue = telemetryQueue
+        self.reviewDraftStore = reviewDraftStore
+        self.localNotificationService = localNotificationService
+        self.apiClient = apiClient
+        self.shopmonkeyAPI = shopmonkeyAPI
+        self.ocrService = ocrService
+        self.poParser = poParser
+        self.foundationModelService = foundationModelService
+        self.parseHandoffService = parseHandoffService
+        self.inventoryRepository = inventoryRepository
+        self.inventorySyncCoordinator = inventorySyncCoordinator
+        self.orderRepository = orderRepository
+        self.ticketInventoryMutationService = ticketInventoryMutationService
+        self.dateProvider = dateProvider
+    }
 }
 
 private struct AppEnvironmentKey: EnvironmentKey {
@@ -658,6 +699,7 @@ extension AppEnvironment {
         let keychainService = KeychainService()
         let secureStorage = SecureStorage(keychainService: keychainService)
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
+        let telemetryQueue = TelemetryQueue.shared
         let reviewDraftStore = ReviewDraftStore()
         let localNotificationService = LocalNotificationService()
 
@@ -685,6 +727,7 @@ extension AppEnvironment {
             keychainService: keychainService,
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
+            telemetryQueue: telemetryQueue,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,
@@ -714,6 +757,10 @@ extension AppEnvironment {
         let keychainService = KeychainService(service: "POScannerApp.preview")
         let secureStorage = SecureStorage(keychainService: keychainService)
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
+        let telemetryQueue = TelemetryQueue(
+            defaults: UserDefaults(suiteName: "POScannerApp.preview.telemetry") ?? .standard,
+            storageKey: "com.mikey.POScannerApp.preview.telemetry.queue.v1"
+        )
         let reviewDraftStore = ReviewDraftStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("preview_review_drafts.json"))
         let localNotificationService = LocalNotificationService()
 
@@ -733,6 +780,7 @@ extension AppEnvironment {
             keychainService: keychainService,
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
+            telemetryQueue: telemetryQueue,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,
@@ -757,6 +805,10 @@ extension AppEnvironment {
         let keychainService = KeychainService(service: "POScannerApp.test")
         let secureStorage = SecureStorage(keychainService: keychainService)
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
+        let telemetryQueue = TelemetryQueue(
+            defaults: UserDefaults(suiteName: "POScannerApp.test.telemetry") ?? .standard,
+            storageKey: "com.mikey.POScannerApp.test.telemetry.queue.v1"
+        )
         let localNotificationService = LocalNotificationService()
 
         let apiClient = APIClient(
@@ -775,6 +827,7 @@ extension AppEnvironment {
             keychainService: keychainService,
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
+            telemetryQueue: telemetryQueue,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,
@@ -798,5 +851,9 @@ extension AppEnvironment {
             reason: "Authenticate to submit this draft to Shopmonkey.",
             preferCached: !forcePrompt
         )
+    }
+
+    func enqueueTelemetryEvent(_ event: TelemetryEvent) async {
+        await telemetryQueue.enqueue(event: event)
     }
 }

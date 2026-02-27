@@ -56,6 +56,8 @@ enum POItemKind: String, Codable, CaseIterable, Hashable {
 
 /// Editable line item used in parsing, review UI, and submission mapping.
 struct POItem: Identifiable, Hashable, Codable, Equatable {
+    typealias LineType = POItemKind
+
     var id: UUID = UUID()
 
     var sku: String = ""
@@ -269,6 +271,14 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
     }
 
     // MARK: - Backward-compatible aliases
+
+    mutating func apply(lineType: LineType) {
+        kind = lineType
+    }
+
+    mutating func apply(unitCost: Decimal) {
+        self.unitCost = max(0, unitCost)
+    }
 
     var name: String {
         get { description }

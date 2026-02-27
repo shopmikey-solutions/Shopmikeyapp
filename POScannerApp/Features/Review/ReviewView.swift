@@ -20,6 +20,11 @@ struct ReviewView: View {
     @StateObject var viewModel: ReviewViewModel
     @State private var focusNeedsReviewOnly: Bool = false
     @State private var hasLoadedInitialMetrics: Bool = false
+    @State private var isSelectionMode: Bool = false
+    @State private var isBulkTypeDialogPresented: Bool = false
+    @State private var isBulkCostAlertPresented: Bool = false
+    @State private var isBulkDeleteConfirmationPresented: Bool = false
+    @State private var bulkCostInput: String = ""
     @FocusState private var focusedField: FocusedField?
     @Environment(\.dismiss) private var dismiss
 
@@ -167,13 +172,23 @@ struct ReviewView: View {
         .animation(.snappy(duration: 0.24), value: filteredItemIndices.count)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                if canEditItems {
+                if canEditItems && !isSelectionMode {
                     EditButton()
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if !viewModel.items.isEmpty {
+                    Button(selectionToggleTitle) {
+                        AppHaptics.selection()
+                        setSelectionMode(!isSelectionMode)
+                    }
+                    .accessibilityIdentifier("review.selectModeButton")
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(viewModel.isSubmitting ? "Submitting..." : submitButtonTitle) {
                     focusedField = nil
+                    setSelectionMode(false)
                     AppHaptics.impact(.medium, intensity: 0.9)
                     Task { await viewModel.submitTapped() }
                 }
@@ -185,6 +200,39 @@ struct ReviewView: View {
             Button("OK") { dismiss() }
         } message: {
             Text("Parts, tires, and fees were sent to Shopmonkey.")
+        }
+        .confirmationDialog("Set Line Type", isPresented: $isBulkTypeDialogPresented, titleVisibility: .visible) {
+            ForEach(POItem.LineType.allCases, id: \.self) { type in
+                Button(type.displayName) {
+                    viewModel.bulkSetLineType(type)
+                }
+            }
+        } message: {
+            Text("Apply a line type to selected rows.")
+        }
+        .alert("Set Unit Cost", isPresented: $isBulkCostAlertPresented) {
+            TextField("Unit Cost", text: $bulkCostInput)
+                .keyboardType(.decimalPad)
+            Button("Apply") {
+                guard let cost = parsedBulkCostInput else { return }
+                viewModel.bulkSetUnitCost(cost)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Enter a unit cost to apply to selected rows.")
+        }
+        .alert("Delete Selected Items?", isPresented: $isBulkDeleteConfirmationPresented) {
+            Button("Delete", role: .destructive) {
+                viewModel.bulkDeleteSelected()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes \(viewModel.selectedItemIDs.count) selected line items.")
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isSelectionMode && viewModel.hasSelection {
+                bulkActionBar
+            }
         }
         .onAppear {
             if !hasLoadedInitialMetrics {
@@ -207,7 +255,20 @@ struct ReviewView: View {
             AppHaptics.selection()
         }
         .onChange(of: viewModel.showSuccessAlert) { _, presented in
+            if presented {
+                setSelectionMode(false)
+            }
             if presented { AppHaptics.success() }
+        }
+        .onChange(of: isSelectionMode) { _, isActive in
+            if !isActive {
+                viewModel.clearSelection()
+            }
+        }
+        .onChange(of: viewModel.isSubmitting) { _, isSubmitting in
+            if isSubmitting {
+                setSelectionMode(false)
+            }
         }
         .onChange(of: viewModel.errorMessage) { _, message in
             if message != nil { AppHaptics.error() }
@@ -556,43 +617,69 @@ struct ReviewView: View {
         }
 
         ForEach(filteredItemIndices, id: \.self) { index in
+            let item = viewModel.items[index]
             let itemBinding = $viewModel.items[index]
-            let itemID = viewModel.items[index].id
-            let canConfirmSuggestion = viewModel.items[index].isKindConfidenceMedium && viewModel.items[index].kind != .unknown
-            NavigationLink {
-                LineItemEditView(
-                    item: itemBinding,
-                    allowTaxEditing: !viewModel.shouldIgnoreTax
-                ) { oldKind, newKind in
-                    viewModel.noteLineItemKindEdited(itemID: itemID, from: oldKind, to: newKind)
-                }
-            } label: {
-                lineItemRow(item: viewModel.items[index])
-            }
-            .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                kindSwipeButton(title: "Part", kind: .part, color: AppSurfaceStyle.info, at: index)
-                kindSwipeButton(title: "Tire", kind: .tire, color: AppSurfaceStyle.warning, at: index)
-                kindSwipeButton(title: "Fee", kind: .fee, color: .teal, at: index)
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                if canConfirmSuggestion {
-                    Button {
-                        AppHaptics.selection()
-                        viewModel.confirmItemSuggestion(at: index)
-                    } label: {
-                        Label("Confirm", systemImage: "checkmark.circle")
-                    }
-                    .tint(AppSurfaceStyle.success)
-                }
+            let itemID = item.id
+            let isSelected = viewModel.selectedItemIDs.contains(itemID)
+            let canConfirmSuggestion = item.isKindConfidenceMedium && item.kind != .unknown
 
-                Button(role: .destructive) {
-                    AppHaptics.warning()
-                    viewModel.deleteItems(at: IndexSet(integer: index))
+            if isSelectionMode {
+                Button {
+                    AppHaptics.selection()
+                    viewModel.toggleSelection(id: itemID)
                 } label: {
-                    Label("Delete", systemImage: "trash")
+                    lineItemRow(
+                        item: item,
+                        isSelectionMode: true,
+                        isSelected: isSelected
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("review.itemRow")
+                .accessibilityLabel(item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Item" : item.description)
+                .accessibilityValue(isSelected ? "Selected" : "Not selected")
+                .contextMenu {
+                    rowContextMenu(index: index, itemID: itemID, isSelected: isSelected)
+                }
+            } else {
+                NavigationLink {
+                    LineItemEditView(
+                        item: itemBinding,
+                        allowTaxEditing: !viewModel.shouldIgnoreTax
+                    ) { oldKind, newKind in
+                        viewModel.noteLineItemKindEdited(itemID: itemID, from: oldKind, to: newKind)
+                    }
+                } label: {
+                    lineItemRow(item: item)
+                }
+                .contextMenu {
+                    rowContextMenu(index: index, itemID: itemID, isSelected: isSelected)
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    kindSwipeButton(title: "Part", kind: .part, color: AppSurfaceStyle.info, at: index)
+                    kindSwipeButton(title: "Tire", kind: .tire, color: AppSurfaceStyle.warning, at: index)
+                    kindSwipeButton(title: "Fee", kind: .fee, color: .teal, at: index)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if canConfirmSuggestion {
+                        Button {
+                            AppHaptics.selection()
+                            viewModel.confirmItemSuggestion(at: index)
+                        } label: {
+                            Label("Confirm", systemImage: "checkmark.circle")
+                        }
+                        .tint(AppSurfaceStyle.success)
+                    }
+
+                    Button(role: .destructive) {
+                        AppHaptics.warning()
+                        viewModel.deleteItems(at: IndexSet(integer: index))
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                .moveDisabled(focusNeedsReviewOnly)
             }
-            .moveDisabled(focusNeedsReviewOnly)
         }
         .onDelete(perform: deleteFilteredItems)
         .onMove(perform: moveFilteredItems)
@@ -636,53 +723,69 @@ struct ReviewView: View {
         .tint(color)
     }
 
-    private func lineItemRow(item: POItem) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Item" : item.description)
-                .font(.body)
+    private func lineItemRow(
+        item: POItem,
+        isSelectionMode: Bool = false,
+        isSelected: Bool = false
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            if isSelectionMode {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? AppSurfaceStyle.info : .secondary)
+                    .accessibilityLabel(isSelected ? "Selected" : "Not selected")
+            }
 
-            HStack(spacing: 8) {
-                Label(item.kind.displayName, systemImage: kindSymbol(for: item.kind))
-                    .font(.footnote)
-                    .foregroundStyle(kindTint(for: item.kind))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Item" : item.description)
+                    .font(.body)
 
-                if item.kind == .unknown {
-                    Text("Needs review")
+                HStack(spacing: 8) {
+                    Label(item.kind.displayName, systemImage: kindSymbol(for: item.kind))
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else if item.isKindConfidenceMedium {
-                    Text("Suggested • confirm")
+                        .foregroundStyle(kindTint(for: item.kind))
+
+                    if item.kind == .unknown {
+                        Text("Needs review")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else if item.isKindConfidenceMedium {
+                        Text("Suggested • confirm")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if !item.sku.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(item.sku)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                HStack {
+                    Text("\(quantityString(item.quantity)) x \(item.unitPriceFormatted)")
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    Spacer()
+                    Text(item.subtotalFormatted)
+                        .fontWeight(.semibold)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+                if let feeHint = item.feeInferenceHint {
+                    Text(feeHint)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-
-                if !item.sku.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(item.sku)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
-            HStack {
-                Text("\(quantityString(item.quantity)) x \(item.unitPriceFormatted)")
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                Spacer()
-                Text(item.subtotalFormatted)
-                    .fontWeight(.semibold)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-
-            if let feeHint = item.feeInferenceHint {
-                Text(feeHint)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
+        .padding(.vertical, 2)
+        .padding(.horizontal, isSelectionMode ? 4 : 0)
+        .background(isSelectionMode && isSelected ? AppSurfaceStyle.info.opacity(0.12) : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func kindTint(for kind: POItemKind) -> Color {
@@ -723,10 +826,94 @@ struct ReviewView: View {
         return "\(Int((clamped * 100).rounded()))%"
     }
 
+    private var selectionToggleTitle: String {
+        isSelectionMode ? "Done" : "Select"
+    }
+
+    private var parsedBulkCostInput: Decimal? {
+        let normalized = bulkCostInput
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: "")
+        guard !normalized.isEmpty else { return nil }
+        return Decimal(string: normalized)
+    }
+
+    private var bulkActionBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("\(viewModel.selectedItemIDs.count) selected")
+                    .font(.footnote.weight(.semibold))
+                    .accessibilityIdentifier("review.selectedCountLabel")
+                Spacer()
+                Button("Clear") {
+                    AppHaptics.selection()
+                    viewModel.clearSelection()
+                }
+                .font(.footnote)
+                .accessibilityIdentifier("review.clearSelectionButton")
+            }
+
+            HStack(spacing: 8) {
+                Button("Set Type") {
+                    AppHaptics.selection()
+                    isBulkTypeDialogPresented = true
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("review.bulkSetTypeButton")
+
+                Button("Set Cost") {
+                    AppHaptics.selection()
+                    bulkCostInput = ""
+                    isBulkCostAlertPresented = true
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("review.bulkSetCostButton")
+
+                Button("Delete", role: .destructive) {
+                    AppHaptics.warning()
+                    isBulkDeleteConfirmationPresented = true
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("review.bulkDeleteButton")
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .padding(12)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+    }
+
     private var safeReviewReadinessScore: Double {
         let score = viewModel.reviewReadinessScore
         guard score.isFinite else { return 0 }
         return min(1, max(0, score))
+    }
+
+    @ViewBuilder
+    private func rowContextMenu(index: Int, itemID: UUID, isSelected: Bool) -> some View {
+        Button(isSelected ? "Deselect" : "Select") {
+            AppHaptics.selection()
+            if !isSelectionMode {
+                setSelectionMode(true)
+            }
+            viewModel.toggleSelection(id: itemID)
+        }
+
+        Button(role: .destructive) {
+            AppHaptics.warning()
+            viewModel.deleteItems(at: IndexSet(integer: index))
+        } label: {
+            Label("Delete", systemImage: "trash")
+        }
+    }
+
+    private func setSelectionMode(_ enabled: Bool) {
+        isSelectionMode = enabled
+        if !enabled {
+            viewModel.clearSelection()
+        }
     }
 
     private func vendorContactSummary(for vendor: VendorSummary) -> String? {

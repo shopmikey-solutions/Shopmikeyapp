@@ -1,0 +1,21 @@
+{
+  "caseId" : "ecommerce_cart_001",
+  "document" : {
+    "vendorName" : "ONLINE PARTS DEPOT"
+  },
+  "lineItems" : [
+    {
+      "description" : "Brake Pad Set",
+      "extendedPriceCents" : 4998,
+      "quantity" : 2,
+      "type" : "unknown",
+      "unitPriceCents" : 2499
+    }
+  ],
+  "profile" : "ecommerceCart",
+  "schemaVersion" : 1,
+  "totals" : {
+    "subtotalCents" : 4998,
+    "totalCents" : 4998
+  }
+}

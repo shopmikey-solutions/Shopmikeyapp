@@ -117,7 +117,6 @@ enum ParserGoldenComparator {
     private static func expectedGoldenURL(caseId: String) -> URL {
         let root = projectRootURL()
         return root
-            .appendingPathComponent("POScannerAppTests", isDirectory: true)
             .appendingPathComponent("Fixtures", isDirectory: true)
             .appendingPathComponent("ParserCorpus", isDirectory: true)
             .appendingPathComponent("expected", isDirectory: true)

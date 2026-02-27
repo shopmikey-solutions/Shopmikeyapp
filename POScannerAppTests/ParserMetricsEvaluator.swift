@@ -387,7 +387,7 @@ enum ParserMetricsEvaluator {
         lines.append("")
         lines.append("## Notes")
         lines.append("")
-        lines.append("- Ground truth source: PR-07 parser goldens under `POScannerAppTests/Fixtures/ParserCorpus/expected/`.")
+        lines.append("- Ground truth source: PR-07 parser goldens under `Fixtures/ParserCorpus/expected/`.")
         lines.append("- Alignment strategy: deterministic key bucketing by normalized part number, then normalized description; position-based pairing within each bucket.")
         lines.append("- Normalization: trim + collapse whitespace + case-fold (diacritic-insensitive). Numeric comparisons use integer quantities/cents.")
 
@@ -421,7 +421,6 @@ enum ParserMetricsEvaluator {
 
     private static func goldenRootDirectory() -> URL {
         projectRootURL()
-            .appendingPathComponent("POScannerAppTests", isDirectory: true)
             .appendingPathComponent("Fixtures", isDirectory: true)
             .appendingPathComponent("ParserCorpus", isDirectory: true)
             .appendingPathComponent("expected", isDirectory: true)

@@ -71,4 +71,4 @@ UPDATE_PARSER_GOLDENS=1 PROJECT_ROOT="$ROOT_DIR" \
 
 echo
 echo "Updated parser golden files (git status):"
-git -C "$ROOT_DIR" status --short -- POScannerAppTests/Fixtures/ParserCorpus/expected
+git -C "$ROOT_DIR" status --short -- Fixtures/ParserCorpus/expected

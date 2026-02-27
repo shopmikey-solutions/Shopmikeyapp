@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B0A1F5A12F6A001100AABBCC /* ParserCorpus in Resources */ = {isa = PBXBuildFile; fileRef = B0A1F5A22F6A001100AABBCC /* ParserCorpus */; };
 		A67282682F45F88F00A5001A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67282672F45F88F00A5001A /* WidgetKit.framework */; };
 		A672826A2F45F88F00A5001A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67282692F45F88F00A5001A /* SwiftUI.framework */; };
 		A672827B2F45F89100A5001A /* ShopMikey ScannerExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A67282652F45F88F00A5001A /* ShopMikey ScannerExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -60,6 +61,7 @@
 		A6E181BA2F41BA33000EFB56 /* POScannerApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = POScannerApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6E181C92F41BA34000EFB56 /* POScannerAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = POScannerAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = POScannerAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0A1F5A22F6A001100AABBCC /* ParserCorpus */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fixtures/ParserCorpus; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -98,9 +100,6 @@
 		};
 		A6E181CC2F41BA34000EFB56 /* POScannerAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFolders = (
-				Fixtures/ParserCorpus,
-			);
 			path = POScannerAppTests;
 			sourceTree = "<group>";
 		};
@@ -159,6 +158,7 @@
 			children = (
 				A6E181BC2F41BA33000EFB56 /* POScannerApp */,
 				A6E181CC2F41BA34000EFB56 /* POScannerAppTests */,
+				B0A1F5A22F6A001100AABBCC /* ParserCorpus */,
 				A6E181D62F41BA34000EFB56 /* POScannerAppUITests */,
 				A672826B2F45F88F00A5001A /* ShopMikey Scanner */,
 				A67282662F45F88F00A5001A /* Frameworks */,
@@ -339,6 +339,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A1F5A12F6A001100AABBCC /* ParserCorpus in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

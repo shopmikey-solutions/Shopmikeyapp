@@ -26,6 +26,7 @@ struct SettingsView: View {
             partsIntakePreferencesSection
             appExperienceSection
             diagnosticsSection
+            fallbackAnalyticsSection
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
@@ -33,6 +34,9 @@ struct SettingsView: View {
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
+        .task {
+            await viewModel.refreshFallbackAnalytics()
+        }
         .onChange(of: saveHistoryEnabled) { _, _ in
             AppHaptics.selection()
         }
@@ -353,6 +357,63 @@ struct SettingsView: View {
             Text("Shows advanced add-to-order and add-to-PO flows during parts intake review.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var fallbackAnalyticsSection: some View {
+        Section("Fallback Analytics") {
+            LabeledContent("Total events") {
+                Text("\(viewModel.fallbackAnalyticsTotalEvents)")
+                    .font(.subheadline.monospacedDigit())
+            }
+
+            LabeledContent("Last branch") {
+                if let lastBranch = viewModel.fallbackAnalyticsLastBranch, !lastBranch.isEmpty {
+                    Text(lastBranch)
+                        .font(.footnote.monospaced())
+                        .multilineTextAlignment(.trailing)
+                } else {
+                    Text("n/a")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let timestamp = viewModel.fallbackAnalyticsLastTimestamp {
+                LabeledContent("Last updated") {
+                    Text(timestamp.formatted(date: .abbreviated, time: .shortened))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if viewModel.fallbackAnalyticsTopBranches.isEmpty {
+                Text("No fallback branches recorded.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Top branches")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    ForEach(viewModel.fallbackAnalyticsTopBranches) { branch in
+                        HStack {
+                            Text(branch.branch)
+                                .font(.caption.monospaced())
+                                .lineLimit(2)
+                            Spacer(minLength: 12)
+                            Text("\(branch.count)")
+                                .font(.caption.monospacedDigit())
+                        }
+                    }
+                }
+            }
+
+            Button("Clear Fallback Analytics", role: .destructive) {
+                AppHaptics.selection()
+                Task { await viewModel.clearFallbackAnalytics() }
+            }
+            .accessibilityIdentifier("settings.clearFallbackAnalyticsButton")
         }
     }
 

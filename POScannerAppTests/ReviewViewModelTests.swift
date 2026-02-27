@@ -127,6 +127,7 @@ private final class VendorLookupCountingService: ShopmonkeyServicing, @unchecked
     func testConnection() async throws {}
 }
 
+@MainActor
 struct ReviewViewModelTests {
     @Test func manualTypeOverridePersistsInSubmissionPayload() async throws {
         let parsed = ParsedInvoice(

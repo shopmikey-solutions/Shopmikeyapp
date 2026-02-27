@@ -8,7 +8,7 @@ import Testing
 @testable import POScannerApp
 
 private final class MissingTokenURLProtocol: URLProtocol {
-    static var requestCount: Int = 0
+    nonisolated(unsafe) static var requestCount: Int = 0
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -27,8 +27,8 @@ private final class MissingTokenURLProtocol: URLProtocol {
 }
 
 private final class RetryOnceURLProtocol: URLProtocol {
-    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
-    static var requestCount: Int = 0
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    nonisolated(unsafe) static var requestCount: Int = 0
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -60,8 +60,8 @@ private final class RetryOnceURLProtocol: URLProtocol {
 }
 
 private final class PurchaseOrderURLProtocol: URLProtocol {
-    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
-    static var requestCount: Int = 0
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    nonisolated(unsafe) static var requestCount: Int = 0
 
     override class func canInit(with request: URLRequest) -> Bool {
         true

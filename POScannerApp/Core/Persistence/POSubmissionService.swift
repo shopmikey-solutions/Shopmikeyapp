@@ -11,6 +11,7 @@ enum ValidationError: Error {
     case invalidPayload(String)
     case invalidVendor
     case noSubmittableItems
+    case vendorResolutionRequired
 }
 
 /// Shared submission pipeline used by Review and History retry.
@@ -135,7 +136,10 @@ final class POSubmissionService {
                 try await authorizeSubmission()
                 Self.logger.debug("Submission auth gate succeeded in \(self.elapsedMillis(since: authStart), privacy: .public)ms.")
             } catch {
-                let message = "Authentication required before submission."
+                let message = formattedUserMessage(
+                    baseMessage: "Authentication required before submission.",
+                    code: .authChallengeFailed
+                )
                 Self.logger.error(
                     "Submission auth gate failed in \(self.elapsedMillis(since: authStart), privacy: .public)ms. message=\(message, privacy: .public)"
                 )
@@ -333,7 +337,7 @@ final class POSubmissionService {
             return match.id
         }
 
-        throw ValidationError.invalidPayload("Select or create a vendor before submitting.")
+        throw ValidationError.vendorResolutionRequired
     }
 
     // MARK: - Stage 3: Line item submission
@@ -935,6 +939,13 @@ private extension String {
 
 /// User-safe error string mapping. Never include tokens, headers, or URLs.
 func userMessage(for error: Error) -> String {
+    formattedUserMessage(
+        baseMessage: baseUserMessage(for: error),
+        code: diagnosticCode(for: error)
+    )
+}
+
+func baseUserMessage(for error: Error) -> String {
     if let validation = error as? ValidationError {
         switch validation {
         case .invalidPayload(let message):
@@ -943,6 +954,8 @@ func userMessage(for error: Error) -> String {
             return "Vendor name looks like a line item. Please enter a vendor name."
         case .noSubmittableItems:
             return "No valid items to submit."
+        case .vendorResolutionRequired:
+            return "Select or create a vendor before submitting."
         }
     }
 
@@ -983,6 +996,38 @@ func userMessage(for error: Error) -> String {
     #else
     return "Unexpected error"
     #endif
+}
+
+func diagnosticCode(for error: Error) -> DiagnosticCode {
+    if let validation = error as? ValidationError {
+        switch validation {
+        case .invalidPayload:
+            return .submitValidatePayload
+        case .invalidVendor:
+            return .submitValidateVendor
+        case .noSubmittableItems:
+            return .submitValidateNoItems
+        case .vendorResolutionRequired:
+            return .submitVendorResolve
+        }
+    }
+
+    if let apiError = error as? APIError, let code = apiError.diagnosticCode {
+        return code
+    }
+
+    if error is URLError {
+        return DiagnosticCode.forNetworkError(error)
+    }
+
+    return .submitUnknownError
+}
+
+func formattedUserMessage(baseMessage: String, code: DiagnosticCode) -> String {
+    if baseMessage.contains("(ID: \(code.rawValue))") {
+        return baseMessage
+    }
+    return "\(baseMessage) (ID: \(code.rawValue))"
 }
 
 private func userMessage(forNetworkError error: Error) -> String {

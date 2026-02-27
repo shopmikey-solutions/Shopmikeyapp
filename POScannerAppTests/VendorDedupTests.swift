@@ -201,7 +201,8 @@ struct VendorDedupTests {
         #expect(api.searchCalls == 1)
         #expect(api.createCalls == 0)
         #expect(api.createPartCalls == 0)
-        #expect(result.message == "Select or create a vendor before submitting.")
+        #expect(result.message?.contains("Select or create a vendor before submitting.") == true)
+        #expect(result.message?.contains("ID: \(DiagnosticCode.submitVendorResolve.rawValue)") == true)
 
         let cached = try fetchVendors(in: controller.viewContext)
         #expect(cached.isEmpty)
@@ -235,6 +236,7 @@ struct VendorDedupTests {
         #expect(api.searchCalls == 1)
         #expect(api.createCalls == 0)
         #expect(api.createPartCalls == 0)
-        #expect(result.message == "Server error (500)")
+        #expect(result.message?.contains("Server error (500)") == true)
+        #expect(result.message?.contains("ID: \(DiagnosticCode.apiServer5xx.rawValue)") == true)
     }
 }

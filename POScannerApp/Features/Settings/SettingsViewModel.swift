@@ -41,6 +41,17 @@ final class SettingsViewModel: ObservableObject {
     @Published var connectivityStatusMessage: String?
     @Published var endpointProbeReport: ShopmonkeyEndpointProbeReport?
     @Published var networkDiagnostics: [NetworkDiagnosticsEntry] = []
+    @Published private(set) var lastErrorMessage: String?
+    @Published private(set) var lastDiagnosticCode: DiagnosticCode?
+
+    var lastDiagnosticID: String? {
+        lastDiagnosticCode?.rawValue
+    }
+
+    var formattedLastErrorMessage: String? {
+        guard let lastErrorMessage, let lastDiagnosticID else { return nil }
+        return "Error: \(lastErrorMessage) (ID: \(lastDiagnosticID))"
+    }
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -265,6 +276,7 @@ final class SettingsViewModel: ObservableObject {
     func testConnection() async {
         isTestingConnection = true
         connectivityStatusMessage = nil
+        clearLastErrorDiagnostic()
 
         do {
             try storeTokenFromInputIfNeeded()
@@ -273,10 +285,14 @@ final class SettingsViewModel: ObservableObject {
             )
             try await environment.shopmonkeyAPI.testConnection()
             connectivityStatusMessage = "Shopmonkey connection verified."
+            clearLastErrorDiagnostic()
         } catch let error as SecureStorage.SecureStorageError {
-            connectivityStatusMessage = connectivityAuthMessage(for: error)
+            recordDiagnosticError(
+                message: connectivityAuthMessage(for: error),
+                code: .authChallengeFailed
+            )
         } catch {
-            connectivityStatusMessage = userMessage(for: error)
+            recordDiagnosticError(error)
         }
 
         await refreshNetworkDiagnostics()
@@ -287,6 +303,7 @@ final class SettingsViewModel: ObservableObject {
         isRunningProbe = true
         connectivityStatusMessage = nil
         endpointProbeReport = nil
+        clearLastErrorDiagnostic()
 
         do {
             try storeTokenFromInputIfNeeded()
@@ -301,10 +318,14 @@ final class SettingsViewModel: ObservableObject {
             } else {
                 connectivityStatusMessage = "Probe complete: purchase-order routes not fully confirmed."
             }
+            clearLastErrorDiagnostic()
         } catch let error as SecureStorage.SecureStorageError {
-            connectivityStatusMessage = connectivityAuthMessage(for: error)
+            recordDiagnosticError(
+                message: connectivityAuthMessage(for: error),
+                code: .authChallengeFailed
+            )
         } catch {
-            connectivityStatusMessage = userMessage(for: error)
+            recordDiagnosticError(error)
         }
 
         await refreshNetworkDiagnostics()
@@ -326,6 +347,19 @@ final class SettingsViewModel: ObservableObject {
         #if canImport(UIKit)
         UIPasteboard.general.string = text
         connectivityStatusMessage = "Network capture copied."
+        #else
+        connectivityStatusMessage = "Copy unavailable on this platform."
+        #endif
+    }
+
+    func copyDiagnosticInfo() async {
+        guard let diagnosticText = diagnosticSupportText() else {
+            connectivityStatusMessage = "No diagnostic info available."
+            return
+        }
+        #if canImport(UIKit)
+        UIPasteboard.general.string = diagnosticText
+        connectivityStatusMessage = "Diagnostic info copied."
         #else
         connectivityStatusMessage = "Copy unavailable on this platform."
         #endif
@@ -400,5 +434,42 @@ final class SettingsViewModel: ObservableObject {
         case .authenticationFailed, .biometricsUnavailable:
             return "Authentication failed."
         }
+    }
+
+    private func clearLastErrorDiagnostic() {
+        lastErrorMessage = nil
+        lastDiagnosticCode = nil
+    }
+
+    private func recordDiagnosticError(_ error: Error) {
+        recordDiagnosticError(
+            message: baseUserMessage(for: error),
+            code: diagnosticCode(for: error)
+        )
+    }
+
+    private func recordDiagnosticError(message: String, code: DiagnosticCode) {
+        lastErrorMessage = message
+        lastDiagnosticCode = code
+        connectivityStatusMessage = formattedUserMessage(baseMessage: "Error: \(message)", code: code)
+    }
+
+    private func diagnosticSupportText() -> String? {
+        guard let message = lastErrorMessage,
+              let code = lastDiagnosticCode else {
+            return nil
+        }
+
+        var components = [
+            "Diagnostic ID: \(code.rawValue)",
+            "Title: \(code.userFacingTitle)",
+            "Message: \(message)"
+        ]
+
+        if let suggestedAction = code.suggestedAction, !suggestedAction.isEmpty {
+            components.append("Suggested Action: \(suggestedAction)")
+        }
+
+        return components.joined(separator: "\n")
     }
 }

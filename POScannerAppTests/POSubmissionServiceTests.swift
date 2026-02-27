@@ -117,7 +117,8 @@ struct POSubmissionServiceTests {
 
     @Test func userMessageMapsRateLimitToManualRetryGuidance() {
         let message = userMessage(for: APIError.rateLimited)
-        #expect(message == "Rate limited. Please retry in a moment.")
+        #expect(message.contains("Rate limited. Please retry in a moment."))
+        #expect(message.contains("ID: \(DiagnosticCode.netRate429.rawValue)"))
     }
 
     @Test @MainActor func invalidPayloadMissingVendorDoesNotCallNetwork() async throws {
@@ -143,7 +144,8 @@ struct POSubmissionServiceTests {
 
         let result = await submitter.submitNew(payload: payload, shouldPersist: true, context: controller.viewContext)
         #expect(result.succeeded == false)
-        #expect(result.message == "Vendor name is required.")
+        #expect(result.message?.contains("Vendor name is required.") == true)
+        #expect(result.message?.contains("ID: \(DiagnosticCode.submitValidatePayload.rawValue)") == true)
 
         let counts = mock.counts
         #expect(counts.createVendor == 0)
@@ -181,14 +183,16 @@ struct POSubmissionServiceTests {
 
         let result = await submitter.submitNew(payload: payload, shouldPersist: true, context: controller.viewContext)
         #expect(result.succeeded == false)
-        #expect(result.message == "Unauthorized")
+        #expect(result.message?.contains("Unauthorized") == true)
+        #expect(result.message?.contains("ID: \(DiagnosticCode.authUnauthorized401.rawValue)") == true)
         guard result.succeeded == false else { return }
 
         let saved = try fetchPurchaseOrders(in: controller.viewContext)
         #expect(saved.count == 1)
         guard let po = saved.first else { return }
         #expect(po.status == "failed")
-        #expect(po.lastError == "Unauthorized")
+        #expect(po.lastError?.contains("Unauthorized") == true)
+        #expect(po.lastError?.contains("ID: \(DiagnosticCode.authUnauthorized401.rawValue)") == true)
     }
 
     @Test @MainActor func successfulSubmissionPersistsSubmittedStatus() async throws {

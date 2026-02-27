@@ -25,6 +25,7 @@ struct ReviewView: View {
     @State private var isBulkCostAlertPresented: Bool = false
     @State private var isBulkDeleteConfirmationPresented: Bool = false
     @State private var bulkCostInput: String = ""
+    @State private var isVendorMismatchBannerDismissed: Bool = false
     @FocusState private var focusedField: FocusedField?
     @Environment(\.dismiss) private var dismiss
 
@@ -273,6 +274,11 @@ struct ReviewView: View {
         .onChange(of: viewModel.errorMessage) { _, message in
             if message != nil { AppHaptics.error() }
         }
+        .onChange(of: viewModel.shouldShowVendorMismatchWarning) { _, showWarning in
+            if !showWarning {
+                isVendorMismatchBannerDismissed = false
+            }
+        }
     }
 
     private var reviewHealthCard: some View {
@@ -321,6 +327,12 @@ struct ReviewView: View {
             .focused($focusedField, equals: .vendor)
             .submitLabel(.next)
             .accessibilityIdentifier("review.vendorField")
+
+            vendorConfidenceBadge
+
+            if viewModel.shouldShowVendorMismatchWarning && !isVendorMismatchBannerDismissed {
+                vendorMismatchBanner
+            }
 
             if !viewModel.vendorSuggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -420,6 +432,92 @@ struct ReviewView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var vendorConfidenceBadge: some View {
+        HStack(spacing: 8) {
+            Image(systemName: vendorConfidenceIcon)
+                .foregroundStyle(vendorConfidenceColor)
+            Text("Vendor confidence: \(vendorConfidenceLabel)")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(vendorConfidenceColor.opacity(0.14))
+        .clipShape(Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Vendor confidence: \(vendorConfidenceLabel)")
+    }
+
+    private var vendorMismatchBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(AppSurfaceStyle.warning)
+                Text("Vendor name on document differs from selected vendor.")
+                    .font(.footnote.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button {
+                    isVendorMismatchBannerDismissed = true
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.bold))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss vendor mismatch warning")
+            }
+
+            Button("Review Suggested Vendor") {
+                isVendorMismatchBannerDismissed = false
+                viewModel.applySuggestedVendorName()
+            }
+            .font(.footnote.weight(.semibold))
+        }
+        .padding(10)
+        .background(AppSurfaceStyle.warning.opacity(0.18))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+
+    private var vendorConfidenceLabel: String {
+        switch viewModel.vendorMatchConfidence {
+        case .high:
+            return "High"
+        case .medium:
+            return "Medium"
+        case .low:
+            return "Low"
+        case .mismatch:
+            return "Mismatch"
+        }
+    }
+
+    private var vendorConfidenceIcon: String {
+        switch viewModel.vendorMatchConfidence {
+        case .high:
+            return "checkmark.seal.fill"
+        case .medium:
+            return "exclamationmark.circle.fill"
+        case .low:
+            return "exclamationmark.triangle.fill"
+        case .mismatch:
+            return "xmark.octagon.fill"
+        }
+    }
+
+    private var vendorConfidenceColor: Color {
+        switch viewModel.vendorMatchConfidence {
+        case .high:
+            return AppSurfaceStyle.success
+        case .medium:
+            return AppSurfaceStyle.warning
+        case .low:
+            return .orange
+        case .mismatch:
+            return .red
         }
     }
 

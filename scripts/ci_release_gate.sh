@@ -5,11 +5,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_PATH="$ROOT_DIR/Shopmikey.xcodeproj"
 SCHEME_NAME="${SCHEME_NAME:-POScannerApp}"
 RUN_UI_SMOKE="${RUN_UI_SMOKE:-0}"
+RELEASE_DEVICE_BUILD="${RELEASE_DEVICE_BUILD:-${CI_DEVICE_BUILD:-0}}"
 CI_ARTIFACTS_DIR="${CI_ARTIFACTS_DIR:-$ROOT_DIR/artifacts/release-gate}"
 CI_XCRESULT_DIR="${CI_XCRESULT_DIR:-$CI_ARTIFACTS_DIR/xcresult}"
 CI_REPORTS_DIR="${CI_REPORTS_DIR:-$CI_ARTIFACTS_DIR/reports}"
 STAGE_STATUS_FILE="${CI_STAGE_STATUS_FILE:-$CI_ARTIFACTS_DIR/stage_status.tsv}"
 BUILD_XCRESULT_PATH="$CI_XCRESULT_DIR/build.xcresult"
+DEVICE_BUILD_XCRESULT_PATH="$CI_XCRESULT_DIR/device-build.xcresult"
 TARGETED_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/targeted-tests.xcresult"
 UNIT_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/unit-tests.xcresult"
 UI_SMOKE_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/ui-smoke-tests.xcresult"
@@ -100,6 +102,17 @@ resolve_sim_destination() {
     | grep "platform:iOS Simulator" \
     | grep -Ev "Any iOS Simulator Device|dvtdevice-")"
 
+  local preferred_id
+  preferred_id="$(printf '%s\n' "$destinations" \
+    | grep "name:iPhone 15" \
+    | sed -n 's/.*platform:iOS Simulator[^}]*id:\([^,}]*\).*/\1/p' \
+    | head -n 1)"
+
+  if [[ -n "$preferred_id" ]]; then
+    echo "id=$preferred_id"
+    return 0
+  fi
+
   local destination_id
   destination_id="$(printf '%s\n' "$destinations" \
     | grep "name:iPhone" \
@@ -121,19 +134,35 @@ resolve_sim_destination() {
 }
 
 TEST_PARALLEL_FLAGS=(-parallel-testing-enabled NO -maximum-parallel-testing-workers 1)
+SIM_DESTINATION_RESOLVED="$(resolve_sim_destination)"
 
 run_gate_step \
   "build" \
-  "Release gate: build iOS app" \
+  "Release gate: build iOS app (Simulator)" \
   "$BUILD_XCRESULT_PATH" \
   xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME_NAME" \
   -configuration Debug \
-  -destination "generic/platform=iOS" \
+  -destination "$SIM_DESTINATION_RESOLVED" \
   build
 
-SIM_DESTINATION_RESOLVED="$(resolve_sim_destination)"
+if [[ "$RELEASE_DEVICE_BUILD" == "1" ]]; then
+  run_gate_step \
+    "device-build" \
+    "Release gate: optional device/archive build" \
+    "$DEVICE_BUILD_XCRESULT_PATH" \
+    xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "$SCHEME_NAME" \
+    -configuration Debug \
+    -destination "generic/platform=iOS" \
+    build
+else
+  log_step "Release gate: optional device/archive build"
+  echo "Skipping device/archive build (RELEASE_DEVICE_BUILD not set)"
+  record_stage_status "device-build" "skipped" "Release gate: optional device/archive build" "-"
+fi
 
 run_gate_step \
   "targeted-tests" \

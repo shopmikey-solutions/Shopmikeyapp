@@ -5,13 +5,31 @@
 
 import Foundation
 
+enum VendorMatchConfidence: String {
+    case high
+    case medium
+    case low
+    case mismatch
+}
+
 struct RankedVendorMatch {
     let vendor: VendorSummary
     let score: Double
+
+    var confidence: VendorMatchConfidence {
+        if score >= VendorMatcher.autoSelectScore {
+            return .high
+        }
+        if score >= VendorMatcher.mediumSuggestionScore {
+            return .medium
+        }
+        return .low
+    }
 }
 
 enum VendorMatcher {
     static let minimumSuggestionScore: Double = 0.55
+    static let mediumSuggestionScore: Double = 0.74
     static let autoSelectScore: Double = 0.80
 
     static func rankVendors(
@@ -97,6 +115,53 @@ enum VendorMatcher {
         }
 
         return tokens.joined(separator: " ")
+    }
+
+    static func confidence(
+        for topMatch: RankedVendorMatch?,
+        selectedVendorID: String?,
+        inferredVendorName: String?,
+        selectedVendorName: String?
+    ) -> VendorMatchConfidence {
+        if isMaterialMismatch(
+            inferredVendorName: inferredVendorName,
+            selectedVendorName: selectedVendorName
+        ) {
+            return .mismatch
+        }
+
+        guard let topMatch else { return .low }
+        if let selectedVendorID, selectedVendorID == topMatch.vendor.id {
+            return .high
+        }
+        return topMatch.confidence
+    }
+
+    static func shouldShowMismatchWarning(
+        confidence: VendorMatchConfidence,
+        inferredVendorName: String?,
+        selectedVendorName: String?
+    ) -> Bool {
+        guard confidence == .mismatch || confidence == .low else { return false }
+        return isMaterialMismatch(
+            inferredVendorName: inferredVendorName,
+            selectedVendorName: selectedVendorName
+        )
+    }
+
+    static func isMaterialMismatch(
+        inferredVendorName: String?,
+        selectedVendorName: String?
+    ) -> Bool {
+        let inferredCanonical = canonicalVendorName(inferredVendorName ?? "")
+        let selectedCanonical = canonicalVendorName(selectedVendorName ?? "")
+        guard !inferredCanonical.isEmpty, !selectedCanonical.isEmpty else { return false }
+        guard inferredCanonical != selectedCanonical else { return false }
+
+        let inferredNormalized = inferredVendorName?.normalizedVendorName ?? inferredCanonical
+        let selectedNormalized = selectedVendorName?.normalizedVendorName ?? selectedCanonical
+        let similarity = score(query: inferredNormalized, candidate: selectedNormalized)
+        return similarity < mediumSuggestionScore
     }
 
     private static let legalSuffixes: Set<String> = [

@@ -138,6 +138,7 @@ final class ReviewViewModel: ObservableObject {
     private var lastVendorLookupAt: Date?
     private var inFlightVendorLookupQuery: String?
     private var vendorLookupCache: [String: [VendorSummary]] = [:]
+    private var latestRankedVendorMatches: [RankedVendorMatch] = []
     private var vendorAutoSelectAttempts: Int = 0
     private var vendorAutoSelectSuccesses: Int = 0
     private var lastSubmissionFingerprint: Int?
@@ -367,6 +368,23 @@ final class ReviewViewModel: ObservableObject {
 
     var suggestedKindCount: Int {
         items.filter { $0.isKindConfidenceMedium }.count
+    }
+
+    var vendorMatchConfidence: VendorMatchConfidence {
+        VendorMatcher.confidence(
+            for: latestRankedVendorMatches.first,
+            selectedVendorID: trimmedOrNil(selectedVendorId),
+            inferredVendorName: suggestedVendorName,
+            selectedVendorName: selectedVendorNameForConfidence
+        )
+    }
+
+    var shouldShowVendorMismatchWarning: Bool {
+        VendorMatcher.shouldShowMismatchWarning(
+            confidence: vendorMatchConfidence,
+            inferredVendorName: suggestedVendorName,
+            selectedVendorName: selectedVendorNameForConfidence
+        )
     }
 
     var reviewReadinessScore: Double {
@@ -626,6 +644,7 @@ final class ReviewViewModel: ObservableObject {
         guard trimmedCurrent != trimmedIncoming else { return }
         vendorName = value
         selectedVendorId = nil
+        latestRankedVendorMatches = []
         scheduleVendorLookup(for: value, debounce: true)
     }
 
@@ -1156,6 +1175,7 @@ final class ReviewViewModel: ObservableObject {
             inFlightVendorLookupQuery = nil
             vendorSuggestions = []
             selectedVendorId = nil
+            latestRankedVendorMatches = []
             return
         }
 
@@ -1170,6 +1190,7 @@ final class ReviewViewModel: ObservableObject {
         if let cachedVendors = vendorLookupCache[normalizedQuery] {
             let ranked = rankVendorSuggestions(cachedVendors, query: query)
             vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
+            latestRankedVendorMatches = ranked
             applyVendorAutoSelectionIfNeeded(ranked, query: query)
             lastVendorLookupQuery = normalizedQuery
             lastVendorLookupAt = Date()
@@ -1183,8 +1204,9 @@ final class ReviewViewModel: ObservableObject {
            let lastVendorLookupAt,
            Date().timeIntervalSince(lastVendorLookupAt) < 2.0,
            let previousResults = vendorLookupCache[previousQuery] {
-            let ranked = rankVendorSuggestions(previousResults, query: query)
+           let ranked = rankVendorSuggestions(previousResults, query: query)
             vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
+            latestRankedVendorMatches = ranked
             applyVendorAutoSelectionIfNeeded(ranked, query: query)
             lastVendorLookupQuery = normalizedQuery
             self.lastVendorLookupAt = Date()
@@ -1218,6 +1240,7 @@ final class ReviewViewModel: ObservableObject {
                    let previousResults = self.vendorLookupCache[previousQuery] {
                     let ranked = self.rankVendorSuggestions(previousResults, query: query)
                     self.vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
+                    self.latestRankedVendorMatches = ranked
                     self.applyVendorAutoSelectionIfNeeded(ranked, query: query)
                     self.lastVendorLookupQuery = normalizedQuery
                     self.lastVendorLookupAt = Date()
@@ -1233,6 +1256,7 @@ final class ReviewViewModel: ObservableObject {
                 self.lastVendorLookupQuery = normalizedQuery
                 self.lastVendorLookupAt = Date()
                 self.vendorSuggestions = Array(ranked.prefix(8).map(\.vendor))
+                self.latestRankedVendorMatches = ranked
                 self.applyVendorAutoSelectionIfNeeded(ranked, query: query)
             } catch {
                 guard !Task.isCancelled else { return }
@@ -1240,6 +1264,7 @@ final class ReviewViewModel: ObservableObject {
                 self.lastVendorLookupAt = Date()
                 self.vendorSuggestions = []
                 self.selectedVendorId = nil
+                self.latestRankedVendorMatches = []
             }
         }
     }
@@ -1363,6 +1388,7 @@ final class ReviewViewModel: ObservableObject {
         }
         applyVendorContactDetails(from: vendor, replaceExistingValues: replaceContactDetails)
         vendorSuggestions = []
+        latestRankedVendorMatches = []
         if trackActivity {
             trackReviewAction("Vendor selected (\(vendor.name)).")
         }
@@ -1883,6 +1909,11 @@ final class ReviewViewModel: ObservableObject {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var selectedVendorNameForConfidence: String? {
+        guard trimmedOrNil(selectedVendorId) != nil else { return nil }
+        return trimmedOrNil(vendorName)
     }
 
     private var quickAddMissingInventoryIdentifiersCount: Int {

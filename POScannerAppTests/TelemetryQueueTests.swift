@@ -10,10 +10,8 @@ import Testing
 @Suite(.serialized)
 struct TelemetryQueueTests {
     private struct QueueHarness {
-        let suiteName: String
         let storageKey: String
         let enabledKey: String
-        let defaults: UserDefaults
         let queue: TelemetryQueue
 
         init(
@@ -21,14 +19,12 @@ struct TelemetryQueueTests {
             maxEvents: Int = 500,
             maxStorageBytes: Int = 256 * 1024
         ) {
-            suiteName = "TelemetryQueueTests.\(UUID().uuidString)"
             storageKey = "telemetry.queue.tests.\(UUID().uuidString)"
             enabledKey = "telemetry.enabled.tests.\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: suiteName)!
-            defaults.removePersistentDomain(forName: suiteName)
-            defaults.set(enabled, forKey: enabledKey)
+            UserDefaults.standard.removeObject(forKey: storageKey)
+            UserDefaults.standard.removeObject(forKey: enabledKey)
+            UserDefaults.standard.set(enabled, forKey: enabledKey)
             queue = TelemetryQueue(
-                defaults: defaults,
                 storageKey: storageKey,
                 enabledKey: enabledKey,
                 maxEvents: maxEvents,
@@ -37,7 +33,19 @@ struct TelemetryQueueTests {
         }
 
         func cleanup() {
-            defaults.removePersistentDomain(forName: suiteName)
+            UserDefaults.standard.removeObject(forKey: storageKey)
+            UserDefaults.standard.removeObject(forKey: enabledKey)
+        }
+
+        func makeReloadedQueue() -> TelemetryQueue {
+            TelemetryQueue(
+                storageKey: storageKey,
+                enabledKey: enabledKey
+            )
+        }
+
+        func persistedData() -> Data? {
+            UserDefaults.standard.data(forKey: storageKey)
         }
     }
 
@@ -66,11 +74,7 @@ struct TelemetryQueueTests {
         #expect(summary.countsByEventName["submission_attempted"] == 1)
         #expect(summary.countsByEventName["submission_succeeded"] == 1)
 
-        let reloadedQueue = TelemetryQueue(
-            defaults: harness.defaults,
-            storageKey: harness.storageKey,
-            enabledKey: harness.enabledKey
-        )
+        let reloadedQueue = harness.makeReloadedQueue()
         let reloadedSummary = await reloadedQueue.snapshotSummary()
         #expect(reloadedSummary.totalEvents == 2)
         #expect(reloadedSummary.countsByEventName["submission_attempted"] == 1)
@@ -126,7 +130,7 @@ struct TelemetryQueueTests {
         #expect(context["endpoint"] == "https://api.shopmikey.local/v3/order")
         #expect(context["path"] == "/v3/order")
 
-        guard let persistedData = harness.defaults.data(forKey: harness.storageKey) else {
+        guard let persistedData = harness.persistedData() else {
             Issue.record("Expected telemetry queue to persist")
             return
         }

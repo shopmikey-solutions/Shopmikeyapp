@@ -642,7 +642,7 @@ struct AppEnvironment {
 }
 
 private struct AppEnvironmentKey: EnvironmentKey {
-    static let defaultValue: AppEnvironment = .preview
+    static var defaultValue: AppEnvironment { .preview }
 }
 
 extension EnvironmentValues {

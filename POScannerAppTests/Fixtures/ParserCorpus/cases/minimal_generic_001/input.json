@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "caseId": "minimal_generic_001",
+  "profile": "generic",
+  "vendorHint": "ACME PARTS",
+  "rawText": "ACME PARTS\nInvoice INV-1001\nPart BP-100 Qty 2 Unit 15.00 Total 30.00",
+  "rows": [
+    {
+      "cells": ["BP-100", "2", "15.00", "30.00"],
+      "confidence": 0.94
+    }
+  ],
+  "barcodes": ["INV1001"],
+  "locale": "en_US",
+  "currency": "USD"
+}

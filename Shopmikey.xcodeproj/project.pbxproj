@@ -98,6 +98,9 @@
 		};
 		A6E181CC2F41BA34000EFB56 /* POScannerAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFolders = (
+				Fixtures/ParserCorpus,
+			);
 			path = POScannerAppTests;
 			sourceTree = "<group>";
 		};

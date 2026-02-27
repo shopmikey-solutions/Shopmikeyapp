@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "caseId": "ecommerce_cart_001",
+  "profile": "ecommerceCart",
+  "vendorHint": "ONLINE PARTS DEPOT",
+  "rawText": "ONLINE PARTS DEPOT\nCart\nPart #AX-900\nBrake Pad Set\nPrice $24.99\nQty 2\nSubtotal $49.98\nEstimated Tax $4.00\nOrder Total $53.98",
+  "rows": [
+    {
+      "cells": ["AX-900", "Brake Pad Set", "24.99", "2", "49.98"],
+      "confidence": 0.91
+    }
+  ],
+  "barcodes": [],
+  "locale": "en_US",
+  "currency": "USD"
+}

@@ -60,6 +60,9 @@
 		A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = POScannerAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6E182022F41BA34000EFB56 /* Config/Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A6E182032F41BA34000EFB56 /* Config/Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Release.xcconfig; sourceTree = SOURCE_ROOT; };
+		A6E182042F41BA34000EFB56 /* Config/Development.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Development.xcconfig; sourceTree = SOURCE_ROOT; };
+		A6E182052F41BA34000EFB56 /* Config/Staging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Staging.xcconfig; sourceTree = SOURCE_ROOT; };
+		A6E182062F41BA34000EFB56 /* Config/Production.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Production.xcconfig; sourceTree = SOURCE_ROOT; };
 		B0A1F5A22F6A001100AABBCC /* Fixtures/ParserCorpus */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fixtures/ParserCorpus; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -148,6 +151,9 @@
 			children = (
 				A6E182022F41BA34000EFB56 /* Config/Debug.xcconfig */,
 				A6E182032F41BA34000EFB56 /* Config/Release.xcconfig */,
+				A6E182042F41BA34000EFB56 /* Config/Development.xcconfig */,
+				A6E182052F41BA34000EFB56 /* Config/Staging.xcconfig */,
+				A6E182062F41BA34000EFB56 /* Config/Production.xcconfig */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";

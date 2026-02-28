@@ -1,0 +1,7 @@
+#include "Base.xcconfig"
+
+SMK_ENV_NAME = Staging
+SMK_API_BASE_URL = https://staging-api.shopmonkey.cloud/v3
+SMK_ENABLE_SANDBOX_GUARDS = YES
+SMK_TELEMETRY_DEFAULT_ENABLED = NO
+SMK_LOG_LEVEL = INFO

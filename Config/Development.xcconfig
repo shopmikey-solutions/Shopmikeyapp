@@ -1,8 +1,7 @@
-SWIFT_VERSION = 5.0
+#include "Base.xcconfig"
 
-// Environment build settings (inert until referenced by app code).
 SMK_ENV_NAME = Development
 SMK_API_BASE_URL = https://sandbox-api.shopmonkey.cloud/v3
 SMK_ENABLE_SANDBOX_GUARDS = YES
 SMK_TELEMETRY_DEFAULT_ENABLED = NO
-SMK_LOG_LEVEL = INFO
+SMK_LOG_LEVEL = DEBUG

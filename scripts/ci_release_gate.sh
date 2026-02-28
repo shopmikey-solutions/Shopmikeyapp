@@ -6,6 +6,7 @@ PROJECT_PATH="$ROOT_DIR/Shopmikey.xcodeproj"
 SCHEME_NAME="${SCHEME_NAME:-POScannerApp}"
 RUN_UI_SMOKE="${RUN_UI_SMOKE:-0}"
 RELEASE_DEVICE_BUILD="${RELEASE_DEVICE_BUILD:-${CI_DEVICE_BUILD:-0}}"
+SNAPSHOT_RECORD="${SNAPSHOT_RECORD:-0}"
 CI_ARTIFACTS_DIR="${CI_ARTIFACTS_DIR:-$ROOT_DIR/artifacts/release-gate}"
 CI_XCRESULT_DIR="${CI_XCRESULT_DIR:-$CI_ARTIFACTS_DIR/xcresult}"
 CI_REPORTS_DIR="${CI_REPORTS_DIR:-$CI_ARTIFACTS_DIR/reports}"
@@ -14,6 +15,7 @@ BUILD_XCRESULT_PATH="$CI_XCRESULT_DIR/build.xcresult"
 DEVICE_BUILD_XCRESULT_PATH="$CI_XCRESULT_DIR/device-build.xcresult"
 TARGETED_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/targeted-tests.xcresult"
 UNIT_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/unit-tests.xcresult"
+SNAPSHOT_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/snapshot-tests.xcresult"
 UI_SMOKE_TESTS_XCRESULT_PATH="$CI_XCRESULT_DIR/ui-smoke-tests.xcresult"
 
 if [[ ! -d "$PROJECT_PATH" ]]; then
@@ -27,11 +29,19 @@ mkdir -p "$CI_XCRESULT_DIR" "$CI_REPORTS_DIR"
 printf "stage\tstatus\tlabel\tresult_bundle\n" > "$STAGE_STATUS_FILE"
 
 PARSER_METRICS_THRESHOLD_FILE="$CI_REPORTS_DIR/parser_metrics_min_f1.txt"
+SNAPSHOT_RECORD_MARKER_PATH="$CI_REPORTS_DIR/snapshot_record_mode.txt"
 if [[ -n "${PARSER_METRICS_MIN_F1:-}" ]]; then
   printf "%s\n" "$PARSER_METRICS_MIN_F1" > "$PARSER_METRICS_THRESHOLD_FILE"
   echo "Parser metrics threshold enabled: overall_f1 >= $PARSER_METRICS_MIN_F1"
 else
   rm -f "$PARSER_METRICS_THRESHOLD_FILE"
+fi
+
+if [[ "$SNAPSHOT_RECORD" == "1" ]]; then
+  printf "SNAPSHOT_RECORD=1\n" > "$SNAPSHOT_RECORD_MARKER_PATH"
+  echo "Snapshot baseline recording enabled."
+else
+  rm -f "$SNAPSHOT_RECORD_MARKER_PATH"
 fi
 
 log_step() {
@@ -198,6 +208,20 @@ run_gate_step \
   -enableCodeCoverage YES \
   "${TEST_PARALLEL_FLAGS[@]}" \
   -only-testing:POScannerAppTests \
+  test
+
+run_gate_step \
+  "snapshot-tests" \
+  "Release gate: snapshot tests" \
+  "$SNAPSHOT_TESTS_XCRESULT_PATH" \
+  xcodebuild \
+  -project "$PROJECT_PATH" \
+  -scheme "$SCHEME_NAME" \
+  -destination "$SIM_DESTINATION_RESOLVED" \
+  -enableCodeCoverage YES \
+  "${TEST_PARALLEL_FLAGS[@]}" \
+  -only-testing:POScannerAppTests/OCRReviewSnapshotTests \
+  -only-testing:POScannerAppTests/ReviewModesSnapshotTests \
   test
 
 if [[ "$RUN_UI_SMOKE" == "1" ]]; then

@@ -26,6 +26,7 @@ struct SettingsView: View {
             partsIntakePreferencesSection
             appExperienceSection
             diagnosticsSection
+            syncHealthSection
             fallbackAnalyticsSection
             telemetrySection
         }
@@ -36,6 +37,7 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
         .task {
+            await viewModel.refreshSyncHealth()
             await viewModel.refreshFallbackAnalytics()
             await viewModel.setTelemetryEnabled(viewModel.isTelemetryEnabled, clearWhenDisabled: false)
             await viewModel.refreshTelemetrySummary()
@@ -366,6 +368,56 @@ struct SettingsView: View {
             Text("Shows advanced add-to-order and add-to-PO flows during parts intake review.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var syncHealthSection: some View {
+        Section("Sync Health") {
+            LabeledContent("Pending") {
+                Text("\(viewModel.pendingOperationCount)")
+                    .font(.subheadline.monospacedDigit())
+                    .accessibilityIdentifier("settings.syncHealthPendingValue")
+            }
+
+            LabeledContent("In Progress") {
+                Text("\(viewModel.inProgressOperationCount)")
+                    .font(.subheadline.monospacedDigit())
+                    .accessibilityIdentifier("settings.syncHealthInProgressValue")
+            }
+
+            LabeledContent("Failed") {
+                Text("\(viewModel.failedOperationCount)")
+                    .font(.subheadline.monospacedDigit())
+                    .accessibilityIdentifier("settings.syncHealthFailedValue")
+            }
+
+            LabeledContent("Next Attempt") {
+                if let nextAttempt = viewModel.nextScheduledAttempt {
+                    Text(nextAttempt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("settings.syncHealthNextAttemptValue")
+                } else {
+                    Text("None")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("settings.syncHealthNextAttemptNone")
+                }
+            }
+
+            Button("Retry Failed Now") {
+                AppHaptics.selection()
+                Task { await viewModel.retryFailedNow() }
+            }
+            .accessibilityIdentifier("settings.retryFailedNowButton")
+            .accessibilityLabel("Retry failed sync operations now")
+
+            Button("Clear Failed", role: .destructive) {
+                AppHaptics.selection()
+                Task { await viewModel.clearFailedOperations() }
+            }
+            .accessibilityIdentifier("settings.clearFailedOperationsButton")
+            .accessibilityLabel("Clear failed sync operations")
         }
     }
 

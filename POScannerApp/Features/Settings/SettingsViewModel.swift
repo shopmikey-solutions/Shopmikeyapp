@@ -71,6 +71,10 @@ final class SettingsViewModel: ObservableObject {
     @Published var fallbackAnalyticsTopBranches: [FallbackBranchCount] = []
     @Published var fallbackAnalyticsLastBranch: String?
     @Published var fallbackAnalyticsLastTimestamp: Date?
+    @Published var pendingOperationCount: Int = 0
+    @Published var inProgressOperationCount: Int = 0
+    @Published var failedOperationCount: Int = 0
+    @Published var nextScheduledAttempt: Date?
     @Published var telemetryTotalEvents: Int = 0
     @Published var telemetryLastEventTimestamp: Date?
     @Published var telemetryTopEvents: [TelemetryEventCount] = []
@@ -81,6 +85,7 @@ final class SettingsViewModel: ObservableObject {
         self.updateStatus()
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await self.refreshSyncHealth()
             await self.refreshFallbackAnalytics()
             await self.setTelemetryEnabled(self.isTelemetryEnabled, clearWhenDisabled: false)
         }
@@ -384,6 +389,68 @@ final class SettingsViewModel: ObservableObject {
     func clearFallbackAnalytics() async {
         await FallbackAnalyticsStore.shared.clear()
         await refreshFallbackAnalytics()
+    }
+
+    func refreshSyncHealth() async {
+        let operations = await environment.syncOperationQueue.allOperations()
+        pendingOperationCount = operations.lazy.filter { $0.status == .pending }.count
+        inProgressOperationCount = operations.lazy.filter { $0.status == .inProgress }.count
+        failedOperationCount = operations.lazy.filter { $0.status == .failed }.count
+        nextScheduledAttempt = operations
+            .filter { $0.status == .pending || $0.status == .inProgress }
+            .compactMap(\.nextAttemptAt)
+            .min()
+    }
+
+    func retryFailedNow() async {
+        let failedOperations = await environment.syncOperationQueue.allOperations()
+            .filter { $0.status == .failed }
+            .sorted { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.id.uuidString < rhs.id.uuidString
+                }
+                return lhs.createdAt < rhs.createdAt
+            }
+
+        guard !failedOperations.isEmpty else {
+            connectivityStatusMessage = "No failed sync operations to retry."
+            return
+        }
+
+        for operation in failedOperations {
+            await environment.syncOperationQueue.remove(id: operation.id)
+            var resetOperation = operation
+            resetOperation.status = .pending
+            resetOperation.retryCount = 0
+            resetOperation.lastAttemptAt = nil
+            resetOperation.nextAttemptAt = nil
+            resetOperation.lastErrorCode = nil
+            _ = await environment.syncOperationQueue.enqueue(resetOperation)
+        }
+
+        await refreshSyncHealth()
+        connectivityStatusMessage = "Retrying failed sync operations."
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.environment.syncEngine.runOnce()
+            await self.refreshSyncHealth()
+        }
+    }
+
+    func clearFailedOperations() async {
+        let failedOperationIDs = await environment.syncOperationQueue.allOperations()
+            .filter { $0.status == .failed }
+            .map(\.id)
+
+        for operationID in failedOperationIDs {
+            await environment.syncOperationQueue.remove(id: operationID)
+        }
+
+        await refreshSyncHealth()
+        connectivityStatusMessage = failedOperationIDs.isEmpty
+            ? "No failed sync operations to clear."
+            : "Failed sync operations cleared."
     }
 
     func refreshTelemetrySummary() async {

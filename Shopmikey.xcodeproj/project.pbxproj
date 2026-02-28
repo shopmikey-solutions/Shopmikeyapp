@@ -13,6 +13,9 @@
 		B0A1F5B12F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */; };
 		B0A1F5B22F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D22F6A101100AABBCC /* ShopmikeyCoreModels */; };
 		B0A1F5B32F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D32F6A101100AABBCC /* ShopmikeyCoreModels */; };
+		B0A1F6B12F6A101100AABBCC /* ShopmikeyCoreDiagnostics in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F6D12F6A101100AABBCC /* ShopmikeyCoreDiagnostics */; };
+		B0A1F6B22F6A101100AABBCC /* ShopmikeyCoreDiagnostics in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F6D22F6A101100AABBCC /* ShopmikeyCoreDiagnostics */; };
+		B0A1F6B32F6A101100AABBCC /* ShopmikeyCoreDiagnostics in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F6D32F6A101100AABBCC /* ShopmikeyCoreDiagnostics */; };
 		B0A1F5A12F6A001100AABBCC /* Fixtures/ParserCorpus in Resources */ = {isa = PBXBuildFile; fileRef = B0A1F5A22F6A001100AABBCC /* Fixtures/ParserCorpus */; };
 /* End PBXBuildFile section */
 
@@ -129,6 +132,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A1F6B12F6A101100AABBCC /* ShopmikeyCoreDiagnostics in Frameworks */,
 				B0A1F5B12F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -137,6 +141,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A1F6B22F6A101100AABBCC /* ShopmikeyCoreDiagnostics in Frameworks */,
 				B0A1F5B22F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -145,6 +150,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A1F6B32F6A101100AABBCC /* ShopmikeyCoreDiagnostics in Frameworks */,
 				B0A1F5B32F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -243,6 +249,7 @@
 			name = POScannerApp;
 			packageProductDependencies = (
 				B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */,
+				B0A1F6D12F6A101100AABBCC /* ShopmikeyCoreDiagnostics */,
 			);
 			productName = POScannerApp;
 			productReference = A6E181BA2F41BA33000EFB56 /* POScannerApp.app */;
@@ -267,6 +274,7 @@
 			name = POScannerAppTests;
 			packageProductDependencies = (
 				B0A1F5D22F6A101100AABBCC /* ShopmikeyCoreModels */,
+				B0A1F6D22F6A101100AABBCC /* ShopmikeyCoreDiagnostics */,
 			);
 			productName = POScannerAppTests;
 			productReference = A6E181C92F41BA34000EFB56 /* POScannerAppTests.xctest */;
@@ -291,6 +299,7 @@
 			name = POScannerAppUITests;
 			packageProductDependencies = (
 				B0A1F5D32F6A101100AABBCC /* ShopmikeyCoreModels */,
+				B0A1F6D32F6A101100AABBCC /* ShopmikeyCoreDiagnostics */,
 			);
 			productName = POScannerAppUITests;
 			productReference = A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */;
@@ -334,6 +343,7 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A6E181BB2F41BA33000EFB56 /* Products */;
 			packageReferences = (
+				B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */,
 				B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */,
 			);
 			projectDirPath = "";
@@ -429,6 +439,10 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShopmikeyCoreDiagnostics;
+		};
 		B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/ShopmikeyCoreModels;
@@ -436,6 +450,21 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B0A1F6D12F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
+			productName = ShopmikeyCoreDiagnostics;
+		};
+		B0A1F6D22F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
+			productName = ShopmikeyCoreDiagnostics;
+		};
+		B0A1F6D32F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
+			productName = ShopmikeyCoreDiagnostics;
+		};
 		B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;

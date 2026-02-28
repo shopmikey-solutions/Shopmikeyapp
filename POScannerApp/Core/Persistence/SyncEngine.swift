@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreDiagnostics
 
 enum SyncExecutionResult: Sendable {
     case succeeded

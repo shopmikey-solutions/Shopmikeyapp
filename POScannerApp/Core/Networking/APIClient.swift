@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreDiagnostics
 
 /// URLSession-backed client with strict Bearer auth and safe 429 Retry-After handling (single retry).
 final class APIClient {

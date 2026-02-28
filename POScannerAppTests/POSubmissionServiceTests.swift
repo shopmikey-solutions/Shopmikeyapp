@@ -6,6 +6,7 @@
 import CoreData
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
+import ShopmikeyCoreSync
 import Testing
 @testable import POScannerApp
 

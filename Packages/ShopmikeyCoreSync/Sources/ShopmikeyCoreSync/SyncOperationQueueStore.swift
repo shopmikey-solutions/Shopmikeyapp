@@ -5,8 +5,8 @@
 
 import Foundation
 
-actor SyncOperationQueueStore {
-    static let shared = SyncOperationQueueStore()
+public actor SyncOperationQueueStore {
+    public static let shared = SyncOperationQueueStore()
 
     private struct PersistedState: Codable {
         var operations: [SyncOperation]
@@ -17,7 +17,7 @@ actor SyncOperationQueueStore {
     private let maxOperations: Int
     private var operations: [SyncOperation]
 
-    init(
+    public init(
         fileURL: URL = SyncOperationQueueStore.defaultFileURL(),
         fileManager: FileManager = .default,
         maxOperations: Int = 1_000
@@ -30,7 +30,7 @@ actor SyncOperationQueueStore {
     }
 
     @discardableResult
-    func enqueue(_ operation: SyncOperation) -> UUID {
+    public func enqueue(_ operation: SyncOperation) -> UUID {
         if let existingIndex = operations.firstIndex(where: {
             $0.type == operation.type
                 && $0.payloadFingerprint == operation.payloadFingerprint
@@ -52,7 +52,7 @@ actor SyncOperationQueueStore {
         return operation.id
     }
 
-    func markInProgress(id: UUID) {
+    public func markInProgress(id: UUID) {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations[index].status = .inProgress
         operations[index].lastAttemptAt = Date()
@@ -60,7 +60,7 @@ actor SyncOperationQueueStore {
         persist()
     }
 
-    func markSucceeded(id: UUID) {
+    public func markSucceeded(id: UUID) {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations[index].status = .succeeded
         operations[index].lastAttemptAt = Date()
@@ -69,11 +69,11 @@ actor SyncOperationQueueStore {
         persist()
     }
 
-    func markFailed(id: UUID) {
+    public func markFailed(id: UUID) {
         markFailed(id: id, errorCode: nil, nextAttemptAt: nil)
     }
 
-    func markFailed(id: UUID, errorCode: String?, nextAttemptAt: Date?) {
+    public func markFailed(id: UUID, errorCode: String?, nextAttemptAt: Date?) {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations[index].status = .failed
         operations[index].lastAttemptAt = Date()
@@ -82,14 +82,14 @@ actor SyncOperationQueueStore {
         persist()
     }
 
-    func incrementRetry(id: UUID) {
+    public func incrementRetry(id: UUID) {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations[index].retryCount += 1
         operations[index].lastAttemptAt = Date()
         persist()
     }
 
-    func markPendingForRetry(id: UUID, nextAttemptAt: Date, errorCode: String?) {
+    public func markPendingForRetry(id: UUID, nextAttemptAt: Date, errorCode: String?) {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations[index].status = .pending
         operations[index].nextAttemptAt = nextAttemptAt
@@ -97,11 +97,11 @@ actor SyncOperationQueueStore {
         persist()
     }
 
-    func pendingOperations() -> [SyncOperation] {
+    public func pendingOperations() -> [SyncOperation] {
         operations.filter { $0.status == .pending }
     }
 
-    func readyOperations(asOf date: Date) -> [SyncOperation] {
+    public func readyOperations(asOf date: Date) -> [SyncOperation] {
         operations
             .filter { operation in
                 let due = operation.nextAttemptAt.map { $0 <= date } ?? true
@@ -115,21 +115,21 @@ actor SyncOperationQueueStore {
             }
     }
 
-    func allOperations() -> [SyncOperation] {
+    public func allOperations() -> [SyncOperation] {
         operations
     }
 
-    func operation(id: UUID) -> SyncOperation? {
+    public func operation(id: UUID) -> SyncOperation? {
         operations.first(where: { $0.id == id })
     }
 
-    func remove(id: UUID) {
+    public func remove(id: UUID) {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations.remove(at: index)
         persist()
     }
 
-    func clear() {
+    public func clear() {
         operations.removeAll(keepingCapacity: false)
         do {
             try fileManager.removeItem(at: fileURL)
@@ -180,7 +180,7 @@ actor SyncOperationQueueStore {
         }
     }
 
-    private static func defaultFileURL() -> URL {
+    public static func defaultFileURL() -> URL {
         let baseDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return baseDirectory

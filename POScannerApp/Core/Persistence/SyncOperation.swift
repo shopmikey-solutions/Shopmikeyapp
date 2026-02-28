@@ -26,4 +26,6 @@ struct SyncOperation: Codable, Identifiable {
     var retryCount: Int
     let createdAt: Date
     var lastAttemptAt: Date?
+    var nextAttemptAt: Date?
+    var lastErrorCode: String?
 }

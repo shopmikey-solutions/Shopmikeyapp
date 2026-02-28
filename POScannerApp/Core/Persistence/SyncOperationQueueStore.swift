@@ -39,6 +39,8 @@ actor SyncOperationQueueStore {
             var existing = operations[existingIndex]
             existing.status = .pending
             existing.lastAttemptAt = operation.lastAttemptAt
+            existing.nextAttemptAt = nil
+            existing.lastErrorCode = nil
             operations[existingIndex] = existing
             persist()
             return existing.id
@@ -54,6 +56,7 @@ actor SyncOperationQueueStore {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations[index].status = .inProgress
         operations[index].lastAttemptAt = Date()
+        operations[index].nextAttemptAt = nil
         persist()
     }
 
@@ -61,13 +64,21 @@ actor SyncOperationQueueStore {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations[index].status = .succeeded
         operations[index].lastAttemptAt = Date()
+        operations[index].nextAttemptAt = nil
+        operations[index].lastErrorCode = nil
         persist()
     }
 
     func markFailed(id: UUID) {
+        markFailed(id: id, errorCode: nil, nextAttemptAt: nil)
+    }
+
+    func markFailed(id: UUID, errorCode: String?, nextAttemptAt: Date?) {
         guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
         operations[index].status = .failed
         operations[index].lastAttemptAt = Date()
+        operations[index].nextAttemptAt = nextAttemptAt
+        operations[index].lastErrorCode = sanitizedErrorCode(errorCode)
         persist()
     }
 
@@ -78,8 +89,30 @@ actor SyncOperationQueueStore {
         persist()
     }
 
+    func markPendingForRetry(id: UUID, nextAttemptAt: Date, errorCode: String?) {
+        guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
+        operations[index].status = .pending
+        operations[index].nextAttemptAt = nextAttemptAt
+        operations[index].lastErrorCode = sanitizedErrorCode(errorCode)
+        persist()
+    }
+
     func pendingOperations() -> [SyncOperation] {
         operations.filter { $0.status == .pending }
+    }
+
+    func readyOperations(asOf date: Date) -> [SyncOperation] {
+        operations
+            .filter { operation in
+                let due = operation.nextAttemptAt.map { $0 <= date } ?? true
+                return due && (operation.status == .pending || operation.status == .failed)
+            }
+            .sorted { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.id.uuidString < rhs.id.uuidString
+                }
+                return lhs.createdAt < rhs.createdAt
+            }
     }
 
     func allOperations() -> [SyncOperation] {
@@ -124,6 +157,13 @@ actor SyncOperationQueueStore {
     private func trimIfNeeded() {
         guard operations.count > maxOperations else { return }
         operations.removeFirst(operations.count - maxOperations)
+    }
+
+    private func sanitizedErrorCode(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(120))
     }
 
     private static func loadOperations(from fileURL: URL, fileManager: FileManager) -> [SyncOperation] {

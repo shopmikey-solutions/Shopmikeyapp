@@ -29,6 +29,11 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.mikey.POScannerApp.sync.refresh</string>
+		<string>com.mikey.POScannerApp.sync.processing</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan purchase orders using the camera.</string>
 	<key>NSFaceIDUsageDescription</key>
@@ -39,6 +44,11 @@
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

@@ -628,6 +628,7 @@ struct AppEnvironment {
     let networkDiagnostics: NetworkDiagnosticsRecorder
     let telemetryQueue: TelemetryQueue
     let syncOperationQueue: SyncOperationQueueStore
+    let syncEngine: SyncEngine
     let reviewDraftStore: any ReviewDraftStoring
     let localNotificationService: LocalNotificationService
     let apiClient: APIClient
@@ -649,6 +650,7 @@ struct AppEnvironment {
         networkDiagnostics: NetworkDiagnosticsRecorder,
         telemetryQueue: TelemetryQueue = .shared,
         syncOperationQueue: SyncOperationQueueStore = .shared,
+        syncEngine: SyncEngine? = nil,
         reviewDraftStore: any ReviewDraftStoring,
         localNotificationService: LocalNotificationService,
         apiClient: APIClient,
@@ -669,6 +671,11 @@ struct AppEnvironment {
         self.networkDiagnostics = networkDiagnostics
         self.telemetryQueue = telemetryQueue
         self.syncOperationQueue = syncOperationQueue
+        let resolvedSyncEngine = syncEngine ?? SyncEngine(
+            queueStore: syncOperationQueue,
+            executor: { _ in .succeeded }
+        )
+        self.syncEngine = resolvedSyncEngine
         self.reviewDraftStore = reviewDraftStore
         self.localNotificationService = localNotificationService
         self.apiClient = apiClient
@@ -704,6 +711,11 @@ extension AppEnvironment {
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
         let telemetryQueue = TelemetryQueue.shared
         let syncOperationQueue = SyncOperationQueueStore(fileURL: syncOperationQueueFileURL())
+        let dateProvider = SystemDateProvider()
+        let syncEngine = makeSyncEngine(
+            syncOperationQueue: syncOperationQueue,
+            dateProvider: dateProvider
+        )
         let reviewDraftStore = ReviewDraftStore()
         let localNotificationService = LocalNotificationService()
 
@@ -733,6 +745,7 @@ extension AppEnvironment {
             networkDiagnostics: networkDiagnostics,
             telemetryQueue: telemetryQueue,
             syncOperationQueue: syncOperationQueue,
+            syncEngine: syncEngine,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,
@@ -745,7 +758,7 @@ extension AppEnvironment {
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,
             ticketInventoryMutationService: ticketInventoryMutationService,
-            dateProvider: SystemDateProvider()
+            dateProvider: dateProvider
         )
     }
 
@@ -778,6 +791,11 @@ extension AppEnvironment {
             fileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("preview_sync_operation_queue.json", isDirectory: false)
         )
+        let dateProvider = SystemDateProvider()
+        let syncEngine = makeSyncEngine(
+            syncOperationQueue: syncOperationQueue,
+            dateProvider: dateProvider
+        )
         let reviewDraftStore = ReviewDraftStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("preview_review_drafts.json"))
         let localNotificationService = LocalNotificationService()
 
@@ -799,6 +817,7 @@ extension AppEnvironment {
             networkDiagnostics: networkDiagnostics,
             telemetryQueue: telemetryQueue,
             syncOperationQueue: syncOperationQueue,
+            syncEngine: syncEngine,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,
@@ -811,7 +830,7 @@ extension AppEnvironment {
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,
             ticketInventoryMutationService: ticketInventoryMutationService,
-            dateProvider: SystemDateProvider()
+            dateProvider: dateProvider
         )
     }
 
@@ -830,6 +849,11 @@ extension AppEnvironment {
         let syncOperationQueue = SyncOperationQueueStore(
             fileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("test_sync_operation_queue.json", isDirectory: false)
+        )
+        let dateProvider = SystemDateProvider()
+        let syncEngine = makeSyncEngine(
+            syncOperationQueue: syncOperationQueue,
+            dateProvider: dateProvider
         )
         let localNotificationService = LocalNotificationService()
 
@@ -851,6 +875,7 @@ extension AppEnvironment {
             networkDiagnostics: networkDiagnostics,
             telemetryQueue: telemetryQueue,
             syncOperationQueue: syncOperationQueue,
+            syncEngine: syncEngine,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,
@@ -863,7 +888,7 @@ extension AppEnvironment {
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,
             ticketInventoryMutationService: ticketInventoryMutationService,
-            dateProvider: SystemDateProvider()
+            dateProvider: dateProvider
         )
     }
     #endif
@@ -878,5 +903,24 @@ extension AppEnvironment {
 
     func enqueueTelemetryEvent(_ event: TelemetryEvent) async {
         await telemetryQueue.enqueue(event: event)
+    }
+
+    private static func makeSyncEngine(
+        syncOperationQueue: SyncOperationQueueStore,
+        dateProvider: any DateProviding
+    ) -> SyncEngine {
+        SyncEngine(
+            queueStore: syncOperationQueue,
+            executor: { operation in
+                switch operation.type {
+                case .submitPurchaseOrder:
+                    // PR-16 schedules and retries queued operations; payload replay lands in a later phase.
+                    return .failed(diagnosticCode: DiagnosticCode.submitFallbackExhausted.rawValue)
+                case .syncInventory, .syncVendor:
+                    return .succeeded
+                }
+            },
+            dateProvider: { dateProvider.now }
+        )
     }
 }

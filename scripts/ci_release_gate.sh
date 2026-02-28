@@ -112,6 +112,8 @@ resolve_sim_destination() {
     return 0
   fi
 
+  echo "Auto-detecting iOS Simulator destination..." >&2
+
   local destinations
   destinations="$(xcodebuild \
     -project "$PROJECT_PATH" \
@@ -144,9 +146,17 @@ resolve_sim_destination() {
   fi
 
   if [[ -z "$destination_id" ]]; then
-    echo "error: no iOS Simulator destination found. Set SIM_DESTINATION manually." >&2
+    destination_id="$(xcrun simctl list devices available \
+      | awk -F '[()]' '/iPhone/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-F-]{36}$/) { print $i; exit } }')"
+  fi
+
+  if [[ -z "$destination_id" ]]; then
+    echo "No available iOS Simulator devices found." >&2
     exit 1
   fi
+
+  echo "Using simulator ID: $destination_id" >&2
+  xcrun simctl boot "$destination_id" >/dev/null 2>&1 || true
 
   echo "id=$destination_id"
 }

@@ -201,6 +201,51 @@ struct POSubmissionServiceTests {
         #expect(po.lastError?.contains("ID: \(DiagnosticCode.authUnauthorized401.rawValue)") == true)
     }
 
+    @Test @MainActor func failedSubmissionPersistsOperationStatusAndRetryCount() async throws {
+        let controller = DataController(inMemory: true)
+        await controller.waitUntilLoaded()
+        #expect(controller.loadError == nil)
+        guard controller.loadError == nil else { return }
+
+        let queueFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sync_operation_queue_submission_tests")
+            .appendingPathComponent("\(UUID().uuidString).json")
+        try? FileManager.default.removeItem(at: queueFileURL)
+        defer {
+            try? FileManager.default.removeItem(at: queueFileURL)
+            try? FileManager.default.removeItem(at: queueFileURL.deletingLastPathComponent())
+        }
+        let syncQueue = SyncOperationQueueStore(fileURL: queueFileURL)
+
+        let mock = MockShopmonkeyService()
+        mock.createPartResult = .failure(APIError.rateLimited)
+        let submitter = await MainActor.run {
+            POSubmissionService(shopmonkey: mock, syncOperationQueue: syncQueue)
+        }
+
+        let payload = POSubmissionPayload(
+            vendorId: "v_1",
+            vendorName: "ACME",
+            vendorPhone: nil,
+            poNumber: "PO-queue-1",
+            orderId: "o_1",
+            serviceId: "s_1",
+            items: [POItem(name: "Brake Pads", quantity: 1, cost: 19.99)]
+        )
+
+        let result = await submitter.submitNew(payload: payload, shouldPersist: true, context: controller.viewContext)
+        #expect(result.succeeded == false)
+        #expect(result.message?.contains("ID: \(DiagnosticCode.netRate429.rawValue)") == true)
+
+        let operations = await syncQueue.allOperations()
+        #expect(operations.count == 1)
+        guard let operation = operations.first else { return }
+        #expect(operation.type == .submitPurchaseOrder)
+        #expect(operation.status == .failed)
+        #expect(operation.retryCount == 1)
+        #expect(operation.payloadFingerprint.isEmpty == false)
+    }
+
     @Test @MainActor func successfulSubmissionPersistsSubmittedStatus() async throws {
         let controller = DataController(inMemory: true)
         await controller.waitUntilLoaded()

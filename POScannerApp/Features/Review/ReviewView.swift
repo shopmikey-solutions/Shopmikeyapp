@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreModels
 
 struct ReviewView: View {
     private enum FocusedField: Hashable {

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreModels
 
 struct EditableItemRow: View {
     @Binding var item: POItem

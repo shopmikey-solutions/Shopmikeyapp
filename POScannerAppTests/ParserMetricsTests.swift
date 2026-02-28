@@ -1,4 +1,5 @@
 import Foundation
+import ShopmikeyCoreModels
 import Testing
 
 struct ParserMetricsTests {

@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreModels
 
 /// Regex-based parser with basic confidence scoring.
 ///

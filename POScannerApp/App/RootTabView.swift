@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreModels
 
 struct RootTabView: View {
     private enum Tab: Hashable {

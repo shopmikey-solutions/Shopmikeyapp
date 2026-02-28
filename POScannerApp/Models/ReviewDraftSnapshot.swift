@@ -4,9 +4,10 @@
 //
 
 import Foundation
+import ShopmikeyCoreModels
 
-struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
-    enum WorkflowState: String, Codable, Hashable {
+struct ReviewDraftSnapshot: Identifiable, Codable, Hashable, Sendable {
+    enum WorkflowState: String, Codable, Hashable, Sendable {
         case scanning
         case ocrReview
         case parsing
@@ -79,7 +80,7 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         }
     }
 
-    struct ParsedLineItemSnapshot: Codable, Hashable {
+    struct ParsedLineItemSnapshot: Codable, Hashable, Sendable {
         var name: String
         var quantity: Int?
         var costCents: Int?
@@ -114,7 +115,7 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         }
     }
 
-    struct ParsedInvoiceSnapshot: Codable, Hashable {
+    struct ParsedInvoiceSnapshot: Codable, Hashable, Sendable {
         var vendorName: String?
         var poNumber: String?
         var invoiceNumber: String?
@@ -169,7 +170,7 @@ struct ReviewDraftSnapshot: Identifiable, Codable, Hashable {
         }
     }
 
-    struct State: Codable, Hashable {
+    struct State: Codable, Hashable, Sendable {
         var parsedInvoice: ParsedInvoiceSnapshot
         var vendorName: String
         var vendorPhone: String

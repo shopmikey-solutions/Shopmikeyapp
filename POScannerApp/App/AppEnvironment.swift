@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreModels
 import SwiftUI
 
 private let requireAuthForTokenPreferenceKey = "settings.requireAuthForToken"

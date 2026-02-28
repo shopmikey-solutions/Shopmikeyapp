@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreModels
 
 #if canImport(FoundationModels)
 import FoundationModels

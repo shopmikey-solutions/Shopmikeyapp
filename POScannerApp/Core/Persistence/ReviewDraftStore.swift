@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreModels
 
 protocol ReviewDraftStoring: Sendable {
     func list() async -> [ReviewDraftSnapshot]

@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreModels
 
 protocol ShopmonkeyServicing {
     func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse

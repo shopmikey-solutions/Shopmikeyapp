@@ -4,6 +4,7 @@
 //
 
 import CoreData
+import ShopmikeyCoreModels
 import Testing
 @testable import POScannerApp
 

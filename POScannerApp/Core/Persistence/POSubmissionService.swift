@@ -4,6 +4,7 @@
 //
 
 import CoreData
+import ShopmikeyCoreModels
 import CryptoKit
 import Foundation
 import os

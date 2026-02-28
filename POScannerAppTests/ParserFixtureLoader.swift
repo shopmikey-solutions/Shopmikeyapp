@@ -1,4 +1,5 @@
 import Foundation
+import ShopmikeyCoreModels
 
 enum ParserFixtureProfile: String, Codable {
     case ecommerceCart

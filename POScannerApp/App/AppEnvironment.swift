@@ -627,6 +627,7 @@ struct AppEnvironment {
     let secureStorage: SecureStorage
     let networkDiagnostics: NetworkDiagnosticsRecorder
     let telemetryQueue: TelemetryQueue
+    let syncOperationQueue: SyncOperationQueueStore
     let reviewDraftStore: any ReviewDraftStoring
     let localNotificationService: LocalNotificationService
     let apiClient: APIClient
@@ -647,6 +648,7 @@ struct AppEnvironment {
         secureStorage: SecureStorage,
         networkDiagnostics: NetworkDiagnosticsRecorder,
         telemetryQueue: TelemetryQueue = .shared,
+        syncOperationQueue: SyncOperationQueueStore = .shared,
         reviewDraftStore: any ReviewDraftStoring,
         localNotificationService: LocalNotificationService,
         apiClient: APIClient,
@@ -666,6 +668,7 @@ struct AppEnvironment {
         self.secureStorage = secureStorage
         self.networkDiagnostics = networkDiagnostics
         self.telemetryQueue = telemetryQueue
+        self.syncOperationQueue = syncOperationQueue
         self.reviewDraftStore = reviewDraftStore
         self.localNotificationService = localNotificationService
         self.apiClient = apiClient
@@ -700,6 +703,7 @@ extension AppEnvironment {
         let secureStorage = SecureStorage(keychainService: keychainService)
         let networkDiagnostics = NetworkDiagnosticsRecorder.shared
         let telemetryQueue = TelemetryQueue.shared
+        let syncOperationQueue = SyncOperationQueueStore(fileURL: syncOperationQueueFileURL())
         let reviewDraftStore = ReviewDraftStore()
         let localNotificationService = LocalNotificationService()
 
@@ -728,6 +732,7 @@ extension AppEnvironment {
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
             telemetryQueue: telemetryQueue,
+            syncOperationQueue: syncOperationQueue,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,
@@ -752,6 +757,14 @@ extension AppEnvironment {
             .appendingPathComponent("inventory_sync_state.json", isDirectory: false)
     }
 
+    private static func syncOperationQueueFileURL() -> URL {
+        let baseDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return baseDirectory
+            .appendingPathComponent("POScannerApp", isDirectory: true)
+            .appendingPathComponent("sync_operation_queue.json", isDirectory: false)
+    }
+
     static var preview: AppEnvironment {
         let dataController = DataController(inMemory: true)
         let keychainService = KeychainService(service: "POScannerApp.preview")
@@ -760,6 +773,10 @@ extension AppEnvironment {
         let telemetryQueue = TelemetryQueue(
             defaults: UserDefaults(suiteName: "POScannerApp.preview.telemetry") ?? .standard,
             storageKey: "com.mikey.POScannerApp.preview.telemetry.queue.v1"
+        )
+        let syncOperationQueue = SyncOperationQueueStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("preview_sync_operation_queue.json", isDirectory: false)
         )
         let reviewDraftStore = ReviewDraftStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("preview_review_drafts.json"))
         let localNotificationService = LocalNotificationService()
@@ -781,6 +798,7 @@ extension AppEnvironment {
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
             telemetryQueue: telemetryQueue,
+            syncOperationQueue: syncOperationQueue,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,
@@ -809,6 +827,10 @@ extension AppEnvironment {
             defaults: UserDefaults(suiteName: "POScannerApp.test.telemetry") ?? .standard,
             storageKey: "com.mikey.POScannerApp.test.telemetry.queue.v1"
         )
+        let syncOperationQueue = SyncOperationQueueStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("test_sync_operation_queue.json", isDirectory: false)
+        )
         let localNotificationService = LocalNotificationService()
 
         let apiClient = APIClient(
@@ -828,6 +850,7 @@ extension AppEnvironment {
             secureStorage: secureStorage,
             networkDiagnostics: networkDiagnostics,
             telemetryQueue: telemetryQueue,
+            syncOperationQueue: syncOperationQueue,
             reviewDraftStore: reviewDraftStore,
             localNotificationService: localNotificationService,
             apiClient: apiClient,

@@ -4,6 +4,7 @@
 //
 
 import CoreData
+import CryptoKit
 import Foundation
 import os
 
@@ -40,13 +41,16 @@ final class POSubmissionService {
 
     private let shopmonkey: ShopmonkeyServicing
     private let authorizeSubmission: (@MainActor () async throws -> Void)?
+    private let syncOperationQueue: SyncOperationQueueStore
 
     init(
         shopmonkey: ShopmonkeyServicing,
-        authorizeSubmission: (@MainActor () async throws -> Void)? = nil
+        authorizeSubmission: (@MainActor () async throws -> Void)? = nil,
+        syncOperationQueue: SyncOperationQueueStore = .shared
     ) {
         self.shopmonkey = shopmonkey
         self.authorizeSubmission = authorizeSubmission
+        self.syncOperationQueue = syncOperationQueue
     }
 
     func submitNew(
@@ -111,6 +115,17 @@ final class POSubmissionService {
     ) async -> Result {
         let submissionStart = Date()
         let modeLabel = mode?.rawValue ?? "Default"
+        let operation = SyncOperation(
+            id: UUID(),
+            type: .submitPurchaseOrder,
+            payloadFingerprint: payloadFingerprint(for: payload, mode: mode),
+            status: .pending,
+            retryCount: 0,
+            createdAt: submissionStart,
+            lastAttemptAt: nil
+        )
+        let operationID = await syncOperationQueue.enqueue(operation)
+        await syncOperationQueue.markInProgress(id: operationID)
         Self.logger.debug(
             "Submission started. mode=\(modeLabel, privacy: .public) persist=\(shouldPersist, privacy: .public) items=\(payload.items.count, privacy: .public)"
         )
@@ -126,6 +141,7 @@ final class POSubmissionService {
                 "Submission stage1 validation failed in \(self.elapsedMillis(since: stage1Start), privacy: .public)ms. message=\(message, privacy: .public)"
             )
             stage4PersistFinalStatus(purchaseOrder: purchaseOrder, status: "failed", message: message, context: context)
+            await markOperationFailed(id: operationID)
             Self.logger.error("Submission failed after \(self.elapsedMillis(since: submissionStart), privacy: .public)ms.")
             return Result(succeeded: false, message: message, purchaseOrderObjectID: purchaseOrder?.objectID)
         }
@@ -143,6 +159,7 @@ final class POSubmissionService {
                 Self.logger.error(
                     "Submission auth gate failed in \(self.elapsedMillis(since: authStart), privacy: .public)ms. message=\(message, privacy: .public)"
                 )
+                await markOperationFailed(id: operationID)
                 return Result(succeeded: false, message: message, purchaseOrderObjectID: purchaseOrder?.objectID)
             }
         }
@@ -164,6 +181,7 @@ final class POSubmissionService {
                 "Submission local persist failed in \(self.elapsedMillis(since: localPersistStart), privacy: .public)ms. message=\(message, privacy: .public)"
             )
             stage4PersistFinalStatus(purchaseOrder: purchaseOrder, status: "failed", message: message, context: context)
+            await markOperationFailed(id: operationID)
             Self.logger.error("Submission failed after \(self.elapsedMillis(since: submissionStart), privacy: .public)ms.")
             return Result(succeeded: false, message: message, purchaseOrderObjectID: purchaseOrder?.objectID)
         }
@@ -213,6 +231,8 @@ final class POSubmissionService {
             Self.logger.info(
                 "Submission succeeded in \(self.elapsedMillis(since: submissionStart), privacy: .public)ms (persist-final \(self.elapsedMillis(since: stage4Start), privacy: .public)ms)."
             )
+            await syncOperationQueue.markSucceeded(id: operationID)
+            await syncOperationQueue.remove(id: operationID)
             return Result(succeeded: true, message: nil, purchaseOrderObjectID: poRecord?.objectID)
         } catch {
             let message = await detailedUserMessage(for: error, since: submissionStart)
@@ -220,6 +240,7 @@ final class POSubmissionService {
                 "Submission failed after \(self.elapsedMillis(since: submissionStart), privacy: .public)ms. message=\(message, privacy: .public)"
             )
             stage4PersistFinalStatus(purchaseOrder: poRecord, status: "failed", message: message, context: context)
+            await markOperationFailed(id: operationID)
             return Result(succeeded: false, message: message, purchaseOrderObjectID: poRecord?.objectID)
         }
     }
@@ -892,6 +913,75 @@ final class POSubmissionService {
 
     private func elapsedMillis(since start: Date) -> Int {
         max(0, Int((Date().timeIntervalSince(start) * 1_000).rounded()))
+    }
+
+    private func markOperationFailed(id: UUID) async {
+        await syncOperationQueue.markFailed(id: id)
+        await syncOperationQueue.incrementRetry(id: id)
+    }
+
+    private func payloadFingerprint(for payload: POSubmissionPayload, mode: SubmissionMode?) -> String {
+        struct FingerprintItem: Codable {
+            let id: String
+            let description: String
+            let quantity: String
+            let unitCost: String
+            let kind: String
+            let partNumber: String?
+            let sku: String
+        }
+
+        struct FingerprintPayload: Codable {
+            let mode: String?
+            let vendorId: String?
+            let vendorName: String
+            let vendorPhone: String?
+            let notes: String?
+            let invoiceNumber: String?
+            let poReference: String?
+            let poNumber: String?
+            let purchaseOrderId: String?
+            let orderId: String?
+            let serviceId: String?
+            let allowExistingPOLinking: Bool
+            let items: [FingerprintItem]
+        }
+
+        let fingerprintPayload = FingerprintPayload(
+            mode: mode?.rawValue,
+            vendorId: payload.vendorId?.trimmingCharacters(in: .whitespacesAndNewlines),
+            vendorName: payload.vendorName.trimmingCharacters(in: .whitespacesAndNewlines),
+            vendorPhone: payload.vendorPhone?.trimmingCharacters(in: .whitespacesAndNewlines),
+            notes: payload.notes?.trimmingCharacters(in: .whitespacesAndNewlines),
+            invoiceNumber: payload.invoiceNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
+            poReference: payload.poReference?.trimmingCharacters(in: .whitespacesAndNewlines),
+            poNumber: payload.poNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
+            purchaseOrderId: payload.purchaseOrderId?.trimmingCharacters(in: .whitespacesAndNewlines),
+            orderId: payload.orderId?.trimmingCharacters(in: .whitespacesAndNewlines),
+            serviceId: payload.serviceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+            allowExistingPOLinking: payload.allowExistingPOLinking,
+            items: payload.items.map { item in
+                FingerprintItem(
+                    id: item.id.uuidString.lowercased(),
+                    description: item.description.trimmingCharacters(in: .whitespacesAndNewlines),
+                    quantity: String(format: "%.6f", item.quantity),
+                    unitCost: NSDecimalNumber(decimal: item.unitCost).stringValue,
+                    kind: item.kind.rawValue,
+                    partNumber: item.partNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    sku: item.sku.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+
+        guard let data = try? encoder.encode(fingerprintPayload) else {
+            return "\(mode?.rawValue ?? "default"):\(payload.vendorName.lowercased()):\(payload.items.count)"
+        }
+
+        let digest = SHA256.hash(data: data)
+        return digest.compactMap { String(format: "%02x", $0) }.joined()
     }
 
     private func fetchCachedVendor(normalizedName: String, context: NSManagedObjectContext) -> Vendor? {

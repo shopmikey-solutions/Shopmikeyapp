@@ -4,32 +4,27 @@ import XCTest
 
 @MainActor
 enum SnapshotTestSupport {
+    private static let fixedSnapshotSize = CGSize(width: 393, height: 852)
+    private static let fixedSnapshotScale: CGFloat = 2.0
+
     struct SnapshotConfig {
-        let size: CGSize
-        let scale: CGFloat
         let interfaceStyle: UIUserInterfaceStyle
         let dynamicTypeSize: DynamicTypeSize
         let dynamicTypeLabel: String
 
         static let lightDefault = SnapshotConfig(
-            size: CGSize(width: 393, height: 852),
-            scale: 3,
             interfaceStyle: .light,
             dynamicTypeSize: .large,
             dynamicTypeLabel: "L"
         )
 
         static let darkDefault = SnapshotConfig(
-            size: CGSize(width: 393, height: 852),
-            scale: 3,
             interfaceStyle: .dark,
             dynamicTypeSize: .large,
             dynamicTypeLabel: "L"
         )
 
         static let lightXXXL = SnapshotConfig(
-            size: CGSize(width: 393, height: 852),
-            scale: 3,
             interfaceStyle: .light,
             dynamicTypeSize: .xxxLarge,
             dynamicTypeLabel: "XXXL"
@@ -37,43 +32,123 @@ enum SnapshotTestSupport {
     }
 
     static func render<V: View>(view: V, config: SnapshotConfig) -> UIImage {
+        renderDeterministic(
+            view,
+            size: fixedSnapshotSize,
+            scale: fixedSnapshotScale,
+            interfaceStyle: config.interfaceStyle,
+            contentSizeCategory: contentSizeCategory(for: config.dynamicTypeSize)
+        )
+    }
+
+    static func renderDeterministic<V: View>(
+        _ view: V,
+        size: CGSize,
+        scale: CGFloat,
+        interfaceStyle: UIUserInterfaceStyle,
+        contentSizeCategory: ContentSizeCategory
+    ) -> UIImage {
         let rootView = view
-            .environment(\.colorScheme, config.interfaceStyle == .dark ? .dark : .light)
-            .environment(\.dynamicTypeSize, config.dynamicTypeSize)
+            .environment(\.colorScheme, interfaceStyle == .dark ? .dark : .light)
+            .environment(\.dynamicTypeSize, dynamicTypeSize(for: contentSizeCategory))
+            .environment(\.sizeCategory, contentSizeCategory)
+            .environment(\.displayScale, scale)
             .environment(\.locale, Locale(identifier: "en_US_POSIX"))
-            .environment(\.timeZone, TimeZone(secondsFromGMT: 0) ?? .current)
+            .environment(\.timeZone, TimeZone(secondsFromGMT: 0) ?? TimeZone(abbreviation: "UTC")!)
             .environment(\.calendar, Calendar(identifier: .gregorian))
 
-        let host = UIHostingController(rootView: rootView)
-        host.view.frame = CGRect(origin: .zero, size: config.size)
-        host.view.backgroundColor = .systemBackground
-
-        let window = UIWindow(frame: CGRect(origin: .zero, size: config.size))
-        window.overrideUserInterfaceStyle = config.interfaceStyle
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-
-        let previousAnimationState = UIView.areAnimationsEnabled
+        // Disable UIKit animations to remove frame-to-frame variance in snapshots.
+        let animationsWereEnabled = UIView.areAnimationsEnabled
         UIView.setAnimationsEnabled(false)
-        defer {
-            UIView.setAnimationsEnabled(previousAnimationState)
-            window.isHidden = true
-            window.rootViewController = nil
-        }
+        defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
+
+        let host = UIHostingController(rootView: rootView)
+        host.overrideUserInterfaceStyle = interfaceStyle
+
+        let container = UIView(frame: CGRect(origin: .zero, size: size))
+        container.backgroundColor = interfaceStyle == .dark ? .black : .white
+
+        host.view.frame = container.bounds
+        host.view.backgroundColor = .clear
+        container.addSubview(host.view)
 
         host.view.setNeedsLayout()
         host.view.layoutIfNeeded()
-        window.layoutIfNeeded()
-        host.view.tintColor = .systemBlue
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        container.setNeedsLayout()
+        container.layoutIfNeeded()
 
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = config.scale
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
         format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: config.size, format: format)
-        return renderer.image { _ in
-            guard let context = UIGraphicsGetCurrentContext() else { return }
-            host.view.layer.render(in: context)
+
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let image = renderer.image { ctx in
+            container.layer.render(in: ctx.cgContext)
+        }
+
+        host.view.removeFromSuperview()
+        return image
+    }
+
+    private static func contentSizeCategory(for dynamicTypeSize: DynamicTypeSize) -> ContentSizeCategory {
+        switch dynamicTypeSize {
+        case .xSmall:
+            return .extraSmall
+        case .small:
+            return .small
+        case .medium:
+            return .medium
+        case .large:
+            return .large
+        case .xLarge:
+            return .extraLarge
+        case .xxLarge:
+            return .extraExtraLarge
+        case .xxxLarge:
+            return .extraExtraExtraLarge
+        case .accessibility1:
+            return .accessibilityMedium
+        case .accessibility2:
+            return .accessibilityLarge
+        case .accessibility3:
+            return .accessibilityExtraLarge
+        case .accessibility4:
+            return .accessibilityExtraExtraLarge
+        case .accessibility5:
+            return .accessibilityExtraExtraExtraLarge
+        @unknown default:
+            return .large
+        }
+    }
+
+    private static func dynamicTypeSize(for contentSizeCategory: ContentSizeCategory) -> DynamicTypeSize {
+        switch contentSizeCategory {
+        case .extraSmall:
+            return .xSmall
+        case .small:
+            return .small
+        case .medium:
+            return .medium
+        case .large:
+            return .large
+        case .extraLarge:
+            return .xLarge
+        case .extraExtraLarge:
+            return .xxLarge
+        case .extraExtraExtraLarge:
+            return .xxxLarge
+        case .accessibilityMedium:
+            return .accessibility1
+        case .accessibilityLarge:
+            return .accessibility2
+        case .accessibilityExtraLarge:
+            return .accessibility3
+        case .accessibilityExtraExtraLarge:
+            return .accessibility4
+        case .accessibilityExtraExtraExtraLarge:
+            return .accessibility5
+        default:
+            return .large
         }
     }
 

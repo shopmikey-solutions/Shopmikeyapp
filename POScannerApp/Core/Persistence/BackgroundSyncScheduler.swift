@@ -5,6 +5,7 @@
 
 import Foundation
 import os
+import ShopmikeyCoreSync
 
 #if canImport(BackgroundTasks)
 import BackgroundTasks

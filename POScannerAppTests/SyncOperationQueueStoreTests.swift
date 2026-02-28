@@ -5,6 +5,7 @@
 
 import Foundation
 import ShopmikeyCoreModels
+import ShopmikeyCoreSync
 import Testing
 @testable import POScannerApp
 

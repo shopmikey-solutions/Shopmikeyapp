@@ -6,36 +6,50 @@
 import Foundation
 import ShopmikeyCoreDiagnostics
 
-enum SyncExecutionResult: Sendable {
+public enum SyncExecutionResult: Sendable {
     case succeeded
     case failed(diagnosticCode: String?)
 }
 
-enum SyncFailureDisposition: Sendable {
+public enum SyncFailureDisposition: Sendable {
     case transient
     case permanent
 }
 
-struct SyncRetryPolicy: Hashable, Sendable {
-    var baseDelay: TimeInterval
-    var multiplier: Double
-    var maxDelay: TimeInterval
-    var maxRetries: Int
-    var jitterFraction: Double
+public struct SyncRetryPolicy: Hashable, Sendable {
+    public var baseDelay: TimeInterval
+    public var multiplier: Double
+    public var maxDelay: TimeInterval
+    public var maxRetries: Int
+    public var jitterFraction: Double
 
-    static let `default` = SyncRetryPolicy(
+    public static let `default` = SyncRetryPolicy(
         baseDelay: 30,
         multiplier: 2,
         maxDelay: 600,
         maxRetries: 8,
         jitterFraction: 0.10
     )
+
+    public init(
+        baseDelay: TimeInterval,
+        multiplier: Double,
+        maxDelay: TimeInterval,
+        maxRetries: Int,
+        jitterFraction: Double
+    ) {
+        self.baseDelay = baseDelay
+        self.multiplier = multiplier
+        self.maxDelay = maxDelay
+        self.maxRetries = maxRetries
+        self.jitterFraction = jitterFraction
+    }
 }
 
-actor SyncEngine {
-    typealias OperationExecutor = @Sendable (SyncOperation) async -> SyncExecutionResult
-    typealias DateProvider = @Sendable () -> Date
-    typealias JitterProvider = @Sendable () -> Double
+public actor SyncEngine {
+    public typealias OperationExecutor = @Sendable (SyncOperation) async -> SyncExecutionResult
+    public typealias DateProvider = @Sendable () -> Date
+    public typealias JitterProvider = @Sendable () -> Double
 
     private let queueStore: SyncOperationQueueStore
     private let executor: OperationExecutor
@@ -44,7 +58,7 @@ actor SyncEngine {
     private let jitterProvider: JitterProvider
     private var isRunning = false
 
-    init(
+    public init(
         queueStore: SyncOperationQueueStore,
         executor: @escaping OperationExecutor,
         retryPolicy: SyncRetryPolicy = .default,
@@ -58,7 +72,7 @@ actor SyncEngine {
         self.jitterProvider = jitterProvider
     }
 
-    func runOnce() async {
+    public func runOnce() async {
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
@@ -70,7 +84,7 @@ actor SyncEngine {
         }
     }
 
-    func hasReadyOperations() async -> Bool {
+    public func hasReadyOperations() async -> Bool {
         let now = dateProvider()
         let readyOperations = await queueStore.readyOperations(asOf: now)
         return readyOperations.contains(where: shouldProcess)
@@ -130,7 +144,7 @@ actor SyncEngine {
         return true
     }
 
-    func nextRetryDelay(forRetryCount retryCount: Int) -> TimeInterval {
+    public func nextRetryDelay(forRetryCount retryCount: Int) -> TimeInterval {
         let baseDelay = Self.baseBackoffDelay(
             retryCount: retryCount,
             policy: retryPolicy
@@ -140,13 +154,13 @@ actor SyncEngine {
         return max(0, adjusted)
     }
 
-    static func baseBackoffDelay(retryCount: Int, policy: SyncRetryPolicy = .default) -> TimeInterval {
+    public static func baseBackoffDelay(retryCount: Int, policy: SyncRetryPolicy = .default) -> TimeInterval {
         guard retryCount > 0 else { return 0 }
         let exponential = policy.baseDelay * pow(policy.multiplier, Double(retryCount - 1))
         return min(policy.maxDelay, exponential)
     }
 
-    static func failureDisposition(for diagnosticCode: String?) -> SyncFailureDisposition {
+    public static func failureDisposition(for diagnosticCode: String?) -> SyncFailureDisposition {
         guard let diagnosticCode else { return .transient }
         let code = diagnosticCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty else { return .transient }

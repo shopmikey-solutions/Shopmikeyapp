@@ -5,13 +5,13 @@
 
 import Foundation
 
-enum POItemKind: String, Codable, CaseIterable, Hashable {
+public enum POItemKind: String, Codable, CaseIterable, Hashable, Sendable {
     case part
     case tire
     case fee
     case unknown
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .part:
             return "Part"
@@ -24,7 +24,7 @@ enum POItemKind: String, Codable, CaseIterable, Hashable {
         }
     }
 
-    static func from(rawValueOrAlias value: String?) -> POItemKind {
+    public static func from(rawValueOrAlias value: String?) -> POItemKind {
         guard let value else { return .unknown }
         let normalized = value
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -42,35 +42,35 @@ enum POItemKind: String, Codable, CaseIterable, Hashable {
         }
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try? container.decode(String.self)
         self = POItemKind.from(rawValueOrAlias: rawValue)
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }
 }
 
 /// Editable line item used in parsing, review UI, and submission mapping.
-struct POItem: Identifiable, Hashable, Codable, Equatable {
-    typealias LineType = POItemKind
+public struct POItem: Identifiable, Hashable, Codable, Equatable, Sendable {
+    public typealias LineType = POItemKind
 
-    var id: UUID = UUID()
+    public var id: UUID = UUID()
 
-    var sku: String = ""
-    var description: String
-    var quantity: Double = 1
-    var unitCost: Decimal = 0
-    var isTaxable: Bool = true
+    public var sku: String = ""
+    public var description: String
+    public var quantity: Double = 1
+    public var unitCost: Decimal = 0
+    public var isTaxable: Bool = true
 
-    var partNumber: String?
-    var confidence: Double = 0.5
-    var kind: POItemKind = .unknown
-    var kindConfidence: Double = 0
-    var kindReasons: [String] = []
+    public var partNumber: String?
+    public var confidence: Double = 0.5
+    public var kind: POItemKind = .unknown
+    public var kindConfidence: Double = 0
+    public var kindReasons: [String] = []
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -90,7 +90,7 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         case kindReasons
     }
 
-    init(
+    public init(
         id: UUID = UUID(),
         description: String,
         sku: String = "",
@@ -116,7 +116,7 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         self.kindReasons = kindReasons
     }
 
-    init(
+    public init(
         id: UUID = UUID(),
         name: String,
         quantity: Int,
@@ -148,7 +148,7 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         self.kindReasons = kindReasons
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         func decodeDecimal(_ key: CodingKeys) throws -> Decimal? {
@@ -214,7 +214,7 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         kindReasons = try container.decodeIfPresent([String].self, forKey: .kindReasons) ?? []
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(sku, forKey: .sku)
@@ -230,20 +230,20 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
     }
 
     /// Decimal-accurate line subtotal used by the review UI.
-    var subtotal: Decimal {
+    public var subtotal: Decimal {
         let safeQuantity = quantity.isFinite ? quantity : 1
         return Decimal(safeQuantity) * unitCost
     }
 
-    var isKindConfidenceHigh: Bool {
+    public var isKindConfidenceHigh: Bool {
         kind != .unknown && kindConfidence >= 0.75
     }
 
-    var isKindConfidenceMedium: Bool {
+    public var isKindConfidenceMedium: Bool {
         kind != .unknown && kindConfidence >= 0.55 && kindConfidence < 0.75
     }
 
-    var feeInferenceHint: String? {
+    public var feeInferenceHint: String? {
         guard kind == .fee else { return nil }
 
         let serviceTerms = [
@@ -272,20 +272,20 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
 
     // MARK: - Backward-compatible aliases
 
-    mutating func apply(lineType: LineType) {
+    public mutating func apply(lineType: LineType) {
         kind = lineType
     }
 
-    mutating func apply(unitCost: Decimal) {
+    public mutating func apply(unitCost: Decimal) {
         self.unitCost = max(0, unitCost)
     }
 
-    var name: String {
+    public var name: String {
         get { description }
         set { description = newValue }
     }
 
-    var cost: Double {
+    public var cost: Double {
         get { NSDecimalNumber(decimal: unitCost).doubleValue }
         set {
             let safeValue = newValue.isFinite ? newValue : 0
@@ -293,35 +293,35 @@ struct POItem: Identifiable, Hashable, Codable, Equatable {
         }
     }
 
-    var costCents: Int {
+    public var costCents: Int {
         get { Self.roundedCents(from: unitCost) }
         set { unitCost = max(0, Decimal(newValue) / 100) }
     }
 
-    var quantityForSubmission: Int {
+    public var quantityForSubmission: Int {
         let safeQuantity = quantity.isFinite ? quantity : 1
         return max(1, Int(safeQuantity.rounded(.toNearestOrAwayFromZero)))
     }
 
-    var unitPrice: Double? {
+    public var unitPrice: Double? {
         get { cost }
         set { cost = newValue ?? 0 }
     }
 
-    var total: Double? {
+    public var total: Double? {
         NSDecimalNumber(decimal: subtotal).doubleValue
     }
 
-    var unitPriceFormatted: String {
+    public var unitPriceFormatted: String {
         Self.decimalFormatter.string(from: NSNumber(value: cost)) ?? String(format: "%.2f", cost)
     }
 
-    var totalFormatted: String {
+    public var totalFormatted: String {
         let value = NSDecimalNumber(decimal: subtotal).doubleValue
         return Self.decimalFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
     }
 
-    var subtotalFormatted: String {
+    public var subtotalFormatted: String {
         Self.currencyFormatter.string(from: NSDecimalNumber(decimal: subtotal)) ?? "$0.00"
     }
 

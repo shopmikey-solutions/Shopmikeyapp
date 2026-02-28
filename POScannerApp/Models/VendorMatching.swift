@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreModels
 
 enum VendorMatchConfidence: String {
     case high

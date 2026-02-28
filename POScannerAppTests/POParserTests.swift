@@ -4,6 +4,7 @@
 //
 
 import Testing
+import ShopmikeyCoreModels
 @testable import POScannerApp
 
 struct POParserTests {

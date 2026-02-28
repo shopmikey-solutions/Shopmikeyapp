@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreModels
 import Combine
 import CoreGraphics
 import CoreData

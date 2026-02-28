@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreModels
 
 struct LineItemEditView: View {
     private enum FocusField: Hashable {

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreModels
 import VisionKit
 import PhotosUI
 import os

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreModels
 
 /// Preview-only screen catalog for tuning hierarchy and native iOS rhythm in one place.
 struct ContentView: View {

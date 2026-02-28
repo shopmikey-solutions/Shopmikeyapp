@@ -1,4 +1,5 @@
 import Foundation
+import ShopmikeyCoreModels
 @testable import POScannerApp
 
 enum MetricField: String, CaseIterable, Codable {

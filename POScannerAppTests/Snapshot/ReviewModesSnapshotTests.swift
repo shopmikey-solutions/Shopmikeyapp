@@ -1,4 +1,5 @@
 import SwiftUI
+import ShopmikeyCoreModels
 import XCTest
 @testable import POScannerApp
 

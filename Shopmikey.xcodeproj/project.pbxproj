@@ -10,6 +10,9 @@
 		A67282682F45F88F00A5001A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67282672F45F88F00A5001A /* WidgetKit.framework */; };
 		A672826A2F45F88F00A5001A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67282692F45F88F00A5001A /* SwiftUI.framework */; };
 		A672827B2F45F89100A5001A /* ShopMikey ScannerExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A67282652F45F88F00A5001A /* ShopMikey ScannerExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B0A1F5B12F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */; };
+		B0A1F5B22F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D22F6A101100AABBCC /* ShopmikeyCoreModels */; };
+		B0A1F5B32F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D32F6A101100AABBCC /* ShopmikeyCoreModels */; };
 		B0A1F5A12F6A001100AABBCC /* Fixtures/ParserCorpus in Resources */ = {isa = PBXBuildFile; fileRef = B0A1F5A22F6A001100AABBCC /* Fixtures/ParserCorpus */; };
 /* End PBXBuildFile section */
 
@@ -126,6 +129,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A1F5B12F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -133,6 +137,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A1F5B22F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -140,6 +145,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0A1F5B32F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,6 +242,7 @@
 			);
 			name = POScannerApp;
 			packageProductDependencies = (
+				B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */,
 			);
 			productName = POScannerApp;
 			productReference = A6E181BA2F41BA33000EFB56 /* POScannerApp.app */;
@@ -259,6 +266,7 @@
 			);
 			name = POScannerAppTests;
 			packageProductDependencies = (
+				B0A1F5D22F6A101100AABBCC /* ShopmikeyCoreModels */,
 			);
 			productName = POScannerAppTests;
 			productReference = A6E181C92F41BA34000EFB56 /* POScannerAppTests.xctest */;
@@ -282,6 +290,7 @@
 			);
 			name = POScannerAppUITests;
 			packageProductDependencies = (
+				B0A1F5D32F6A101100AABBCC /* ShopmikeyCoreModels */,
 			);
 			productName = POScannerAppUITests;
 			productReference = A6E181D32F41BA34000EFB56 /* POScannerAppUITests.xctest */;
@@ -324,6 +333,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A6E181BB2F41BA33000EFB56 /* Products */;
+			packageReferences = (
+				B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -415,6 +427,31 @@
 			targetProxy = A6E181D42F41BA34000EFB56 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShopmikeyCoreModels;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
+			productName = ShopmikeyCoreModels;
+		};
+		B0A1F5D22F6A101100AABBCC /* ShopmikeyCoreModels */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
+			productName = ShopmikeyCoreModels;
+		};
+		B0A1F5D32F6A101100AABBCC /* ShopmikeyCoreModels */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
+			productName = ShopmikeyCoreModels;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A672827D2F45F89100A5001A /* Debug */ = {

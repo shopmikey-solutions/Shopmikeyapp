@@ -5,8 +5,8 @@
 
 import Foundation
 
-extension String {
-    var normalizedVendorName: String {
+public extension String {
+public var normalizedVendorName: String {
         let folded = trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: .current)
             .lowercased()

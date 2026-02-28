@@ -1,4 +1,5 @@
 import Foundation
+import ShopmikeyCoreModels
 
 enum ParserGoldenComparatorError: LocalizedError {
     case missingExpected(caseId: String, expectedPath: String)

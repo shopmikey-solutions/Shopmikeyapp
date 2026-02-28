@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
 
 protocol ShopmonkeyServicing {

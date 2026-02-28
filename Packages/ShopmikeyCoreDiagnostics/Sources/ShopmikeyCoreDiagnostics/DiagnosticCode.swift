@@ -5,13 +5,13 @@
 
 import Foundation
 
-enum DiagnosticSeverity: String, Codable, Hashable {
+public enum DiagnosticSeverity: String, Codable, Hashable {
     case info
     case warning
     case error
 }
 
-enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
+public enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
     // AUTH
     case authMissingToken = "SMK-AUTH-MISSING-TOKEN"
     case authUnauthorized401 = "SMK-AUTH-UNAUTHORIZED-401"
@@ -49,19 +49,19 @@ enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
     case submitFallbackExhausted = "SMK-SUBMIT-FALLBACK-EXHAUSTED"
     case submitUnknownError = "SMK-SUBMIT-UNKNOWN-ERROR"
 
-    var domain: String {
+    public var domain: String {
         codeComponents.domain
     }
 
-    var category: String {
+    public var category: String {
         codeComponents.category
     }
 
-    var detail: String? {
+    public var detail: String? {
         codeComponents.detail
     }
 
-    var userFacingTitle: String {
+    public var userFacingTitle: String {
         switch self {
         case .authMissingToken:
             return "Missing API Key"
@@ -124,7 +124,7 @@ enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
         }
     }
 
-    var userFacingMessage: String {
+    public var userFacingMessage: String {
         switch self {
         case .authMissingToken:
             return "No API key is configured."
@@ -187,7 +187,7 @@ enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
         }
     }
 
-    var suggestedAction: String? {
+    public var suggestedAction: String? {
         switch self {
         case .authMissingToken:
             return "Add a valid API key in Settings."
@@ -228,7 +228,7 @@ enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
         }
     }
 
-    var severity: DiagnosticSeverity {
+    public var severity: DiagnosticSeverity {
         switch self {
         case .authChallengeFailed, .netRate429:
             return .warning
@@ -239,7 +239,7 @@ enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
         }
     }
 
-    static func forHTTPStatusCode(_ statusCode: Int) -> DiagnosticCode {
+    public static func forHTTPStatusCode(_ statusCode: Int) -> DiagnosticCode {
         switch statusCode {
         case 401:
             return .authUnauthorized401
@@ -260,7 +260,7 @@ enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
         }
     }
 
-    static func forNetworkError(_ error: Error) -> DiagnosticCode {
+    public static func forNetworkError(_ error: Error) -> DiagnosticCode {
         guard let urlError = error as? URLError else {
             return .netUnknownError
         }
@@ -275,13 +275,8 @@ enum DiagnosticCode: String, CaseIterable, Codable, Hashable {
         }
     }
 
-    static func from(error: Error) -> DiagnosticCode {
-        if let apiError = error as? APIError {
-            return apiError.diagnosticCode ?? .netUnknownError
-        }
-        if error is URLError {
-            return forNetworkError(error)
-        }
+    public static func from(error: Error) -> DiagnosticCode {
+        if error is URLError { return forNetworkError(error) }
         return .submitUnknownError
     }
 

@@ -4,51 +4,7 @@
 //
 
 import Foundation
-
-struct FallbackEvent: Codable, Equatable {
-    let code: String
-    let timestamp: Date
-    let context: String
-}
-
-struct FallbackCounters: Codable, Equatable {
-    var branchCounts: [String: Int] = [:]
-    var lastUsedBranch: String?
-    var lastUsedTimestamp: Date?
-
-    static let empty = FallbackCounters()
-
-    var totalEvents: Int {
-        branchCounts.values.reduce(0, +)
-    }
-
-    func topBranches(limit: Int = 5) -> [(branch: String, count: Int)] {
-        guard limit > 0 else { return [] }
-        return branchCounts
-            .map { (branch: $0.key, count: $0.value) }
-            .sorted { lhs, rhs in
-                if lhs.count == rhs.count {
-                    return lhs.branch < rhs.branch
-                }
-                return lhs.count > rhs.count
-            }
-            .prefix(limit)
-            .map { $0 }
-    }
-}
-
-enum FallbackBranch {
-    static let submitPrimaryEndpoint = "SUBMIT_PRIMARY_ENDPOINT"
-    static let submitAlternateEndpoint = "SUBMIT_ALTERNATE_ENDPOINT"
-    static let submitStatusFallback = "SUBMIT_STATUS_FALLBACK"
-    static let submitPayloadAttach = "SUBMIT_PAYLOAD_ATTACH"
-    static let submitPayloadQuickAdd = "SUBMIT_PAYLOAD_QUICKADD"
-    static let submitPayloadRestock = "SUBMIT_PAYLOAD_RESTOCK"
-    static let submitRetryPath = "SUBMIT_RETRY_PATH"
-    static let submitFallbackExhausted = "SUBMIT_FALLBACK_EXHAUSTED"
-    static let netRateLimitRetry = "NET_RATE_LIMIT_RETRY"
-    static let apiDecodeFallback = "API_DECODE_FALLBACK"
-}
+import ShopmikeyCoreDiagnostics
 
 actor FallbackAnalyticsStore {
     static let shared = FallbackAnalyticsStore()

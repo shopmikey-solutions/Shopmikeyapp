@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreDiagnostics
 
 /// App-wide networking errors. Never include secrets (tokens) in these errors.
 enum APIError: Error {

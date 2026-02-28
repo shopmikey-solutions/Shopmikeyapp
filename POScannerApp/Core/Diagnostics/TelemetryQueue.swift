@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreDiagnostics
 
 actor TelemetryQueue {
     static let enabledPreferenceKey = "settings.telemetry.enabled"

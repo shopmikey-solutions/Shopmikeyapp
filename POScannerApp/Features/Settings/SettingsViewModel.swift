@@ -5,6 +5,7 @@
 
 import Combine
 import Foundation
+import ShopmikeyCoreDiagnostics
 import SwiftUI
 #if canImport(UIKit)
 import UIKit

@@ -30,6 +30,13 @@ struct InventoryView: View {
                     Label("PO Draft", systemImage: "doc.plaintext")
                 }
                 .accessibilityIdentifier("inventory.poDraftLink")
+
+                NavigationLink {
+                    PurchaseOrdersView(environment: environment)
+                } label: {
+                    Label("Purchase Orders", systemImage: "list.bullet.rectangle")
+                }
+                .accessibilityIdentifier("inventory.purchaseOrdersLink")
             }
 
             if items.isEmpty {

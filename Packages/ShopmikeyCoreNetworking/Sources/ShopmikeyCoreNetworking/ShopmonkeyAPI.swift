@@ -14,6 +14,8 @@ public protocol ShopmonkeyServicing: Sendable {
     func createTire(orderId: String, serviceId: String, request: CreateTireRequest) async throws -> CreatedResourceResponse
     func createPurchaseOrder(_ request: CreatePurchaseOrderRequest) async throws -> CreatePurchaseOrderResponse
     func getPurchaseOrders() async throws -> [PurchaseOrderResponse]
+    func fetchOpenPurchaseOrders() async throws -> [PurchaseOrderSummary]
+    func fetchPurchaseOrder(id: String) async throws -> PurchaseOrderDetail
     func fetchOrders() async throws -> [OrderSummary]
     func fetchServices(orderId: String) async throws -> [ServiceSummary]
     func fetchOpenTickets() async throws -> [TicketModel]
@@ -49,6 +51,15 @@ public extension ShopmonkeyServicing {
 
     func createPurchaseOrder(_ request: CreatePurchaseOrderRequest) async throws -> CreatePurchaseOrderResponse {
         _ = request
+        throw APIError.serverError(501)
+    }
+
+    func fetchOpenPurchaseOrders() async throws -> [PurchaseOrderSummary] {
+        throw APIError.serverError(501)
+    }
+
+    func fetchPurchaseOrder(id: String) async throws -> PurchaseOrderDetail {
+        _ = id
         throw APIError.serverError(501)
     }
 
@@ -382,6 +393,41 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
             try validate(po)
         }
         return values
+    }
+
+    /// GET /purchase_order
+    /// Returns open purchase orders only (status-based filter, keeping unknown status entries).
+    public func fetchOpenPurchaseOrders() async throws -> [PurchaseOrderSummary] {
+        let allPurchaseOrders = try await getPurchaseOrders()
+        return allPurchaseOrders
+            .filter { isOpenPurchaseOrderStatus($0.status) }
+            .map(mapPurchaseOrderSummary(from:))
+    }
+
+    /// GET /purchase_order/{id}
+    public func fetchPurchaseOrder(id: String) async throws -> PurchaseOrderDetail {
+        let safeID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeID.isEmpty else {
+            throw APIError.invalidURL
+        }
+
+        do {
+            let url = try makeURL(path: "/purchase_order/\(safeID)")
+            let decoded: SingleOrWrapped<PurchaseOrderResponse> = try await client.perform(.get, url: url)
+            try validate(decoded.value)
+            return mapPurchaseOrderDetail(from: decoded.value)
+        } catch let apiError as APIError {
+            if isRouteUnavailable(apiError) {
+                let allPurchaseOrders = try await getPurchaseOrders()
+                guard let matched = allPurchaseOrders.first(where: {
+                    $0.id.trimmingCharacters(in: .whitespacesAndNewlines) == safeID
+                }) else {
+                    throw APIError.serverError(404)
+                }
+                return mapPurchaseOrderDetail(from: matched)
+            }
+            throw apiError
+        }
     }
 
     /// GET /order
@@ -1425,6 +1471,63 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
     }
 
     private var purchaseOrderStatusPreferenceKey: String { "shopmonkey.preferred_po_status" }
+
+    private func isOpenPurchaseOrderStatus(_ status: String) -> Bool {
+        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return true }
+        let closedStatuses: Set<String> = [
+            "closed",
+            "completed",
+            "complete",
+            "cancelled",
+            "canceled",
+            "received",
+            "archived"
+        ]
+        return !closedStatuses.contains(normalized)
+    }
+
+    private func mapPurchaseOrderSummary(from response: PurchaseOrderResponse) -> PurchaseOrderSummary {
+        PurchaseOrderSummary(
+            id: response.id,
+            vendorName: normalizedOptionalString(response.vendorName),
+            status: normalizedOptionalString(response.status),
+            createdAt: nil,
+            updatedAt: nil,
+            totalLineCount: response.allLineItems.count
+        )
+    }
+
+    private func mapPurchaseOrderDetail(from response: PurchaseOrderResponse) -> PurchaseOrderDetail {
+        PurchaseOrderDetail(
+            id: response.id,
+            vendorName: normalizedOptionalString(response.vendorName),
+            status: normalizedOptionalString(response.status),
+            createdAt: nil,
+            updatedAt: nil,
+            lineItems: mapPurchaseOrderLineItems(from: response)
+        )
+    }
+
+    private func mapPurchaseOrderLineItems(from response: PurchaseOrderResponse) -> [PurchaseOrderLineItem] {
+        response.allLineItems.enumerated().map { index, lineItem in
+            let safeQuantity = max(0, lineItem.quantity)
+            let quantityOrdered = Decimal(safeQuantity)
+            let unitCost = Decimal(max(0, lineItem.costCents)) / 100
+            let extendedCost = unitCost * quantityOrdered
+            return PurchaseOrderLineItem(
+                id: "\(response.id)_\(lineItem.kind.rawValue)_\(index)",
+                kind: lineItem.kind.rawValue,
+                sku: nil,
+                partNumber: normalizedOptionalString(lineItem.partNumber),
+                description: lineItem.name,
+                quantityOrdered: quantityOrdered,
+                quantityReceived: nil,
+                unitCost: unitCost,
+                extendedCost: extendedCost
+            )
+        }
+    }
 
     // MARK: - Response validation
 

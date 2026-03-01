@@ -7,7 +7,7 @@ import Foundation
 import ShopmikeyCoreDiagnostics
 
 /// App-wide networking errors. Never include secrets (tokens) in these errors.
-enum APIError: Error {
+public enum APIError: Error, Sendable {
     case invalidURL
     case encodingFailed
     case decodingFailed
@@ -19,7 +19,7 @@ enum APIError: Error {
 }
 
 extension APIError: LocalizedError {
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidURL:
             return "Invalid URL."
@@ -41,7 +41,7 @@ extension APIError: LocalizedError {
     }
 }
 
-extension APIError {
+public extension APIError {
     var diagnosticCode: DiagnosticCode? {
         switch self {
         case .invalidURL:

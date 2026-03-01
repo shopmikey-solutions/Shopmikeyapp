@@ -7,11 +7,18 @@ import Foundation
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
 import Testing
+import ShopmikeyCoreNetworking
 @testable import POScannerApp
 
 private func fallbackBranchCount(_ branch: String) async -> Int {
     let snapshot = await FallbackAnalyticsStore.shared.snapshot()
     return snapshot.branchCounts[branch, default: 0]
+}
+
+private func fallbackRecorder() -> any FallbackAnalyticsRecording {
+    ClosureFallbackAnalyticsRecorder { branch, context in
+        await FallbackAnalyticsStore.shared.record(branch: branch, context: context)
+    }
 }
 
 private final class StubURLProtocol: URLProtocol {
@@ -84,7 +91,8 @@ struct APIClientRetryAfterTests {
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
             tokenProvider: { "token" },
-            sleeper: { seconds in await recorder.record(seconds) }
+            sleeper: { seconds in await recorder.record(seconds) },
+            fallbackRecorder: fallbackRecorder()
         )
 
         do {
@@ -156,7 +164,8 @@ struct APIClientRetryAfterTests {
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
             tokenProvider: { "token" },
-            sleeper: { seconds in await recorder.record(seconds) }
+            sleeper: { seconds in await recorder.record(seconds) },
+            fallbackRecorder: fallbackRecorder()
         )
 
         let response: OkResponse = try await client.perform(
@@ -205,7 +214,8 @@ struct APIClientRetryAfterTests {
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
             tokenProvider: { "token" },
-            sleeper: { seconds in await recorder.record(seconds) }
+            sleeper: { seconds in await recorder.record(seconds) },
+            fallbackRecorder: fallbackRecorder()
         )
 
         do {
@@ -269,7 +279,8 @@ struct APIClientRetryAfterTests {
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
             tokenProvider: { "token" },
-            sleeper: { seconds in await recorder.record(seconds) }
+            sleeper: { seconds in await recorder.record(seconds) },
+            fallbackRecorder: fallbackRecorder()
         )
 
         let response: OkResponse = try await client.perform(

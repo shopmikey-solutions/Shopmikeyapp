@@ -6,6 +6,7 @@
 import CoreData
 import ShopmikeyCoreModels
 import SwiftUI
+import ShopmikeyCoreNetworking
 
 enum PreviewFixtures {
     static func makeEnvironment(seedHistory: Bool = false) -> AppEnvironment {

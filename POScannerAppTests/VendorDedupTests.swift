@@ -7,9 +7,10 @@ import CoreData
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
 import Testing
+import ShopmikeyCoreNetworking
 @testable import POScannerApp
 
-private final class RecordingShopmonkeyService: ShopmonkeyServicing {
+private final class RecordingShopmonkeyService: ShopmonkeyServicing, @unchecked Sendable {
     var searchCalls: Int = 0
     var createCalls: Int = 0
     var createPartCalls: Int = 0

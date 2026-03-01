@@ -7,11 +7,18 @@ import Foundation
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
 import Testing
+import ShopmikeyCoreNetworking
 @testable import POScannerApp
 
 private func fallbackBranchCount(_ branch: String) async -> Int {
     let snapshot = await FallbackAnalyticsStore.shared.snapshot()
     return snapshot.branchCounts[branch, default: 0]
+}
+
+private func fallbackRecorder() -> any FallbackAnalyticsRecording {
+    ClosureFallbackAnalyticsRecorder { branch, context in
+        await FallbackAnalyticsStore.shared.record(branch: branch, context: context)
+    }
 }
 
 private final class MissingTokenURLProtocol: URLProtocol {
@@ -136,9 +143,10 @@ struct ShopmonkeyAPISandboxTests {
         let client = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
-            tokenProvider: { throw APIError.missingToken }
+            tokenProvider: { throw APIError.missingToken },
+            fallbackRecorder: fallbackRecorder()
         )
-        let api = ShopmonkeyAPI(client: client)
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         do {
             _ = try await api.createVendor(.init(name: "ACME", phone: nil))
@@ -203,9 +211,10 @@ struct ShopmonkeyAPISandboxTests {
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
             tokenProvider: { "token" },
-            sleeper: { seconds in await recorder.record(seconds) }
+            sleeper: { seconds in await recorder.record(seconds) },
+            fallbackRecorder: fallbackRecorder()
         )
-        let api = ShopmonkeyAPI(client: client)
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         let response = try await api.createVendor(.init(name: "ACME", phone: nil))
         #expect(response.id == "v_1")
@@ -236,9 +245,10 @@ struct ShopmonkeyAPISandboxTests {
         let client = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
-            tokenProvider: { "token" }
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
         )
-        let api = ShopmonkeyAPI(client: client)
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         let created = try await api.createVendor(.init(name: "Mikey Test", phone: nil))
         #expect(created.id == "v_1")
@@ -269,9 +279,10 @@ struct ShopmonkeyAPISandboxTests {
         let client = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
-            tokenProvider: { "token" }
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
         )
-        let api = ShopmonkeyAPI(client: client)
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         let vendors = try await api.searchVendors(name: "acme")
         #expect(vendors.count == 1)
@@ -301,9 +312,10 @@ struct ShopmonkeyAPISandboxTests {
         let client = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
-            tokenProvider: { "token" }
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
         )
-        let api = ShopmonkeyAPI(client: client)
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         let purchaseOrders = try await api.getPurchaseOrders()
         #expect(purchaseOrders.count == 1)
@@ -331,9 +343,10 @@ struct ShopmonkeyAPISandboxTests {
         let client = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
-            tokenProvider: { "token" }
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
         )
-        let api = ShopmonkeyAPI(client: client)
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         let purchaseOrders = try await api.getPurchaseOrders()
         #expect(purchaseOrders.count == 1)
@@ -386,9 +399,10 @@ struct ShopmonkeyAPISandboxTests {
         let client = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
-            tokenProvider: { "token" }
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
         )
-        let api = ShopmonkeyAPI(client: client)
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         let request = CreatePurchaseOrderRequest(
             vendorId: "v_1",
@@ -478,9 +492,10 @@ struct ShopmonkeyAPISandboxTests {
         let client = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             urlSession: session,
-            tokenProvider: { "token" }
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
         )
-        let api = ShopmonkeyAPI(client: client)
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         let request = CreatePurchaseOrderRequest(
             vendorId: "v_1",

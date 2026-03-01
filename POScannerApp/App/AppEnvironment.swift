@@ -9,6 +9,7 @@ import ShopmikeyCoreModels
 import ShopmikeyCoreParsing
 import ShopmikeyCoreSync
 import SwiftUI
+import ShopmikeyCoreNetworking
 
 private let requireAuthForTokenPreferenceKey = "settings.requireAuthForToken"
 
@@ -722,6 +723,9 @@ extension AppEnvironment {
         )
         let reviewDraftStore = ReviewDraftStore()
         let localNotificationService = LocalNotificationService()
+        let fallbackAnalyticsRecorder = ClosureFallbackAnalyticsRecorder { branch, context in
+            await FallbackAnalyticsStore.shared.record(branch: branch, context: context)
+        }
 
         let apiClient = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
@@ -734,9 +738,14 @@ extension AppEnvironment {
                     throw error
                 }
             },
+            fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
         )
-        let shopmonkeyAPI = ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics)
+        let shopmonkeyAPI = ShopmonkeyAPI(
+            client: apiClient,
+            fallbackRecorder: fallbackAnalyticsRecorder,
+            diagnosticsRecorder: networkDiagnostics
+        )
         let inventoryRepository = InventoryRepository(fileURL: inventorySyncStateFileURL())
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
         let orderRepository = OrderRepository(shopmonkey: shopmonkeyAPI)
@@ -802,13 +811,21 @@ extension AppEnvironment {
         )
         let reviewDraftStore = ReviewDraftStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("preview_review_drafts.json"))
         let localNotificationService = LocalNotificationService()
+        let fallbackAnalyticsRecorder = ClosureFallbackAnalyticsRecorder { branch, context in
+            await FallbackAnalyticsStore.shared.record(branch: branch, context: context)
+        }
 
         let apiClient = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             tokenProvider: { throw APIError.missingToken },
+            fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
         )
-        let shopmonkeyAPI = ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics)
+        let shopmonkeyAPI = ShopmonkeyAPI(
+            client: apiClient,
+            fallbackRecorder: fallbackAnalyticsRecorder,
+            diagnosticsRecorder: networkDiagnostics
+        )
         let inventoryRepository = InventoryRepository()
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
         let orderRepository = OrderRepository(shopmonkey: shopmonkeyAPI)
@@ -860,13 +877,21 @@ extension AppEnvironment {
             dateProvider: dateProvider
         )
         let localNotificationService = LocalNotificationService()
+        let fallbackAnalyticsRecorder = ClosureFallbackAnalyticsRecorder { branch, context in
+            await FallbackAnalyticsStore.shared.record(branch: branch, context: context)
+        }
 
         let apiClient = APIClient(
             baseURL: ShopmonkeyAPI.baseURL,
             tokenProvider: { throw APIError.missingToken },
+            fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
         )
-        let shopmonkeyAPI = ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics)
+        let shopmonkeyAPI = ShopmonkeyAPI(
+            client: apiClient,
+            fallbackRecorder: fallbackAnalyticsRecorder,
+            diagnosticsRecorder: networkDiagnostics
+        )
         let inventoryRepository = InventoryRepository()
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
         let orderRepository = OrderRepository(shopmonkey: shopmonkeyAPI)

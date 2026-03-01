@@ -8,6 +8,7 @@ import Foundation
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreSync
 import SwiftUI
+import ShopmikeyCoreNetworking
 #if canImport(UIKit)
 import UIKit
 #endif

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreNetworking
 
 struct SettingsView: View {
     @AppStorage("saveHistoryEnabled") private var saveHistoryEnabled: Bool = true

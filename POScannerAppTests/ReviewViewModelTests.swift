@@ -7,6 +7,7 @@ import Testing
 import ShopmikeyCoreParsing
 import ShopmikeyCoreModels
 import Foundation
+import ShopmikeyCoreNetworking
 @preconcurrency @testable import POScannerApp
 
 private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {

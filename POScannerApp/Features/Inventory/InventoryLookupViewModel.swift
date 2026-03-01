@@ -10,6 +10,8 @@ import ShopmikeyCoreSync
 
 @MainActor
 final class InventoryLookupViewModel: ObservableObject {
+    private static let supportsRemoteQuantityIncrement = false
+
     enum State: Equatable {
         case idle
         case scanning
@@ -125,7 +127,8 @@ final class InventoryLookupViewModel: ObservableObject {
         return await ticketStore.hasMatchingLineItem(
             ticketID: ticketID,
             sku: Self.trimmed(item.sku),
-            partNumber: Self.trimmed(item.partNumber)
+            partNumber: Self.trimmed(item.partNumber),
+            description: item.description
         )
     }
 
@@ -142,6 +145,13 @@ final class InventoryLookupViewModel: ObservableObject {
         guard let ticketID = Self.trimmed(rawTicketID) else {
             ticketMutationState = .failed(diagnosticCode: nil)
             ticketMutationMessage = "Select an active ticket before adding."
+            return
+        }
+
+        if mergeMode == .incrementQuantity, !Self.supportsRemoteQuantityIncrement {
+            ticketMutationState = .failed(diagnosticCode: nil)
+            ticketMutationMessage = "Increment quantity is unavailable until ticket line updates are supported. Choose Add New Line."
+            lastTicketMutationOperationID = nil
             return
         }
 

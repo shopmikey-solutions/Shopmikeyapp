@@ -18,7 +18,8 @@ protocol TicketStoring: Sendable {
     func loadOpenTickets() async -> [TicketModel]
     func activeTicketID() async -> String?
     func setActiveTicketID(_ id: String?) async
-    func hasMatchingLineItem(ticketID: String, sku: String?, partNumber: String?) async -> Bool
+    func hasMatchingLineItem(ticketID: String, sku: String?, partNumber: String?, description: String?) async -> Bool
+    func findMatchingLineItem(ticketID: String, sku: String?, partNumber: String?, description: String?) async -> TicketLineItem?
     func applyAddedLineItem(
         _ lineItem: TicketLineItem,
         toTicketID ticketID: String,
@@ -91,15 +92,28 @@ actor TicketStore: TicketStoring {
         persistStateIfNeeded()
     }
 
-    func hasMatchingLineItem(ticketID: String, sku: String?, partNumber: String?) async -> Bool {
+    func hasMatchingLineItem(ticketID: String, sku: String?, partNumber: String?, description: String?) async -> Bool {
+        await findMatchingLineItem(
+            ticketID: ticketID,
+            sku: sku,
+            partNumber: partNumber,
+            description: description
+        ) != nil
+    }
+
+    func findMatchingLineItem(ticketID: String, sku: String?, partNumber: String?, description: String?) async -> TicketLineItem? {
         loadStateIfNeeded()
         let key = normalizedID(ticketID)
-        guard let ticket = ticketsByID[key] else { return false }
-        return duplicateLineIndex(
+        guard let ticket = ticketsByID[key] else { return nil }
+        guard let duplicateIndex = duplicateLineIndex(
             in: ticket,
             sku: normalizedComparable(sku),
-            partNumber: normalizedComparable(partNumber)
-        ) != nil
+            partNumber: normalizedComparable(partNumber),
+            description: normalizedComparable(description)
+        ) else {
+            return nil
+        }
+        return ticket.lineItems[duplicateIndex]
     }
 
     func applyAddedLineItem(
@@ -119,7 +133,8 @@ actor TicketStore: TicketStoring {
            let duplicateIndex = duplicateLineIndex(
                in: ticket,
                sku: normalizedComparable(lineItem.sku),
-               partNumber: normalizedComparable(lineItem.partNumber)
+               partNumber: normalizedComparable(lineItem.partNumber),
+               description: normalizedComparable(lineItem.description)
            ) {
             var existing = updatedLineItems[duplicateIndex]
             existing.quantity += lineItem.quantity
@@ -224,19 +239,37 @@ actor TicketStore: TicketStoring {
     private func duplicateLineIndex(
         in ticket: TicketModel,
         sku: String?,
-        partNumber: String?
+        partNumber: String?,
+        description: String?
     ) -> Int? {
-        ticket.lineItems.firstIndex { lineItem in
+        if let sku, !sku.isEmpty,
+           let skuMatch = ticket.lineItems.firstIndex(where: { lineItem in
+               normalizedComparable(lineItem.sku) == sku
+           }) {
+            return skuMatch
+        }
+
+        if let partNumber, !partNumber.isEmpty,
+           let partMatch = ticket.lineItems.firstIndex(where: { lineItem in
+               normalizedComparable(lineItem.partNumber) == partNumber
+           }) {
+            return partMatch
+        }
+
+        guard (sku == nil || sku?.isEmpty == true),
+              (partNumber == nil || partNumber?.isEmpty == true),
+              let description,
+              !description.isEmpty else {
+            return nil
+        }
+
+        return ticket.lineItems.firstIndex { lineItem in
             let lineSKU = normalizedComparable(lineItem.sku)
             let linePartNumber = normalizedComparable(lineItem.partNumber)
+            let lineDescription = normalizedComparable(lineItem.description)
 
-            if let sku, !sku.isEmpty, lineSKU == sku {
-                return true
-            }
-            if let partNumber, !partNumber.isEmpty, linePartNumber == partNumber {
-                return true
-            }
-            return false
+            guard lineSKU == nil, linePartNumber == nil else { return false }
+            return lineDescription == description
         }
     }
 

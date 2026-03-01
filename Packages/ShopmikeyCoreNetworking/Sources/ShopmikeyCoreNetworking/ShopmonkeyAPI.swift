@@ -18,6 +18,14 @@ public protocol ShopmonkeyServicing: Sendable {
     func fetchServices(orderId: String) async throws -> [ServiceSummary]
     func fetchOpenTickets() async throws -> [TicketModel]
     func fetchTicket(id: String) async throws -> TicketModel
+    func addPartLineItem(
+        toTicketId ticketId: String,
+        sku: String?,
+        partNumber: String?,
+        description: String,
+        quantity: Decimal,
+        unitPrice: Decimal?
+    ) async throws -> TicketLineItem
     func fetchInventory() async throws -> [InventoryItem]
     func searchVendors(name: String) async throws -> [VendorSummary]
     func testConnection() async throws
@@ -54,6 +62,23 @@ public extension ShopmonkeyServicing {
 
     func fetchTicket(id: String) async throws -> TicketModel {
         _ = id
+        throw APIError.serverError(501)
+    }
+
+    func addPartLineItem(
+        toTicketId ticketId: String,
+        sku: String?,
+        partNumber: String?,
+        description: String,
+        quantity: Decimal,
+        unitPrice: Decimal?
+    ) async throws -> TicketLineItem {
+        _ = ticketId
+        _ = sku
+        _ = partNumber
+        _ = description
+        _ = quantity
+        _ = unitPrice
         throw APIError.serverError(501)
     }
 
@@ -400,6 +425,37 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         return decoded.value.ticketModel(includeLineItems: true)
     }
 
+    /// POST /order/{ticketId}/part
+    public func addPartLineItem(
+        toTicketId ticketId: String,
+        sku: String?,
+        partNumber: String?,
+        description: String,
+        quantity: Decimal,
+        unitPrice: Decimal?
+    ) async throws -> TicketLineItem {
+        let safeTicketID = ticketId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeTicketID.isEmpty, !safeDescription.isEmpty else {
+            throw APIError.invalidURL
+        }
+
+        let safeQuantity = max(Decimal(1), quantity)
+        let safeUnitPrice = unitPrice.map { max(Decimal.zero, $0) }
+        let request = TicketPartLineItemCreateRequest(
+            sku: normalizedOptionalString(sku),
+            partNumber: normalizedOptionalString(partNumber),
+            description: safeDescription,
+            quantity: safeQuantity,
+            unitPrice: safeUnitPrice
+        )
+
+        let url = try makeURL(path: "/order/\(safeTicketID)/part")
+        let body = try APIClient.encodeJSON(request)
+        let decoded: SingleOrWrapped<TicketPartLineItemCreateResponse> = try await client.perform(.post, url: url, body: body)
+        return decoded.value.lineItem
+    }
+
     /// GET /part
     public func fetchInventory() async throws -> [InventoryItem] {
         let url = try makeURL(path: "/part")
@@ -542,6 +598,12 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
                 return lhs.vendor.name.localizedCaseInsensitiveCompare(rhs.vendor.name) == .orderedAscending
             }
             .map(\.vendor)
+    }
+
+    private func normalizedOptionalString(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func vendorMatchScore(query: String, candidate: String) -> Double {
@@ -2365,6 +2427,223 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
         default:
             return nil
         }
+    }
+}
+
+private struct TicketPartLineItemCreateRequest: Encodable {
+    let sku: String?
+    let partNumber: String?
+    let description: String
+    let quantity: Decimal
+    let unitPrice: Decimal?
+
+    enum CodingKeys: String, CodingKey {
+        case sku
+        case partNumber = "part_number"
+        case description
+        case name
+        case quantity
+        case unitPrice = "unit_price"
+        case unitCost = "unit_cost"
+        case unitCostCents = "unit_cost_cents"
+        case cost = "cost"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(sku, forKey: .sku)
+        try container.encodeIfPresent(partNumber, forKey: .partNumber)
+        try container.encode(description, forKey: .description)
+        try container.encode(description, forKey: .name)
+        try container.encode(quantity, forKey: .quantity)
+
+        if let unitPrice {
+            try container.encode(unitPrice, forKey: .unitPrice)
+            try container.encode(unitPrice, forKey: .unitCost)
+            let cents = NSDecimalNumber(decimal: unitPrice * Decimal(100)).intValue
+            try container.encode(cents, forKey: .unitCostCents)
+            try container.encode(unitPrice, forKey: .cost)
+        }
+    }
+}
+
+private struct TicketPartLineItemCreateResponse: Decodable {
+    let lineItem: TicketLineItem
+
+    init(from decoder: Decoder) throws {
+        let root = try JSONValue(from: decoder)
+        guard let lineItemObject = Self.resolveLineItemObject(from: root),
+              let lineItem = Self.parseLineItem(from: lineItemObject) else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Expected ticket line item response.")
+            )
+        }
+        self.lineItem = lineItem
+    }
+
+    private static func resolveLineItemObject(from value: JSONValue) -> [String: JSONValue]? {
+        switch value {
+        case .object(let object):
+            if looksLikeLineItem(object) {
+                return object
+            }
+
+            for key in ["data", "result", "item", "line_item", "lineItem", "part"] {
+                if let nested = objectValue(for: key, in: object) {
+                    if looksLikeLineItem(nested) {
+                        return nested
+                    }
+                    if let firstFromNested = firstLineItemObject(in: nested) {
+                        return firstFromNested
+                    }
+                }
+            }
+
+            if let firstNested = firstLineItemObject(in: object) {
+                return firstNested
+            }
+            return nil
+
+        case .array(let values):
+            for entry in values {
+                if let resolved = resolveLineItemObject(from: entry) {
+                    return resolved
+                }
+            }
+            return nil
+
+        default:
+            return nil
+        }
+    }
+
+    private static func firstLineItemObject(in object: [String: JSONValue]) -> [String: JSONValue]? {
+        for key in ["line_items", "lineItems", "items", "parts"] {
+            guard let collection = arrayValue(for: key, in: object) else { continue }
+            for entry in collection {
+                if case .object(let nested) = entry, looksLikeLineItem(nested) {
+                    return nested
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func looksLikeLineItem(_ object: [String: JSONValue]) -> Bool {
+        let keys = object.keys.map { $0.lowercased() }
+        return keys.contains("id")
+            && (keys.contains("description") || keys.contains("name"))
+            && (keys.contains("quantity") || keys.contains("qty"))
+    }
+
+    private static func parseLineItem(from object: [String: JSONValue]) -> TicketLineItem? {
+        guard let id = firstNonEmpty([
+            string(in: object, keys: ["id", "public_id", "publicId"])
+        ]) else {
+            return nil
+        }
+
+        let quantity = firstDecimal([
+            scalar(in: object, keys: ["quantity", "qty"]),
+            .int(1)
+        ]) ?? 1
+
+        let unitPrice = firstDecimal([
+            scalar(in: object, keys: ["unit_price", "unitPrice", "price", "cost", "unit_cost", "unitCost"])
+        ])
+        let extendedPrice = firstDecimal([
+            scalar(in: object, keys: ["extended_price", "extendedPrice", "line_total", "lineTotal", "amount"])
+        ])
+
+        return TicketLineItem(
+            id: id,
+            kind: firstNonEmpty([
+                string(in: object, keys: ["kind", "type", "category"]),
+                "part"
+            ]),
+            sku: string(in: object, keys: ["sku"]),
+            partNumber: firstNonEmpty([
+                string(in: object, keys: ["part_number", "partNumber", "number"])
+            ]),
+            description: firstNonEmpty([
+                string(in: object, keys: ["description", "name"])
+            ]) ?? "Line Item",
+            quantity: quantity,
+            unitPrice: unitPrice,
+            extendedPrice: extendedPrice ?? unitPrice.map { $0 * quantity },
+            vendorId: string(in: object, keys: ["vendor_id", "vendorId"])
+        )
+    }
+
+    private static func objectValue(for key: String, in object: [String: JSONValue]) -> [String: JSONValue]? {
+        guard let value = object.first(where: { $0.key.lowercased() == key.lowercased() })?.value else {
+            return nil
+        }
+        if case .object(let nested) = value {
+            return nested
+        }
+        return nil
+    }
+
+    private static func arrayValue(for key: String, in object: [String: JSONValue]) -> [JSONValue]? {
+        guard let value = object.first(where: { $0.key.lowercased() == key.lowercased() })?.value else {
+            return nil
+        }
+        if case .array(let nested) = value {
+            return nested
+        }
+        return nil
+    }
+
+    private static func scalar(in object: [String: JSONValue], keys: [String]) -> JSONValue? {
+        let lookup = Set(keys.map { $0.lowercased() })
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            return value
+        }
+        return nil
+    }
+
+    private static func string(in object: [String: JSONValue], keys: [String]) -> String? {
+        guard let value = scalar(in: object, keys: keys) else { return nil }
+        switch value {
+        case .string(let raw):
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        default:
+            return nil
+        }
+    }
+
+    private static func firstNonEmpty(_ values: [String?]) -> String? {
+        for value in values {
+            guard let value else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func firstDecimal(_ values: [JSONValue?]) -> Decimal? {
+        for value in values {
+            guard let value else { continue }
+            switch value {
+            case .int(let raw):
+                return Decimal(raw)
+            case .double(let raw):
+                guard raw.isFinite else { continue }
+                return Decimal(raw)
+            case .string(let raw):
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let decimal = Decimal(string: trimmed) {
+                    return decimal
+                }
+            default:
+                continue
+            }
+        }
+        return nil
     }
 }
 

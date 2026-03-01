@@ -642,6 +642,7 @@ struct AppEnvironment {
     let poParser: POParser
     let foundationModelService: FoundationModelService
     let parseHandoffService: LocalParseHandoffService
+    let ticketStore: any TicketStoring
     let inventoryStore: any InventoryStoring
     let inventoryRepository: any InventoryRepositorying
     let inventorySyncCoordinator: any InventorySyncCoordinating
@@ -665,6 +666,7 @@ struct AppEnvironment {
         poParser: POParser,
         foundationModelService: FoundationModelService,
         parseHandoffService: LocalParseHandoffService,
+        ticketStore: any TicketStoring,
         inventoryStore: any InventoryStoring,
         inventoryRepository: any InventoryRepositorying,
         inventorySyncCoordinator: any InventorySyncCoordinating,
@@ -691,6 +693,7 @@ struct AppEnvironment {
         self.poParser = poParser
         self.foundationModelService = foundationModelService
         self.parseHandoffService = parseHandoffService
+        self.ticketStore = ticketStore
         self.inventoryStore = inventoryStore
         self.inventoryRepository = inventoryRepository
         self.inventorySyncCoordinator = inventorySyncCoordinator
@@ -745,11 +748,13 @@ extension AppEnvironment {
             fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
         )
+        let ticketStore = TicketStore(fileURL: ticketStateFileURL())
         let inventoryStore = InventoryStore(fileURL: inventoryItemsStateFileURL())
         let syncEngine = makeSyncEngine(
             syncOperationQueue: syncOperationQueue,
             dateProvider: dateProvider,
             shopmonkeyAPI: shopmonkeyAPI,
+            ticketStore: ticketStore,
             inventoryStore: inventoryStore
         )
         let inventoryRepository = InventoryRepository(fileURL: inventorySyncStateFileURL())
@@ -773,6 +778,7 @@ extension AppEnvironment {
             poParser: POParser(),
             foundationModelService: FoundationModelService(),
             parseHandoffService: LocalParseHandoffService(),
+            ticketStore: ticketStore,
             inventoryStore: inventoryStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
@@ -806,6 +812,14 @@ extension AppEnvironment {
             .appendingPathComponent("inventory_items.json", isDirectory: false)
     }
 
+    private static func ticketStateFileURL() -> URL {
+        let baseDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return baseDirectory
+            .appendingPathComponent("POScannerApp", isDirectory: true)
+            .appendingPathComponent("tickets.json", isDirectory: false)
+    }
+
     static var preview: AppEnvironment {
         let dataController = DataController(inMemory: true)
         let keychainService = KeychainService(service: "POScannerApp.preview")
@@ -837,11 +851,13 @@ extension AppEnvironment {
             fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
         )
+        let ticketStore = TicketStore()
         let inventoryStore = InventoryStore()
         let syncEngine = makeSyncEngine(
             syncOperationQueue: syncOperationQueue,
             dateProvider: dateProvider,
             shopmonkeyAPI: shopmonkeyAPI,
+            ticketStore: ticketStore,
             inventoryStore: inventoryStore
         )
         let inventoryRepository = InventoryRepository()
@@ -865,6 +881,7 @@ extension AppEnvironment {
             poParser: POParser(),
             foundationModelService: FoundationModelService(),
             parseHandoffService: LocalParseHandoffService(),
+            ticketStore: ticketStore,
             inventoryStore: inventoryStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
@@ -907,11 +924,13 @@ extension AppEnvironment {
             fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
         )
+        let ticketStore = TicketStore()
         let inventoryStore = InventoryStore()
         let syncEngine = makeSyncEngine(
             syncOperationQueue: syncOperationQueue,
             dateProvider: dateProvider,
             shopmonkeyAPI: shopmonkeyAPI,
+            ticketStore: ticketStore,
             inventoryStore: inventoryStore
         )
         let inventoryRepository = InventoryRepository()
@@ -935,6 +954,7 @@ extension AppEnvironment {
             poParser: POParser(),
             foundationModelService: FoundationModelService(),
             parseHandoffService: LocalParseHandoffService(),
+            ticketStore: ticketStore,
             inventoryStore: inventoryStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
@@ -961,6 +981,7 @@ extension AppEnvironment {
         syncOperationQueue: SyncOperationQueueStore,
         dateProvider: any DateProviding,
         shopmonkeyAPI: any ShopmonkeyServicing,
+        ticketStore: any TicketStoring,
         inventoryStore: any InventoryStoring
     ) -> SyncEngine {
         SyncEngine(
@@ -982,6 +1003,32 @@ extension AppEnvironment {
                     }
                 case .syncVendor:
                     return .succeeded
+                case .addTicketLineItem:
+                    guard let payload = TicketLineItemMutationPayload.from(payloadFingerprint: operation.payloadFingerprint) else {
+                        return .failed(diagnosticCode: DiagnosticCode.submitValidatePayload.rawValue)
+                    }
+
+                    do {
+                        let createdLineItem = try await shopmonkeyAPI.addPartLineItem(
+                            toTicketId: payload.ticketID,
+                            sku: payload.sku,
+                            partNumber: payload.partNumber,
+                            description: payload.description,
+                            quantity: payload.quantity,
+                            unitPrice: payload.unitPrice
+                        )
+                        _ = await ticketStore.applyAddedLineItem(
+                            createdLineItem,
+                            toTicketID: payload.ticketID,
+                            mergeMode: payload.mergeMode,
+                            updatedAt: dateProvider.now
+                        )
+                        return .succeeded
+                    } catch let apiError as APIError {
+                        return .failed(diagnosticCode: apiError.diagnosticCode?.rawValue)
+                    } catch {
+                        return .failed(diagnosticCode: DiagnosticCode.forNetworkError(error).rawValue)
+                    }
                 }
             },
             dateProvider: { dateProvider.now }

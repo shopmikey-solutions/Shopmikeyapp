@@ -100,4 +100,92 @@ struct TicketStoreTests {
         #expect(openTickets.first?.id == "open_2")
         #expect(await store.loadTicket(id: "open_1") == nil)
     }
+
+    @Test func activeTicketSelectionPersistsAcrossInstances() async {
+        let fileURL = temporaryURL("active_ticket")
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+
+        let store = TicketStore(fileURL: fileURL)
+        await store.save(tickets: [
+            TicketModel(id: "ticket_1", number: "RO-1001", status: "Open"),
+            TicketModel(id: "ticket_2", number: "RO-1002", status: "Open")
+        ])
+        await store.setActiveTicketID("ticket_2")
+
+        let reopened = TicketStore(fileURL: fileURL)
+        #expect(await reopened.activeTicketID() == "ticket_2")
+    }
+
+    @Test func applyAddedLineItemSupportsIncrementAndAddModes() async {
+        let fileURL = temporaryURL("line_item_merge")
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+
+        let store = TicketStore(fileURL: fileURL)
+        await store.save(ticket: TicketModel(
+            id: "ticket_1",
+            number: "RO-3001",
+            status: "Open",
+            lineItems: [
+                TicketLineItem(
+                    id: "line_1",
+                    kind: "part",
+                    sku: "PAD-001",
+                    partNumber: "PAD-001",
+                    description: "Brake Pad",
+                    quantity: 1,
+                    unitPrice: 50,
+                    extendedPrice: 50,
+                    vendorId: "vendor_1"
+                )
+            ]
+        ))
+
+        _ = await store.applyAddedLineItem(
+            TicketLineItem(
+                id: "line_new_1",
+                kind: "part",
+                sku: "PAD-001",
+                partNumber: "PAD-001",
+                description: "Brake Pad",
+                quantity: 2,
+                unitPrice: 50,
+                extendedPrice: 100,
+                vendorId: "vendor_1"
+            ),
+            toTicketID: "ticket_1",
+            mergeMode: .incrementQuantity,
+            updatedAt: Date(timeIntervalSince1970: 1_772_287_000)
+        )
+
+        let incremented = await store.loadTicket(id: "ticket_1")
+        #expect(incremented?.lineItems.count == 1)
+        #expect(NSDecimalNumber(decimal: incremented?.lineItems.first?.quantity ?? 0).doubleValue == 3)
+        #expect(NSDecimalNumber(decimal: incremented?.lineItems.first?.extendedPrice ?? 0).doubleValue == 150)
+
+        _ = await store.applyAddedLineItem(
+            TicketLineItem(
+                id: "line_new_2",
+                kind: "part",
+                sku: "PAD-001",
+                partNumber: "PAD-001",
+                description: "Brake Pad",
+                quantity: 1,
+                unitPrice: 50,
+                extendedPrice: 50,
+                vendorId: "vendor_1"
+            ),
+            toTicketID: "ticket_1",
+            mergeMode: .addNewLine,
+            updatedAt: Date(timeIntervalSince1970: 1_772_287_100)
+        )
+
+        let added = await store.loadTicket(id: "ticket_1")
+        #expect(added?.lineItems.count == 2)
+    }
 }

@@ -27,6 +27,16 @@ struct PurchaseOrderDetailView: View {
                             value: updatedAt.formatted(date: .abbreviated, time: .shortened)
                         )
                     }
+
+                    NavigationLink {
+                        ReceiveItemView(
+                            environment: environment,
+                            purchaseOrderID: purchaseOrderID
+                        )
+                    } label: {
+                        Label("Receive Items", systemImage: "barcode.viewfinder")
+                    }
+                    .accessibilityIdentifier("purchaseOrder.detail.receiveItemsLink")
                 }
 
                 Section("Line Items") {

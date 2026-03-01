@@ -10,6 +10,7 @@ public enum OperationType: String, Codable, Sendable {
     case syncInventory
     case syncVendor
     case addTicketLineItem
+    case receivePurchaseOrderLineItem
 }
 
 public enum OperationStatus: String, Codable, Sendable {

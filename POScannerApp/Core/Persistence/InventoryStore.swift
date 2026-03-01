@@ -9,6 +9,13 @@ import ShopmikeyCoreModels
 protocol InventoryStoring: Sendable {
     func allItems() async -> [InventoryItem]
     func replaceAll(_ items: [InventoryItem], at date: Date) async
+    func incrementOnHand(
+        sku: String?,
+        partNumber: String?,
+        description: String?,
+        by quantity: Decimal,
+        at date: Date
+    ) async -> Bool
     func lastUpdatedAt() async -> Date?
 }
 
@@ -37,6 +44,36 @@ actor InventoryStore: InventoryStoring {
         self.items = items.sorted(by: Self.sortInventoryItems)
         syncedAt = date
         persistStateIfNeeded()
+    }
+
+    func incrementOnHand(
+        sku: String?,
+        partNumber: String?,
+        description: String?,
+        by quantity: Decimal,
+        at date: Date
+    ) async -> Bool {
+        loadStateIfNeeded()
+
+        let delta = max(0, NSDecimalNumber(decimal: quantity).doubleValue)
+        guard delta > 0 else { return true }
+
+        guard let index = matchingIndex(
+            sku: normalizedComparable(sku),
+            partNumber: normalizedComparable(partNumber),
+            description: normalizedComparable(description)
+        ) else {
+            return false
+        }
+
+        var matched = items[index]
+        matched.quantityOnHand = max(0, matched.quantityOnHand + delta)
+        matched.lastUpdated = date
+        items[index] = matched
+        items.sort(by: Self.sortInventoryItems)
+        syncedAt = date
+        persistStateIfNeeded()
+        return true
     }
 
     func lastUpdatedAt() async -> Date? {
@@ -77,5 +114,43 @@ actor InventoryStore: InventoryStoring {
             return lhs.id < rhs.id
         }
         return lhs.displayPartNumber.localizedCaseInsensitiveCompare(rhs.displayPartNumber) == .orderedAscending
+    }
+
+    private func matchingIndex(
+        sku: String?,
+        partNumber: String?,
+        description: String?
+    ) -> Int? {
+        if let sku, !sku.isEmpty,
+           let skuMatch = items.firstIndex(where: { normalizedComparable($0.sku) == sku }) {
+            return skuMatch
+        }
+
+        if let partNumber, !partNumber.isEmpty,
+           let partMatch = items.firstIndex(where: { normalizedComparable($0.partNumber) == partNumber }) {
+            return partMatch
+        }
+
+        guard (sku == nil || sku?.isEmpty == true),
+              (partNumber == nil || partNumber?.isEmpty == true),
+              let description,
+              !description.isEmpty else {
+            return nil
+        }
+
+        return items.firstIndex { item in
+            guard normalizedComparable(item.sku) == nil,
+                  normalizedComparable(item.partNumber) == nil else {
+                return false
+            }
+            return normalizedComparable(item.description) == description
+        }
+    }
+
+    private func normalizedComparable(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 }

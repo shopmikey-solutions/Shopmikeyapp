@@ -10,6 +10,7 @@ protocol PurchaseOrderStoring: Sendable {
     func saveOpenPurchaseOrders(_ orders: [PurchaseOrderSummary]) async
     func loadOpenPurchaseOrders() async -> [PurchaseOrderSummary]
     func savePurchaseOrderDetail(_ detail: PurchaseOrderDetail) async
+    func applyReceiveResult(_ detail: PurchaseOrderDetail, at date: Date) async
     func loadPurchaseOrderDetail(id: String) async -> PurchaseOrderDetail?
     func clear() async
 }
@@ -48,6 +49,36 @@ actor PurchaseOrderStore: PurchaseOrderStoring {
         let key = normalizedID(detail.id)
         guard !key.isEmpty else { return }
         detailsByID[key] = normalize(detail: detail)
+        persistStateIfNeeded()
+    }
+
+    func applyReceiveResult(_ detail: PurchaseOrderDetail, at date: Date) async {
+        loadStateIfNeeded()
+        let normalizedDetail = normalize(detail: detail)
+        let key = normalizedID(normalizedDetail.id)
+        guard !key.isEmpty else { return }
+
+        detailsByID[key] = normalizedDetail
+
+        if isOpenStatus(normalizedDetail.status) {
+            let summary = PurchaseOrderSummary(
+                id: key,
+                vendorName: normalizedDetail.vendorName,
+                status: normalizedDetail.status,
+                createdAt: normalizedDetail.createdAt,
+                updatedAt: normalizedDetail.updatedAt ?? date,
+                totalLineCount: normalizedDetail.lineItems.count
+            )
+            if let existingIndex = openPurchaseOrders.firstIndex(where: { normalizedID($0.id) == key }) {
+                openPurchaseOrders[existingIndex] = normalize(summary: summary)
+            } else {
+                openPurchaseOrders.append(normalize(summary: summary))
+            }
+            openPurchaseOrders.sort(by: Self.sortPurchaseOrderSummaries)
+        } else {
+            openPurchaseOrders.removeAll { normalizedID($0.id) == key }
+        }
+
         persistStateIfNeeded()
     }
 
@@ -145,6 +176,22 @@ actor PurchaseOrderStore: PurchaseOrderStoring {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func isOpenStatus(_ status: String?) -> Bool {
+        guard let status else { return true }
+        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return true }
+        let closedStatuses: Set<String> = [
+            "closed",
+            "complete",
+            "completed",
+            "received",
+            "cancelled",
+            "canceled",
+            "archived"
+        ]
+        return !closedStatuses.contains(normalized)
     }
 
     private static func sortPurchaseOrderSummaries(lhs: PurchaseOrderSummary, rhs: PurchaseOrderSummary) -> Bool {

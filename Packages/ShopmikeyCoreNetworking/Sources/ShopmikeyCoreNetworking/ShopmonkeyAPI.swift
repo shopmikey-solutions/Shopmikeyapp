@@ -1593,9 +1593,9 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
             let unitCost = Decimal(max(0, lineItem.costCents)) / 100
             let extendedCost = unitCost * quantityOrdered
             return PurchaseOrderLineItem(
-                id: "\(response.id)_\(lineItem.kind.rawValue)_\(index)",
+                id: normalizedOptionalString(lineItem.id) ?? "\(response.id)_\(lineItem.kind.rawValue)_\(index)",
                 kind: lineItem.kind.rawValue,
-                sku: nil,
+                sku: normalizedOptionalString(lineItem.sku),
                 partNumber: normalizedOptionalString(lineItem.partNumber),
                 description: lineItem.name,
                 quantityOrdered: quantityOrdered,
@@ -2424,6 +2424,8 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
     }
 
     public struct LineItem: Hashable, Sendable {
+        public let id: String?
+        public let sku: String?
         public let name: String
         public let quantity: Int
         public let quantityReceived: Int?
@@ -2432,6 +2434,8 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
         public let kind: LineItemKind
 
         public init(
+            id: String? = nil,
+            sku: String? = nil,
             name: String,
             quantity: Int,
             quantityReceived: Int? = nil,
@@ -2439,6 +2443,8 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
             partNumber: String?,
             kind: LineItemKind
         ) {
+            self.id = id
+            self.sku = sku
             self.name = name
             self.quantity = quantity
             self.quantityReceived = quantityReceived
@@ -2606,6 +2612,22 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
             if name.isEmpty { continue }
 
             let quantity = scalarInt(from: itemObject["quantity"] ?? .int(1)) ?? 1
+            let lineItemID = scalarString(
+                from: itemObject["line_item_id"]
+                    ?? itemObject["lineItemId"]
+                    ?? itemObject["id"]
+                    ?? itemObject["part_id"]
+                    ?? itemObject["partId"]
+                    ?? .null
+            )
+            let sku = scalarString(
+                from: itemObject["sku"]
+                    ?? itemObject["part_sku"]
+                    ?? itemObject["partSku"]
+                    ?? itemObject["item_sku"]
+                    ?? itemObject["itemSku"]
+                    ?? .null
+            )
             let quantityReceived = scalarInt(
                 from: itemObject["quantity_received"]
                     ?? itemObject["quantityReceived"]
@@ -2630,6 +2652,8 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
 
             parsed.append(
                 LineItem(
+                    id: lineItemID,
+                    sku: sku,
                     name: name,
                     quantity: max(1, quantity),
                     quantityReceived: quantityReceived.map { max(0, $0) },

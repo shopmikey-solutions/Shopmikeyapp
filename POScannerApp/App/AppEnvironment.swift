@@ -763,7 +763,8 @@ extension AppEnvironment {
             dateProvider: dateProvider,
             shopmonkeyAPI: shopmonkeyAPI,
             ticketStore: ticketStore,
-            inventoryStore: inventoryStore
+            inventoryStore: inventoryStore,
+            purchaseOrderStore: purchaseOrderStore
         )
         let inventoryRepository = InventoryRepository(fileURL: inventorySyncStateFileURL())
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
@@ -892,7 +893,8 @@ extension AppEnvironment {
             dateProvider: dateProvider,
             shopmonkeyAPI: shopmonkeyAPI,
             ticketStore: ticketStore,
-            inventoryStore: inventoryStore
+            inventoryStore: inventoryStore,
+            purchaseOrderStore: purchaseOrderStore
         )
         let inventoryRepository = InventoryRepository()
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
@@ -975,7 +977,8 @@ extension AppEnvironment {
             dateProvider: dateProvider,
             shopmonkeyAPI: shopmonkeyAPI,
             ticketStore: ticketStore,
-            inventoryStore: inventoryStore
+            inventoryStore: inventoryStore,
+            purchaseOrderStore: purchaseOrderStore
         )
         let inventoryRepository = InventoryRepository()
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
@@ -1028,7 +1031,8 @@ extension AppEnvironment {
         dateProvider: any DateProviding,
         shopmonkeyAPI: any ShopmonkeyServicing,
         ticketStore: any TicketStoring,
-        inventoryStore: any InventoryStoring
+        inventoryStore: any InventoryStoring,
+        purchaseOrderStore: any PurchaseOrderStoring
     ) -> SyncEngine {
         SyncEngine(
             queueStore: syncOperationQueue,
@@ -1069,6 +1073,40 @@ extension AppEnvironment {
                             mergeMode: payload.mergeMode,
                             updatedAt: dateProvider.now
                         )
+                        return .succeeded
+                    } catch let apiError as APIError {
+                        return .failed(diagnosticCode: apiError.diagnosticCode?.rawValue)
+                    } catch {
+                        return .failed(diagnosticCode: DiagnosticCode.forNetworkError(error).rawValue)
+                    }
+                case .receivePurchaseOrderLineItem:
+                    guard let payload = PurchaseOrderLineItemReceivePayload.from(payloadFingerprint: operation.payloadFingerprint) else {
+                        return .failed(diagnosticCode: DiagnosticCode.submitValidatePayload.rawValue)
+                    }
+
+                    do {
+                        let updatedDetail = try await shopmonkeyAPI.receivePurchaseOrderLineItem(
+                            purchaseOrderId: payload.purchaseOrderID,
+                            lineItemId: payload.lineItemID,
+                            quantityReceived: payload.quantityReceived
+                        )
+                        await purchaseOrderStore.applyReceiveResult(updatedDetail, at: dateProvider.now)
+                        let didIncrementInventory = await inventoryStore.incrementOnHand(
+                            sku: payload.sku,
+                            partNumber: payload.partNumber,
+                            description: payload.description,
+                            by: payload.quantityReceived,
+                            at: dateProvider.now
+                        )
+
+                        if !didIncrementInventory {
+                            NSLog(
+                                "PO receive succeeded but inventory increment skipped (po=%@ line=%@).",
+                                payload.purchaseOrderID,
+                                payload.lineItemID
+                            )
+                        }
+
                         return .succeeded
                     } catch let apiError as APIError {
                         return .failed(diagnosticCode: apiError.diagnosticCode?.rawValue)

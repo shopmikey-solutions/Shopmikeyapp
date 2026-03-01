@@ -25,6 +25,7 @@ struct TicketAddLineItemTests {
         let queueStore: SyncOperationQueueStore
         let ticketStore: TicketStore
         let inventoryStore: InventoryStore
+        let purchaseOrderStore: PurchaseOrderStore
 
         init() {
             let root = FileManager.default.temporaryDirectory
@@ -35,6 +36,7 @@ struct TicketAddLineItemTests {
             queueStore = SyncOperationQueueStore(fileURL: queueFileURL)
             ticketStore = TicketStore(fileURL: ticketFileURL)
             inventoryStore = InventoryStore()
+            purchaseOrderStore = PurchaseOrderStore()
         }
 
         func cleanup() {
@@ -143,7 +145,8 @@ struct TicketAddLineItemTests {
             dateProvider: FixedDateProvider(date: now),
             shopmonkeyAPI: shopmonkey,
             ticketStore: harness.ticketStore,
-            inventoryStore: harness.inventoryStore
+            inventoryStore: harness.inventoryStore,
+            purchaseOrderStore: harness.purchaseOrderStore
         )
 
         let viewModel = InventoryLookupViewModel(

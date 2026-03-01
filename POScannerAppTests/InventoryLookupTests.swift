@@ -87,6 +87,21 @@ private actor InventoryLookupStoreStub: InventoryStoring {
         _ = date
     }
 
+    func incrementOnHand(
+        sku: String?,
+        partNumber: String?,
+        description: String?,
+        by quantity: Decimal,
+        at date: Date
+    ) async -> Bool {
+        _ = sku
+        _ = partNumber
+        _ = description
+        _ = quantity
+        _ = date
+        return false
+    }
+
     func lastUpdatedAt() async -> Date? {
         nil
     }

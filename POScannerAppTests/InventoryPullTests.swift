@@ -97,6 +97,7 @@ struct InventoryPullTests {
 
         let queueStore = SyncOperationQueueStore(fileURL: queueURL)
         let inventoryStore = InventoryStore(fileURL: inventoryURL)
+        let ticketStore = TicketStore()
         let now = Date(timeIntervalSince1970: 1_772_300_000)
         let stub = InventorySyncShopmonkeyStub(
             inventoryResult: .success([
@@ -108,6 +109,7 @@ struct InventoryPullTests {
             syncOperationQueue: queueStore,
             dateProvider: FixedDateProvider(date: now),
             shopmonkeyAPI: stub,
+            ticketStore: ticketStore,
             inventoryStore: inventoryStore
         )
 
@@ -136,6 +138,7 @@ struct InventoryPullTests {
 
         let queueStore = SyncOperationQueueStore(fileURL: queueURL)
         let inventoryStore = InventoryStore(fileURL: inventoryURL)
+        let ticketStore = TicketStore()
         let now = Date(timeIntervalSince1970: 1_772_400_000)
         let stub = InventorySyncShopmonkeyStub(
             inventoryResult: .failure(APIError.network(URLError(.timedOut)))
@@ -145,6 +148,7 @@ struct InventoryPullTests {
             syncOperationQueue: queueStore,
             dateProvider: FixedDateProvider(date: now),
             shopmonkeyAPI: stub,
+            ticketStore: ticketStore,
             inventoryStore: inventoryStore
         )
 

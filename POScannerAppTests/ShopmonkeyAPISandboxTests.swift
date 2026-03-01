@@ -343,6 +343,63 @@ struct ShopmonkeyAPISandboxTests {
         #expect(items.first?.quantityOnHand == 12)
     }
 
+    @Test func addPartLineItemDecodesWrappedCreatedLineItem() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PurchaseOrderURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        PurchaseOrderURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            #expect(url.path == "/v3/order/order_1/part")
+            #expect(request.httpMethod == "POST")
+
+            let body = Data(
+                #"""
+                {
+                  "data": {
+                    "id": "line_1",
+                    "type": "part",
+                    "sku": "PAD-001",
+                    "part_number": "PAD-001",
+                    "description": "Front Brake Pad Set",
+                    "quantity": 1,
+                    "unit_price": 99.95,
+                    "extended_price": 99.95,
+                    "vendor_id": "vendor_1"
+                  }
+                }
+                """#.utf8
+            )
+            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, body)
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyAPI.baseURL,
+            urlSession: session,
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
+        )
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
+
+        let lineItem = try await api.addPartLineItem(
+            toTicketId: "order_1",
+            sku: "PAD-001",
+            partNumber: "PAD-001",
+            description: "Front Brake Pad Set",
+            quantity: 1,
+            unitPrice: 99.95
+        )
+
+        #expect(lineItem.id == "line_1")
+        #expect(lineItem.kind == "part")
+        #expect(lineItem.sku == "PAD-001")
+        #expect(lineItem.partNumber == "PAD-001")
+        #expect(lineItem.description == "Front Brake Pad Set")
+    }
+
     @Test func getPurchaseOrdersDecodesWrappedListWithNullableVendorId() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PurchaseOrderURLProtocol.self]

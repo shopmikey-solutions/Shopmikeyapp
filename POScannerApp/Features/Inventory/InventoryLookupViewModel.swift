@@ -6,6 +6,7 @@
 import Combine
 import Foundation
 import ShopmikeyCoreModels
+import ShopmikeyCoreSync
 
 @MainActor
 final class InventoryLookupViewModel: ObservableObject {
@@ -17,17 +18,47 @@ final class InventoryLookupViewModel: ObservableObject {
         case error(String)
     }
 
+    enum TicketMutationState: Equatable {
+        case idle
+        case adding
+        case succeeded
+        case queued(diagnosticCode: String?)
+        case failed(diagnosticCode: String?)
+    }
+
     @Published private(set) var state: State = .idle
     @Published private(set) var scannedCode: String?
+    @Published private(set) var ticketMutationState: TicketMutationState = .idle
+    @Published private(set) var ticketMutationMessage: String?
+    @Published private(set) var lastTicketMutationOperationID: UUID?
 
     private let inventoryStore: InventoryStoring
+    private let ticketStore: any TicketStoring
+    private let syncOperationQueue: SyncOperationQueueStore
+    private let syncEngine: SyncEngine
+    private let dateProvider: any DateProviding
 
-    init(inventoryStore: InventoryStoring) {
+    init(
+        inventoryStore: InventoryStoring,
+        ticketStore: any TicketStoring = TicketStore(),
+        syncOperationQueue: SyncOperationQueueStore = .shared,
+        syncEngine: SyncEngine? = nil,
+        dateProvider: any DateProviding = SystemDateProvider()
+    ) {
         self.inventoryStore = inventoryStore
+        self.ticketStore = ticketStore
+        self.syncOperationQueue = syncOperationQueue
+        self.dateProvider = dateProvider
+        self.syncEngine = syncEngine ?? SyncEngine(
+            queueStore: syncOperationQueue,
+            executor: { _ in .succeeded }
+        )
     }
 
     func startScanning() {
         state = .scanning
+        ticketMutationState = .idle
+        ticketMutationMessage = nil
     }
 
     func setScannerUnavailable() {
@@ -37,6 +68,9 @@ final class InventoryLookupViewModel: ObservableObject {
     func reset() {
         scannedCode = nil
         state = .idle
+        ticketMutationState = .idle
+        ticketMutationMessage = nil
+        lastTicketMutationOperationID = nil
     }
 
     func lookup(scannedCode rawCode: String?) async {
@@ -54,6 +88,8 @@ final class InventoryLookupViewModel: ObservableObject {
             Self.trimmed($0.sku) == exactScannedCode
         }) {
             state = .matchFound(exactSkuMatch)
+            ticketMutationState = .idle
+            ticketMutationMessage = nil
             return
         }
 
@@ -61,6 +97,8 @@ final class InventoryLookupViewModel: ObservableObject {
             Self.trimmed($0.partNumber) == exactScannedCode
         }) {
             state = .matchFound(exactPartNumberMatch)
+            ticketMutationState = .idle
+            ticketMutationMessage = nil
             return
         }
 
@@ -74,10 +112,86 @@ final class InventoryLookupViewModel: ObservableObject {
             Self.normalized(item.partNumber) == normalizedScannedCode
         }) {
             state = .matchFound(normalizedMatch)
+            ticketMutationState = .idle
+            ticketMutationMessage = nil
             return
         }
 
         state = .noMatch
+    }
+
+    func hasDuplicateMatch(in ticketID: String) async -> Bool {
+        guard case .matchFound(let item) = state else { return false }
+        return await ticketStore.hasMatchingLineItem(
+            ticketID: ticketID,
+            sku: Self.trimmed(item.sku),
+            partNumber: Self.trimmed(item.partNumber)
+        )
+    }
+
+    func addMatchedItemToTicket(
+        ticketID rawTicketID: String?,
+        mergeMode: TicketLineMergeMode
+    ) async {
+        guard case .matchFound(let item) = state else {
+            ticketMutationState = .failed(diagnosticCode: nil)
+            ticketMutationMessage = "Scan an inventory item before adding to a ticket."
+            return
+        }
+
+        guard let ticketID = Self.trimmed(rawTicketID) else {
+            ticketMutationState = .failed(diagnosticCode: nil)
+            ticketMutationMessage = "Select an active ticket before adding."
+            return
+        }
+
+        let payload = TicketLineItemMutationPayload(
+            ticketID: ticketID,
+            sku: Self.trimmed(item.sku),
+            partNumber: Self.trimmed(item.partNumber),
+            description: item.description,
+            quantity: 1,
+            unitPrice: item.price,
+            mergeMode: mergeMode
+        )
+
+        let operation = SyncOperation(
+            id: UUID(),
+            type: .addTicketLineItem,
+            payloadFingerprint: payload.payloadFingerprint,
+            status: .pending,
+            retryCount: 0,
+            createdAt: dateProvider.now
+        )
+
+        ticketMutationState = .adding
+        ticketMutationMessage = nil
+        lastTicketMutationOperationID = operation.id
+        _ = await syncOperationQueue.enqueue(operation)
+        await syncEngine.runOnce()
+
+        guard let persisted = await syncOperationQueue.operation(id: operation.id) else {
+            ticketMutationState = .succeeded
+            ticketMutationMessage = "Added to ticket."
+            return
+        }
+
+        switch persisted.status {
+        case .pending, .inProgress:
+            ticketMutationState = .queued(diagnosticCode: persisted.lastErrorCode)
+            ticketMutationMessage = "Queued for retry."
+        case .failed:
+            ticketMutationState = .failed(diagnosticCode: persisted.lastErrorCode)
+            if let code = persisted.lastErrorCode {
+                ticketMutationMessage = "Could not add to ticket. (ID: \(code))"
+            } else {
+                ticketMutationMessage = "Could not add to ticket."
+            }
+        case .succeeded:
+            ticketMutationState = .succeeded
+            ticketMutationMessage = "Added to ticket."
+            await syncOperationQueue.remove(id: operation.id)
+        }
     }
 
     private static func trimmed(_ value: String?) -> String? {

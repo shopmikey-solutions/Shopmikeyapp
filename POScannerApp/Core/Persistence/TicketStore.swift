@@ -6,22 +6,38 @@
 import Foundation
 import ShopmikeyCoreModels
 
+enum TicketLineMergeMode: String, Codable, Sendable {
+    case incrementQuantity
+    case addNewLine
+}
+
 protocol TicketStoring: Sendable {
     func save(ticket: TicketModel) async
     func save(tickets: [TicketModel]) async
     func loadTicket(id: String) async -> TicketModel?
     func loadOpenTickets() async -> [TicketModel]
+    func activeTicketID() async -> String?
+    func setActiveTicketID(_ id: String?) async
+    func hasMatchingLineItem(ticketID: String, sku: String?, partNumber: String?) async -> Bool
+    func applyAddedLineItem(
+        _ lineItem: TicketLineItem,
+        toTicketID ticketID: String,
+        mergeMode: TicketLineMergeMode,
+        updatedAt: Date
+    ) async -> TicketModel?
     func clear() async
 }
 
 actor TicketStore: TicketStoring {
     private struct PersistedState: Codable {
         var tickets: [TicketModel]
+        var activeTicketID: String?
     }
 
     private let fileURL: URL?
     private var hasLoadedState = false
     private var ticketsByID: [String: TicketModel] = [:]
+    private var selectedActiveTicketID: String?
 
     init(fileURL: URL? = nil) {
         self.fileURL = fileURL
@@ -42,6 +58,10 @@ actor TicketStore: TicketStoring {
             guard !key.isEmpty else { return }
             partialResult[key] = ticket
         }
+        if let selectedActiveTicketID,
+           ticketsByID[selectedActiveTicketID] == nil {
+            self.selectedActiveTicketID = nil
+        }
         persistStateIfNeeded()
     }
 
@@ -57,9 +77,78 @@ actor TicketStore: TicketStoring {
             .sorted(by: Self.sortTickets)
     }
 
+    func activeTicketID() async -> String? {
+        loadStateIfNeeded()
+        return selectedActiveTicketID
+    }
+
+    func setActiveTicketID(_ id: String?) async {
+        loadStateIfNeeded()
+        selectedActiveTicketID = normalizedID(id ?? "")
+        if selectedActiveTicketID?.isEmpty == true {
+            selectedActiveTicketID = nil
+        }
+        persistStateIfNeeded()
+    }
+
+    func hasMatchingLineItem(ticketID: String, sku: String?, partNumber: String?) async -> Bool {
+        loadStateIfNeeded()
+        let key = normalizedID(ticketID)
+        guard let ticket = ticketsByID[key] else { return false }
+        return duplicateLineIndex(
+            in: ticket,
+            sku: normalizedComparable(sku),
+            partNumber: normalizedComparable(partNumber)
+        ) != nil
+    }
+
+    func applyAddedLineItem(
+        _ lineItem: TicketLineItem,
+        toTicketID ticketID: String,
+        mergeMode: TicketLineMergeMode,
+        updatedAt: Date
+    ) async -> TicketModel? {
+        loadStateIfNeeded()
+        let ticketKey = normalizedID(ticketID)
+        guard !ticketKey.isEmpty else { return nil }
+
+        var ticket = ticketsByID[ticketKey] ?? TicketModel(id: ticketKey, updatedAt: updatedAt)
+        var updatedLineItems = ticket.lineItems
+
+        if mergeMode == .incrementQuantity,
+           let duplicateIndex = duplicateLineIndex(
+               in: ticket,
+               sku: normalizedComparable(lineItem.sku),
+               partNumber: normalizedComparable(lineItem.partNumber)
+           ) {
+            var existing = updatedLineItems[duplicateIndex]
+            existing.quantity += lineItem.quantity
+            if existing.unitPrice == nil {
+                existing.unitPrice = lineItem.unitPrice
+            }
+            if let unitPrice = existing.unitPrice {
+                existing.extendedPrice = unitPrice * existing.quantity
+            } else if let existingExtendedPrice = existing.extendedPrice {
+                existing.extendedPrice = existingExtendedPrice + (lineItem.extendedPrice ?? 0)
+            } else {
+                existing.extendedPrice = lineItem.extendedPrice
+            }
+            updatedLineItems[duplicateIndex] = existing
+        } else {
+            updatedLineItems.append(lineItem)
+        }
+
+        ticket.lineItems = updatedLineItems
+        ticket.updatedAt = updatedAt
+        ticketsByID[ticketKey] = ticket
+        persistStateIfNeeded()
+        return ticket
+    }
+
     func clear() async {
         loadStateIfNeeded()
         ticketsByID.removeAll(keepingCapacity: false)
+        selectedActiveTicketID = nil
         persistStateIfNeeded()
     }
 
@@ -78,11 +167,18 @@ actor TicketStore: TicketStoring {
             guard !key.isEmpty else { return }
             partialResult[key] = ticket
         }
+        selectedActiveTicketID = normalizedID(decoded.activeTicketID ?? "")
+        if selectedActiveTicketID?.isEmpty == true {
+            selectedActiveTicketID = nil
+        }
     }
 
     private func persistStateIfNeeded() {
         guard let fileURL else { return }
-        let persisted = PersistedState(tickets: Array(ticketsByID.values).sorted(by: Self.sortTickets))
+        let persisted = PersistedState(
+            tickets: Array(ticketsByID.values).sorted(by: Self.sortTickets),
+            activeTicketID: selectedActiveTicketID
+        )
 
         do {
             let directoryURL = fileURL.deletingLastPathComponent()
@@ -123,5 +219,31 @@ actor TicketStore: TicketStoring {
                 .localizedCaseInsensitiveCompare(rhs.displayNumber ?? rhs.number ?? rhs.id) == .orderedAscending
         }
         return lhs.id < rhs.id
+    }
+
+    private func duplicateLineIndex(
+        in ticket: TicketModel,
+        sku: String?,
+        partNumber: String?
+    ) -> Int? {
+        ticket.lineItems.firstIndex { lineItem in
+            let lineSKU = normalizedComparable(lineItem.sku)
+            let linePartNumber = normalizedComparable(lineItem.partNumber)
+
+            if let sku, !sku.isEmpty, lineSKU == sku {
+                return true
+            }
+            if let partNumber, !partNumber.isEmpty, linePartNumber == partNumber {
+                return true
+            }
+            return false
+        }
+    }
+
+    private func normalizedComparable(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.lowercased()
     }
 }

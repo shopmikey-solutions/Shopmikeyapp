@@ -21,6 +21,16 @@ struct PurchaseOrderDetailView: View {
                 Section("Summary") {
                     detailRow(label: "Vendor", value: detail.vendorName ?? "Unknown Vendor")
                     detailRow(label: "Status", value: detail.status ?? "Unknown")
+                    if isRefreshing {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Refreshing details…")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("purchaseOrder.detail.refreshing")
+                    }
                     if let updatedAt = detail.updatedAt ?? detail.createdAt {
                         detailRow(
                             label: "Updated",
@@ -77,9 +87,15 @@ struct PurchaseOrderDetailView: View {
                 }
             } else {
                 Section {
-                    Text("Purchase order details unavailable.")
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("purchaseOrder.detail.empty")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Purchase order details unavailable")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Refresh to load cached detail for this purchase order.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 6)
+                    .accessibilityIdentifier("purchaseOrder.detail.empty")
                 }
             }
 
@@ -95,6 +111,7 @@ struct PurchaseOrderDetailView: View {
         .navigationTitle("PO Detail")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("purchaseOrder.detail.list")
+        .animation(.easeInOut(duration: 0.2), value: detail?.lineItems.count ?? 0)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isRefreshing ? "Refreshing…" : "Refresh") {

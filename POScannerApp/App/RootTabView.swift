@@ -10,6 +10,7 @@ struct RootTabView: View {
     private enum Tab: Hashable {
         case scan
         case inventory
+        case operations
         case history
         case settings
     }
@@ -70,6 +71,21 @@ struct RootTabView: View {
             .accessibilityLabel("Inventory")
             .accessibilityHint("Review inventory pulled from Shopmonkey.")
             .accessibilityIdentifier("tab.inventory")
+
+            NavigationStack {
+                if loadedTabs.contains(.operations) {
+                    OperationsView(environment: environment)
+                } else {
+                    Color.clear
+                }
+            }
+            .tag(Tab.operations)
+            .tabItem {
+                Label("Operations", systemImage: "gauge.with.dots.needle.bottom.50percent")
+            }
+            .accessibilityLabel("Operations")
+            .accessibilityHint("Review operational counts and navigate to inventory, tickets, purchase orders, and sync health.")
+            .accessibilityIdentifier("tab.operations")
 
             NavigationStack {
                 if loadedTabs.contains(.history) {

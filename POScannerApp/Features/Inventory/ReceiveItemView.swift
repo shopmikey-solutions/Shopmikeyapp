@@ -52,8 +52,17 @@ struct ReceiveItemView: View {
                         detailRow(label: "Scanned", value: scannedCode)
                     }
 
-                    detailRow(label: "Status", value: viewModel.statusIndicatorText.replacingOccurrences(of: "Status: ", with: ""))
-                        .accessibilityIdentifier("purchaseOrder.receive.status")
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        Text(viewModel.statusIndicatorText.replacingOccurrences(of: "Status: ", with: ""))
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(statusBadgeColor.opacity(0.14), in: Capsule())
+                            .foregroundStyle(statusBadgeColor)
+                    }
+                    .accessibilityIdentifier("purchaseOrder.receive.status")
 
                     matchContent
 
@@ -126,9 +135,15 @@ struct ReceiveItemView: View {
         .task {
             await viewModel.loadInitialDetail()
         }
+        .animation(.easeInOut(duration: 0.2), value: viewModel.matchState)
         .onChange(of: viewModel.matchState) { _, newState in
             guard case .matched = newState else { return }
             quantityInput = viewModel.suggestedQuantityTextForMatchedLine()
+        }
+        .onChange(of: viewModel.receiveState) { _, receiveState in
+            if case .succeeded = receiveState {
+                AppHaptics.success()
+            }
         }
     }
 
@@ -201,6 +216,21 @@ struct ReceiveItemView: View {
             return .red
         case .idle, .receiving:
             return .secondary
+        }
+    }
+
+    private var statusBadgeColor: Color {
+        switch viewModel.receiveState {
+        case .idle:
+            return .secondary
+        case .receiving:
+            return .blue
+        case .succeeded:
+            return .green
+        case .queued:
+            return .orange
+        case .failed:
+            return .red
         }
     }
 

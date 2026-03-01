@@ -16,10 +16,19 @@ struct PurchaseOrdersView: View {
 
     var body: some View {
         List {
-            if purchaseOrders.isEmpty, !isRefreshing {
-                Text("No open purchase orders available.")
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("purchaseOrders.emptyState")
+            if isRefreshing, purchaseOrders.isEmpty {
+                ProgressView("Loading purchase orders…")
+                    .accessibilityIdentifier("purchaseOrders.loading")
+            } else if purchaseOrders.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No open purchase orders")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Pull or refresh to update your local purchase order cache.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 6)
+                .accessibilityIdentifier("purchaseOrders.emptyState")
             } else {
                 ForEach(purchaseOrders) { purchaseOrder in
                     NavigationLink {
@@ -67,6 +76,7 @@ struct PurchaseOrdersView: View {
         }
         .navigationTitle("Purchase Orders")
         .accessibilityIdentifier("purchaseOrders.list")
+        .animation(.easeInOut(duration: 0.2), value: purchaseOrders)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isRefreshing ? "Refreshing…" : "Refresh") {

@@ -13,6 +13,7 @@ struct InventoryView: View {
     @State private var items: [InventoryItem] = []
     @State private var lastUpdatedAt: Date?
     @State private var isPulling = false
+    @State private var isLoading = true
 
     var body: some View {
         List {
@@ -39,10 +40,19 @@ struct InventoryView: View {
                 .accessibilityIdentifier("inventory.purchaseOrdersLink")
             }
 
-            if items.isEmpty {
-                Text("No inventory has been pulled yet.")
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("inventory.emptyState")
+            if isLoading {
+                ProgressView("Loading inventory…")
+                    .accessibilityIdentifier("inventory.loading")
+            } else if items.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No inventory pulled yet")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Use Pull to refresh your local inventory cache.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 6)
+                .accessibilityIdentifier("inventory.emptyState")
             } else {
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 4) {
@@ -70,6 +80,7 @@ struct InventoryView: View {
         }
         .navigationTitle("Inventory")
         .accessibilityIdentifier("inventory.list")
+        .animation(.easeInOut(duration: 0.2), value: items)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isPulling ? "Pulling…" : "Pull") {
@@ -101,11 +112,13 @@ struct InventoryView: View {
         _ = await environment.syncOperationQueue.enqueue(operation)
         await environment.syncEngine.runOnce()
         await reloadFromStore()
+        AppHaptics.success()
     }
 
     @MainActor
     private func reloadFromStore() async {
         items = await environment.inventoryStore.allItems()
         lastUpdatedAt = await environment.inventoryStore.lastUpdatedAt()
+        isLoading = false
     }
 }

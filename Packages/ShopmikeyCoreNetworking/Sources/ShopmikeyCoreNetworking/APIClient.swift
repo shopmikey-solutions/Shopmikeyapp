@@ -6,20 +6,65 @@
 import Foundation
 import ShopmikeyCoreDiagnostics
 
+public protocol TokenProvider: Sendable {
+    func fetchBearerToken() async throws -> String
+}
+
+public protocol FallbackAnalyticsRecording: Sendable {
+    func record(branch: String, context: String) async
+}
+
+public struct NoopFallbackAnalyticsRecorder: FallbackAnalyticsRecording {
+    public init() {}
+
+    public func record(branch: String, context: String) async {
+        _ = branch
+        _ = context
+    }
+}
+
+public struct ClosureTokenProvider: TokenProvider {
+    private let closure: @Sendable () async throws -> String
+
+    public init(_ closure: @escaping @Sendable () async throws -> String) {
+        self.closure = closure
+    }
+
+    public init(_ closure: @escaping @Sendable () throws -> String) {
+        self.closure = { try closure() }
+    }
+
+    public func fetchBearerToken() async throws -> String {
+        try await closure()
+    }
+}
+
+public struct ClosureFallbackAnalyticsRecorder: FallbackAnalyticsRecording {
+    private let closure: @Sendable (String, String) async -> Void
+
+    public init(_ closure: @escaping @Sendable (String, String) async -> Void) {
+        self.closure = closure
+    }
+
+    public func record(branch: String, context: String) async {
+        await closure(branch, context)
+    }
+}
+
 /// URLSession-backed client with strict Bearer auth and safe 429 Retry-After handling (single retry).
-final class APIClient {
-    enum HTTPMethod: String {
+public final class APIClient: @unchecked Sendable {
+    public enum HTTPMethod: String {
         case get = "GET"
         case post = "POST"
     }
 
-    typealias TokenProvider = @Sendable () throws -> String
-    typealias Sleeper = @Sendable (TimeInterval) async throws -> Void
+    public typealias Sleeper = @Sendable (TimeInterval) async throws -> Void
 
     private let urlSession: URLSession
-    private let tokenProvider: TokenProvider
+    private let tokenProvider: any TokenProvider
     private let sleeper: Sleeper
     private let diagnosticsRecorder: NetworkDiagnosticsRecorder
+    private let fallbackRecorder: any FallbackAnalyticsRecording
     #if DEBUG
     private static let verboseConsoleLoggingEnabled: Bool = {
         let environmentValue = ProcessInfo.processInfo.environment["PO_SCANNER_VERBOSE_NETWORK_LOGS"]
@@ -33,11 +78,12 @@ final class APIClient {
         return decoder
     }()
 
-    init(
+    public init(
         baseURL: URL,
         urlSession: URLSession = .shared,
-        tokenProvider: @escaping TokenProvider,
+        tokenProvider: any TokenProvider,
         sleeper: @escaping Sleeper = APIClient.defaultSleeper,
+        fallbackRecorder: any FallbackAnalyticsRecording = NoopFallbackAnalyticsRecorder(),
         diagnosticsRecorder: NetworkDiagnosticsRecorder = .shared
     ) {
         // `baseURL` is intentionally ignored by the hardened client. Callers should supply full URLs.
@@ -46,9 +92,28 @@ final class APIClient {
         self.tokenProvider = tokenProvider
         self.sleeper = sleeper
         self.diagnosticsRecorder = diagnosticsRecorder
+        self.fallbackRecorder = fallbackRecorder
     }
 
-    func perform<Response: Decodable>(
+    public convenience init(
+        baseURL: URL,
+        urlSession: URLSession = .shared,
+        tokenProvider: @escaping @Sendable () throws -> String,
+        sleeper: @escaping Sleeper = APIClient.defaultSleeper,
+        fallbackRecorder: any FallbackAnalyticsRecording = NoopFallbackAnalyticsRecorder(),
+        diagnosticsRecorder: NetworkDiagnosticsRecorder = .shared
+    ) {
+        self.init(
+            baseURL: baseURL,
+            urlSession: urlSession,
+            tokenProvider: ClosureTokenProvider(tokenProvider),
+            sleeper: sleeper,
+            fallbackRecorder: fallbackRecorder,
+            diagnosticsRecorder: diagnosticsRecorder
+        )
+    }
+
+    public func perform<Response: Decodable>(
         _ method: HTTPMethod,
         url: URL,
         body: Data? = nil
@@ -63,7 +128,7 @@ final class APIClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        request = try authorize(request)
+        request = try await authorize(request)
 
         #if DEBUG
         if Self.verboseConsoleLoggingEnabled {
@@ -105,7 +170,7 @@ final class APIClient {
                     errorSummary: "Decoding failed"
                 )
             )
-            await FallbackAnalyticsStore.shared.record(
+            await fallbackRecorder.record(
                 branch: FallbackBranch.apiDecodeFallback,
                 context: "Decoding failed for \(method.rawValue)"
             )
@@ -115,14 +180,16 @@ final class APIClient {
 
     // MARK: - Internals
 
-    private func authorize(_ request: URLRequest) throws -> URLRequest {
-        let token = (try? tokenProvider())
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-        guard let token, !token.isEmpty else {
+    public func fetchBearerToken() async throws -> String {
+        let token = try await tokenProvider.fetchBearerToken().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
             throw APIError.missingToken
         }
+        return token
+    }
 
+    private func authorize(_ request: URLRequest) async throws -> URLRequest {
+        let token = try await fetchBearerToken()
         var authorized = request
         authorized.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return authorized
@@ -142,7 +209,7 @@ final class APIClient {
             if method == .get,
                !didRetryTransientGET,
                shouldRetryTransientNetworkError(error) {
-                await FallbackAnalyticsStore.shared.record(
+                await fallbackRecorder.record(
                     branch: FallbackBranch.submitRetryPath,
                     context: "Transient network retry"
                 )
@@ -186,11 +253,11 @@ final class APIClient {
             if !didRetryOn429,
                let retryAfter = http.value(forHTTPHeaderField: "Retry-After"),
                let delay = Double(retryAfter) {
-                await FallbackAnalyticsStore.shared.record(
+                await fallbackRecorder.record(
                     branch: FallbackBranch.netRateLimitRetry,
                     context: "Retry-After \(delay)s"
                 )
-                await FallbackAnalyticsStore.shared.record(
+                await fallbackRecorder.record(
                     branch: FallbackBranch.submitRetryPath,
                     context: "HTTP 429 retry"
                 )
@@ -218,7 +285,7 @@ final class APIClient {
         if method == .get,
            !didRetryTransientGET,
            isTransientServerStatus(http.statusCode) {
-            await FallbackAnalyticsStore.shared.record(
+            await fallbackRecorder.record(
                 branch: FallbackBranch.submitRetryPath,
                 context: "Transient status \(http.statusCode)"
             )
@@ -316,7 +383,7 @@ final class APIClient {
         statusCode == 502 || statusCode == 503 || statusCode == 504
     }
 
-    static func encodeJSON<T: Encodable>(_ value: T) throws -> Data {
+    public static func encodeJSON<T: Encodable>(_ value: T) throws -> Data {
         do {
             let encoder = JSONEncoder()
             encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -326,7 +393,7 @@ final class APIClient {
         }
     }
 
-    static func defaultSleeper(_ seconds: TimeInterval) async throws {
+    public static func defaultSleeper(_ seconds: TimeInterval) async throws {
         let clamped = max(0, seconds)
         let nanosDouble = clamped * 1_000_000_000
         let nanos = UInt64(min(nanosDouble, Double(UInt64.max)))
@@ -395,18 +462,18 @@ final class APIClient {
     #endif
 }
 
-struct NetworkDiagnosticsEntry: Identifiable, Hashable {
-    let id: UUID
-    let timestamp: Date
-    let method: String
-    let url: String
-    let statusCode: Int?
-    let durationMillis: Int?
-    let requestBodyPreview: String?
-    let responseBodyPreview: String?
-    let errorSummary: String?
+public struct NetworkDiagnosticsEntry: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let timestamp: Date
+    public let method: String
+    public let url: String
+    public let statusCode: Int?
+    public let durationMillis: Int?
+    public let requestBodyPreview: String?
+    public let responseBodyPreview: String?
+    public let errorSummary: String?
 
-    init(
+    public init(
         id: UUID = UUID(),
         timestamp: Date = Date(),
         method: String,
@@ -428,7 +495,7 @@ struct NetworkDiagnosticsEntry: Identifiable, Hashable {
         self.errorSummary = errorSummary
     }
 
-    var oneLineSummary: String {
+    public var oneLineSummary: String {
         let status = statusCode.map(String.init) ?? "n/a"
         let duration = durationMillis.map { "\($0)ms" } ?? "n/a"
         if let errorSummary, !errorSummary.isEmpty {
@@ -437,7 +504,7 @@ struct NetworkDiagnosticsEntry: Identifiable, Hashable {
         return "[\(status)] \(method) \(url) (\(duration))"
     }
 
-    var isFailure: Bool {
+    public var isFailure: Bool {
         if let statusCode {
             return !(200...299).contains(statusCode)
         }
@@ -445,33 +512,33 @@ struct NetworkDiagnosticsEntry: Identifiable, Hashable {
     }
 }
 
-actor NetworkDiagnosticsRecorder {
-    static let shared = NetworkDiagnosticsRecorder()
+public actor NetworkDiagnosticsRecorder {
+    public static let shared = NetworkDiagnosticsRecorder()
 
     private let maxEntries: Int
     private var entries: [NetworkDiagnosticsEntry]
 
-    init(maxEntries: Int = 300) {
+    public init(maxEntries: Int = 300) {
         self.maxEntries = maxEntries
         self.entries = []
     }
 
-    func record(_ entry: NetworkDiagnosticsEntry) {
+    public func record(_ entry: NetworkDiagnosticsEntry) {
         entries.insert(entry, at: 0)
         if entries.count > maxEntries {
             entries.removeLast(entries.count - maxEntries)
         }
     }
 
-    func latest(limit: Int = 120) -> [NetworkDiagnosticsEntry] {
+    public func latest(limit: Int = 120) -> [NetworkDiagnosticsEntry] {
         Array(entries.prefix(max(0, limit)))
     }
 
-    func clear() {
+    public func clear() {
         entries.removeAll(keepingCapacity: true)
     }
 
-    func exportText(limit: Int = 200) -> String {
+    public func exportText(limit: Int = 200) -> String {
         let clipped = Array(entries.prefix(max(0, limit)))
         if clipped.isEmpty {
             return "No captured network entries."
@@ -490,7 +557,7 @@ actor NetworkDiagnosticsRecorder {
         }.joined(separator: "\n\n")
     }
 
-    func latestFailure(
+    public func latestFailure(
         urlContains: String? = nil,
         method: String? = nil,
         since: Date? = nil
@@ -515,7 +582,7 @@ actor NetworkDiagnosticsRecorder {
         }
     }
 
-    func latestFailureSummary(since: Date? = nil) -> String? {
+    public func latestFailureSummary(since: Date? = nil) -> String? {
         guard let failure = latestFailure(since: since) else {
             return nil
         }

@@ -7,6 +7,7 @@ import Foundation
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
 import Testing
+import ShopmikeyCoreNetworking
 @testable import POScannerApp
 
 struct DiagnosticsCodeTests {

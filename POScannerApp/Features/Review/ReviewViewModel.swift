@@ -9,6 +9,7 @@ import ShopmikeyCoreParsing
 import CoreData
 import Foundation
 import os
+import ShopmikeyCoreNetworking
 
 enum SubmissionMode: String, CaseIterable, Hashable {
     case attachToExistingPO = "Attach to PO"

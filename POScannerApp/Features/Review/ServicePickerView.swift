@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreNetworking
 
 struct ServicePickerView: View {
     @Environment(\.dismiss) private var dismiss

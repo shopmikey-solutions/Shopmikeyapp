@@ -6,6 +6,7 @@
 import Foundation
 import ShopmikeyCoreModels
 import Testing
+import ShopmikeyCoreNetworking
 @testable import POScannerApp
 
 struct SandboxInvariantTests {

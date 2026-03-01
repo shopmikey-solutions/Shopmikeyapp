@@ -6,9 +6,8 @@
 import Foundation
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
-import ShopmikeyCoreParsing
 
-protocol ShopmonkeyServicing {
+public protocol ShopmonkeyServicing: Sendable {
     func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse
     func createPart(orderId: String, serviceId: String, request: CreatePartRequest) async throws -> CreatePartResponse
     func createFee(orderId: String, serviceId: String, request: CreateFeeRequest) async throws -> CreatedResourceResponse
@@ -22,7 +21,7 @@ protocol ShopmonkeyServicing {
     func runEndpointProbe() async throws -> ShopmonkeyEndpointProbeReport
 }
 
-extension ShopmonkeyServicing {
+public extension ShopmonkeyServicing {
     func createFee(orderId: String, serviceId: String, request: CreateFeeRequest) async throws -> CreatedResourceResponse {
         _ = orderId
         _ = serviceId
@@ -47,26 +46,47 @@ extension ShopmonkeyServicing {
     }
 }
 
-enum ProbeHTTPMethod: String {
+public enum ProbeHTTPMethod: String, Sendable {
     case get = "GET"
     case post = "POST"
 }
 
-struct EndpointProbeResult: Hashable, Identifiable {
-    var id: String { endpoint + "|" + method.rawValue }
-    let endpoint: String
-    let method: ProbeHTTPMethod
-    let statusCode: Int?
-    let supported: Bool
-    let hint: String
-    let responsePreview: String?
+public struct EndpointProbeResult: Hashable, Identifiable, Sendable {
+    public var id: String { endpoint + "|" + method.rawValue }
+    public let endpoint: String
+    public let method: ProbeHTTPMethod
+    public let statusCode: Int?
+    public let supported: Bool
+    public let hint: String
+    public let responsePreview: String?
+
+    public init(
+        endpoint: String,
+        method: ProbeHTTPMethod,
+        statusCode: Int?,
+        supported: Bool,
+        hint: String,
+        responsePreview: String?
+    ) {
+        self.endpoint = endpoint
+        self.method = method
+        self.statusCode = statusCode
+        self.supported = supported
+        self.hint = hint
+        self.responsePreview = responsePreview
+    }
 }
 
-struct ShopmonkeyEndpointProbeReport: Hashable {
-    let generatedAt: Date
-    let results: [EndpointProbeResult]
+public struct ShopmonkeyEndpointProbeReport: Hashable, Sendable {
+    public let generatedAt: Date
+    public let results: [EndpointProbeResult]
 
-    var createPurchaseOrderLikelySupported: Bool {
+    public init(generatedAt: Date, results: [EndpointProbeResult]) {
+        self.generatedAt = generatedAt
+        self.results = results
+    }
+
+    public var createPurchaseOrderLikelySupported: Bool {
         let purchaseOrderListSupported = results.contains {
             $0.endpoint == "/purchase_order" && $0.method == .get && $0.supported
         }
@@ -151,7 +171,7 @@ private struct ResultsWrapper<T: Decodable>: Decodable {
 }
 
 /// Shopmonkey sandbox API wrapper.
-struct ShopmonkeyAPI: ShopmonkeyServicing {
+public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
     #if DEBUG
     // sandbox only
     private let baseURL = URL(string: "https://sandbox-api.shopmonkey.cloud/v3")!
@@ -160,7 +180,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     #endif
 
     /// Exposed for dependency wiring and tests (still sandbox-only).
-    static var baseURL: URL {
+    public static var baseURL: URL {
         #if DEBUG
         return URL(string: "https://sandbox-api.shopmonkey.cloud/v3")!
         #else
@@ -169,23 +189,23 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     private let client: APIClient
-    private let keychain: KeychainService
     private let diagnosticsRecorder: NetworkDiagnosticsRecorder
+    private let fallbackRecorder: any FallbackAnalyticsRecording
 
-    init(
+    public init(
         client: APIClient,
-        keychain: KeychainService = KeychainService(),
+        fallbackRecorder: any FallbackAnalyticsRecording = NoopFallbackAnalyticsRecorder(),
         diagnosticsRecorder: NetworkDiagnosticsRecorder = .shared
     ) {
         self.client = client
-        self.keychain = keychain
+        self.fallbackRecorder = fallbackRecorder
         self.diagnosticsRecorder = diagnosticsRecorder
     }
 
     // MARK: - Endpoints
 
     /// POST /vendor
-    func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse {
+    public func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse {
         let url = try makeURL(path: "/vendor")
         let body = try APIClient.encodeJSON(request)
         let response: CreateVendorResponse = try await client.perform(.post, url: url, body: body)
@@ -194,7 +214,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     /// POST /order/{orderId}/service/{serviceId}/part
-    func createPart(orderId: String, serviceId: String, request: CreatePartRequest) async throws -> CreatePartResponse {
+    public func createPart(orderId: String, serviceId: String, request: CreatePartRequest) async throws -> CreatePartResponse {
         let safeOrderId = orderId.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeServiceId = serviceId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !safeOrderId.isEmpty, !safeServiceId.isEmpty else {
@@ -209,7 +229,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     /// POST /order/{orderId}/service/{serviceId}/fee
-    func createFee(orderId: String, serviceId: String, request: CreateFeeRequest) async throws -> CreatedResourceResponse {
+    public func createFee(orderId: String, serviceId: String, request: CreateFeeRequest) async throws -> CreatedResourceResponse {
         let safeOrderId = orderId.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeServiceId = serviceId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !safeOrderId.isEmpty, !safeServiceId.isEmpty else {
@@ -224,7 +244,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     /// POST /order/{orderId}/service/{serviceId}/tire
-    func createTire(orderId: String, serviceId: String, request: CreateTireRequest) async throws -> CreatedResourceResponse {
+    public func createTire(orderId: String, serviceId: String, request: CreateTireRequest) async throws -> CreatedResourceResponse {
         let safeOrderId = orderId.trimmingCharacters(in: .whitespacesAndNewlines)
         let safeServiceId = serviceId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !safeOrderId.isEmpty, !safeServiceId.isEmpty else {
@@ -239,9 +259,9 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     /// POST /purchase_order
-    func createPurchaseOrder(_ request: CreatePurchaseOrderRequest) async throws -> CreatePurchaseOrderResponse {
+    public func createPurchaseOrder(_ request: CreatePurchaseOrderRequest) async throws -> CreatePurchaseOrderResponse {
         // Try canonical singular route first. Only use plural if singular route itself is unavailable.
-        await FallbackAnalyticsStore.shared.record(
+        await fallbackRecorder.record(
             branch: FallbackBranch.submitPrimaryEndpoint,
             context: "POST /purchase_order"
         )
@@ -254,7 +274,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
         }
 
         // Tenant fallback: some deployments expose plural route only.
-        await FallbackAnalyticsStore.shared.record(
+        await fallbackRecorder.record(
             branch: FallbackBranch.submitAlternateEndpoint,
             context: "POST /purchase_orders"
         )
@@ -262,7 +282,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     /// GET /purchase_order
-    func getPurchaseOrders() async throws -> [PurchaseOrderResponse] {
+    public func getPurchaseOrders() async throws -> [PurchaseOrderResponse] {
         let url = try makeURL(path: "/purchase_order")
         let decoded: ListOrWrapped<PurchaseOrderResponse> = try await client.perform(.get, url: url)
         let values = decoded.values
@@ -273,14 +293,14 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     /// GET /order
-    func fetchOrders() async throws -> [OrderSummary] {
+    public func fetchOrders() async throws -> [OrderSummary] {
         let url = try makeURL(path: "/order")
         let decoded: ListOrWrapped<OrderSummary> = try await client.perform(.get, url: url)
         return decoded.values
     }
 
     /// GET /order/{orderId}/service
-    func fetchServices(orderId: String) async throws -> [ServiceSummary] {
+    public func fetchServices(orderId: String) async throws -> [ServiceSummary] {
         let safeOrderId = orderId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !safeOrderId.isEmpty else {
             throw APIError.invalidURL
@@ -292,7 +312,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
     }
 
     /// GET /vendor?search={name}
-    func searchVendors(name: String) async throws -> [VendorSummary] {
+    public func searchVendors(name: String) async throws -> [VendorSummary] {
         let normalized = name.normalizedVendorName
         guard !normalized.isEmpty else {
             return []
@@ -315,24 +335,13 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
     /// Lightweight connectivity check used by Settings.
     /// - Important: Treats any 2xx as success and does not decode the response body.
-    func testConnection() async throws {
+    public func testConnection() async throws {
         let url = baseURL.appendingPathComponent("order")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
 
-        let token: String
-        do {
-            token = try keychain.retrieveToken()
-        } catch KeychainService.KeychainServiceError.itemNotFound {
-            throw APIError.missingToken
-        }
-
-        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedToken.isEmpty else {
-            throw APIError.missingToken
-        }
-
-        request.setValue("Bearer \(trimmedToken)", forHTTPHeaderField: "Authorization")
+        let token = try await client.fetchBearerToken()
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -370,7 +379,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
     /// Debug-only capability probe for sandbox endpoint discovery.
     /// Sends low-risk requests and reports status/body hints without exposing secrets.
-    func runEndpointProbe() async throws -> ShopmonkeyEndpointProbeReport {
+    public func runEndpointProbe() async throws -> ShopmonkeyEndpointProbeReport {
         let probes: [(ProbeHTTPMethod, String, [String: String]?)] = [
             (.get, "/order", nil),
             (.get, "/purchase_order", nil),
@@ -413,11 +422,100 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
                 && !vendor.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
 
-        return VendorMatcher.rankVendors(
-            sanitized,
-            query: query,
-            minimumScore: VendorMatcher.minimumSuggestionScore
-        ).map(\.vendor)
+        let normalizedQuery = query.normalizedVendorName
+        guard !normalizedQuery.isEmpty else { return [] }
+        let minimumScore = 0.55
+
+        var bestByNormalized: [String: (vendor: VendorSummary, score: Double)] = [:]
+        for vendor in sanitized {
+            let normalizedCandidate = vendor.name.normalizedVendorName
+            guard !normalizedCandidate.isEmpty else { continue }
+
+            let score = vendorMatchScore(query: normalizedQuery, candidate: normalizedCandidate)
+            guard score >= minimumScore else { continue }
+
+            if let existing = bestByNormalized[normalizedCandidate], existing.score >= score {
+                continue
+            }
+            bestByNormalized[normalizedCandidate] = (vendor, score)
+        }
+
+        return bestByNormalized.values
+            .sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score > rhs.score }
+                return lhs.vendor.name.localizedCaseInsensitiveCompare(rhs.vendor.name) == .orderedAscending
+            }
+            .map(\.vendor)
+    }
+
+    private func vendorMatchScore(query: String, candidate: String) -> Double {
+        let normalizedQuery = query.normalizedVendorName
+        let normalizedCandidate = candidate.normalizedVendorName
+        guard !normalizedQuery.isEmpty, !normalizedCandidate.isEmpty else { return 0 }
+
+        if normalizedQuery == normalizedCandidate {
+            return 1.0
+        }
+
+        let canonicalQuery = canonicalVendorName(normalizedQuery)
+        let canonicalCandidate = canonicalVendorName(normalizedCandidate)
+        if !canonicalQuery.isEmpty, canonicalQuery == canonicalCandidate {
+            return 0.96
+        }
+
+        var score = 0.0
+
+        if normalizedCandidate.hasPrefix(normalizedQuery) || normalizedQuery.hasPrefix(normalizedCandidate) {
+            score = max(score, 0.88)
+        }
+
+        if canonicalCandidate.hasPrefix(canonicalQuery) || canonicalQuery.hasPrefix(canonicalCandidate) {
+            score = max(score, 0.84)
+        }
+
+        if normalizedCandidate.contains(normalizedQuery) || normalizedQuery.contains(normalizedCandidate) {
+            score = max(score, 0.66)
+        }
+
+        let queryTokens = Set(canonicalQuery.split(separator: " ").map(String.init))
+        let candidateTokens = Set(canonicalCandidate.split(separator: " ").map(String.init))
+        if !queryTokens.isEmpty, !candidateTokens.isEmpty {
+            let overlap = queryTokens.intersection(candidateTokens).count
+            if overlap > 0 {
+                let denominator = max(queryTokens.count, candidateTokens.count)
+                let tokenScore = Double(overlap) / Double(denominator)
+                score = max(score, 0.55 + (tokenScore * 0.35))
+            }
+        }
+
+        return min(1.0, score)
+    }
+
+    private func canonicalVendorName(_ raw: String) -> String {
+        let normalized = raw.normalizedVendorName
+        guard !normalized.isEmpty else { return "" }
+
+        var tokens = normalized.split(separator: " ").map(String.init)
+        while tokens.count > 1, let tail = tokens.last, legalSuffixes.contains(tail) {
+            tokens.removeLast()
+        }
+
+        return tokens.joined(separator: " ")
+    }
+
+    private var legalSuffixes: Set<String> {
+        [
+            "inc",
+            "incorporated",
+            "llc",
+            "ltd",
+            "limited",
+            "co",
+            "corp",
+            "corporation",
+            "company",
+            "plc"
+        ]
     }
 
     private func executeProbe(method: ProbeHTTPMethod, path: String, body: [String: String]?) async throws -> EndpointProbeResult {
@@ -431,18 +529,8 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let token: String
-        do {
-            token = try keychain.retrieveToken()
-        } catch KeychainService.KeychainServiceError.itemNotFound {
-            throw APIError.missingToken
-        }
-
-        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedToken.isEmpty else {
-            throw APIError.missingToken
-        }
-        request.setValue("Bearer \(trimmedToken)", forHTTPHeaderField: "Authorization")
+        let token = try await client.fetchBearerToken()
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -603,7 +691,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
                     // When status is invalid, skip cost/body compatibility retries and move to next status.
                     if await isStatusValidationFailure(for: path) {
-                        await FallbackAnalyticsStore.shared.record(
+                        await fallbackRecorder.record(
                             branch: FallbackBranch.submitStatusFallback,
                             context: "Status fallback on \(path)"
                         )
@@ -644,7 +732,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
                         // Status validation errors should immediately rotate to another status candidate.
                         if await isStatusValidationFailure(for: path) {
-                            await FallbackAnalyticsStore.shared.record(
+                            await fallbackRecorder.record(
                                 branch: FallbackBranch.submitStatusFallback,
                                 context: "Status fallback on \(path)"
                             )
@@ -677,7 +765,7 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
             }
         }
 
-        await FallbackAnalyticsStore.shared.record(
+        await fallbackRecorder.record(
             branch: FallbackBranch.submitFallbackExhausted,
             context: "Exhausted fallback on \(path)"
         )
@@ -1205,13 +1293,13 @@ struct ShopmonkeyAPI: ShopmonkeyServicing {
 
 // MARK: - DTOs (strict)
 
-struct CreateVendorRequest: Encodable {
-    let name: String
-    let phone: String?
-    let email: String?
-    let notes: String?
+public struct CreateVendorRequest: Encodable, Sendable {
+    public let name: String
+    public let phone: String?
+    public let email: String?
+    public let notes: String?
 
-    init(
+    public init(
         name: String,
         phone: String? = nil,
         email: String? = nil,
@@ -1224,16 +1312,16 @@ struct CreateVendorRequest: Encodable {
     }
 }
 
-struct CreateVendorResponse: Decodable {
-    let id: String
-    let name: String
+public struct CreateVendorResponse: Decodable, Sendable {
+    public let id: String
+    public let name: String
 
-    init(id: String, name: String) {
+    public init(id: String, name: String) {
         self.id = id
         self.name = name
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let root = try JSONValue(from: decoder)
 
         // If server explicitly returns success=false, treat as invalid success payload.
@@ -1374,13 +1462,29 @@ struct CreateVendorResponse: Decodable {
     }
 }
 
-struct CreatePartRequest: Encodable {
-    let name: String
-    let quantity: Int
-    let partNumber: String?
-    let wholesaleCostCents: Int
-    let vendorId: String
-    let purchaseOrderId: String?
+public struct CreatePartRequest: Encodable, Sendable {
+    public let name: String
+    public let quantity: Int
+    public let partNumber: String?
+    public let wholesaleCostCents: Int
+    public let vendorId: String
+    public let purchaseOrderId: String?
+
+    public init(
+        name: String,
+        quantity: Int,
+        partNumber: String?,
+        wholesaleCostCents: Int,
+        vendorId: String,
+        purchaseOrderId: String?
+    ) {
+        self.name = name
+        self.quantity = quantity
+        self.partNumber = partNumber
+        self.wholesaleCostCents = wholesaleCostCents
+        self.vendorId = vendorId
+        self.purchaseOrderId = purchaseOrderId
+    }
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -1392,15 +1496,26 @@ struct CreatePartRequest: Encodable {
     }
 }
 
-struct CreatePartResponse: Decodable {
-    let id: String
-    let name: String
+public struct CreatePartResponse: Decodable, Sendable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
 }
 
-struct CreateFeeRequest: Encodable {
-    let description: String
-    let amountCents: Int
-    let purchaseOrderId: String?
+public struct CreateFeeRequest: Encodable, Sendable {
+    public let description: String
+    public let amountCents: Int
+    public let purchaseOrderId: String?
+
+    public init(description: String, amountCents: Int, purchaseOrderId: String?) {
+        self.description = description
+        self.amountCents = amountCents
+        self.purchaseOrderId = purchaseOrderId
+    }
 
     enum CodingKeys: String, CodingKey {
         case description
@@ -1409,12 +1524,26 @@ struct CreateFeeRequest: Encodable {
     }
 }
 
-struct CreateTireRequest: Encodable {
-    let description: String
-    let quantity: Int
-    let costCents: Int
-    let vendorId: String?
-    let purchaseOrderId: String?
+public struct CreateTireRequest: Encodable, Sendable {
+    public let description: String
+    public let quantity: Int
+    public let costCents: Int
+    public let vendorId: String?
+    public let purchaseOrderId: String?
+
+    public init(
+        description: String,
+        quantity: Int,
+        costCents: Int,
+        vendorId: String?,
+        purchaseOrderId: String?
+    ) {
+        self.description = description
+        self.quantity = quantity
+        self.costCents = costCents
+        self.vendorId = vendorId
+        self.purchaseOrderId = purchaseOrderId
+    }
 
     enum CodingKeys: String, CodingKey {
         case description
@@ -1425,16 +1554,16 @@ struct CreateTireRequest: Encodable {
     }
 }
 
-struct CreatePurchaseOrderLineItemRequest: Encodable, Hashable {
-    let description: String
-    let quantity: Int
-    let unitCostCents: Int
-    let name: String?
-    let partNumber: String?
-    let costCents: Int?
-    let unitCost: Decimal?
+public struct CreatePurchaseOrderLineItemRequest: Encodable, Hashable, Sendable {
+    public let description: String
+    public let quantity: Int
+    public let unitCostCents: Int
+    public let name: String?
+    public let partNumber: String?
+    public let costCents: Int?
+    public let unitCost: Decimal?
 
-    init(
+    public init(
         description: String,
         quantity: Int,
         unitCostCents: Int,
@@ -1463,13 +1592,29 @@ struct CreatePurchaseOrderLineItemRequest: Encodable, Hashable {
     }
 }
 
-struct CreatePurchaseOrderPartRequest: Encodable, Hashable {
-    let name: String
-    let quantity: Int
-    let costCents: Int
-    let number: String?
-    let description: String?
-    let partNumber: String?
+public struct CreatePurchaseOrderPartRequest: Encodable, Hashable, Sendable {
+    public let name: String
+    public let quantity: Int
+    public let costCents: Int
+    public let number: String?
+    public let description: String?
+    public let partNumber: String?
+
+    public init(
+        name: String,
+        quantity: Int,
+        costCents: Int,
+        number: String?,
+        description: String?,
+        partNumber: String?
+    ) {
+        self.name = name
+        self.quantity = quantity
+        self.costCents = costCents
+        self.number = number
+        self.description = description
+        self.partNumber = partNumber
+    }
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -1481,10 +1626,16 @@ struct CreatePurchaseOrderPartRequest: Encodable, Hashable {
     }
 }
 
-struct CreatePurchaseOrderFeeRequest: Encodable, Hashable {
-    let name: String
-    let amountCents: Int
-    let description: String?
+public struct CreatePurchaseOrderFeeRequest: Encodable, Hashable, Sendable {
+    public let name: String
+    public let amountCents: Int
+    public let description: String?
+
+    public init(name: String, amountCents: Int, description: String?) {
+        self.name = name
+        self.amountCents = amountCents
+        self.description = description
+    }
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -1493,13 +1644,29 @@ struct CreatePurchaseOrderFeeRequest: Encodable, Hashable {
     }
 }
 
-struct CreatePurchaseOrderTireRequest: Encodable, Hashable {
-    let name: String
-    let quantity: Int
-    let costCents: Int
-    let number: String?
-    let description: String?
-    let partNumber: String?
+public struct CreatePurchaseOrderTireRequest: Encodable, Hashable, Sendable {
+    public let name: String
+    public let quantity: Int
+    public let costCents: Int
+    public let number: String?
+    public let description: String?
+    public let partNumber: String?
+
+    public init(
+        name: String,
+        quantity: Int,
+        costCents: Int,
+        number: String?,
+        description: String?,
+        partNumber: String?
+    ) {
+        self.name = name
+        self.quantity = quantity
+        self.costCents = costCents
+        self.number = number
+        self.description = description
+        self.partNumber = partNumber
+    }
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -1511,19 +1678,19 @@ struct CreatePurchaseOrderTireRequest: Encodable, Hashable {
     }
 }
 
-struct CreatePurchaseOrderRequest: Encodable {
-    let vendorId: String
-    let notes: String?
-    let invoiceNumber: String?
-    let status: String?
-    let purchaseOrderId: String?
-    let orderId: String?
-    let lineItems: [CreatePurchaseOrderLineItemRequest]
-    let parts: [CreatePurchaseOrderPartRequest]
-    let fees: [CreatePurchaseOrderFeeRequest]
-    let tires: [CreatePurchaseOrderTireRequest]
+public struct CreatePurchaseOrderRequest: Encodable, Sendable {
+    public let vendorId: String
+    public let notes: String?
+    public let invoiceNumber: String?
+    public let status: String?
+    public let purchaseOrderId: String?
+    public let orderId: String?
+    public let lineItems: [CreatePurchaseOrderLineItemRequest]
+    public let parts: [CreatePurchaseOrderPartRequest]
+    public let fees: [CreatePurchaseOrderFeeRequest]
+    public let tires: [CreatePurchaseOrderTireRequest]
 
-    init(
+    public init(
         vendorId: String,
         notes: String? = nil,
         invoiceNumber: String?,
@@ -1616,24 +1783,28 @@ private extension CreatePurchaseOrderRequest {
     }
 }
 
-struct CreatedResourceResponse: Decodable {
-    let id: String
+public struct CreatedResourceResponse: Decodable, Sendable {
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
 }
 
-struct CreatePurchaseOrderResponse: Decodable {
-    let id: String
-    let number: String?
-    let vendorId: String?
-    let status: String?
+public struct CreatePurchaseOrderResponse: Decodable, Sendable {
+    public let id: String
+    public let number: String?
+    public let vendorId: String?
+    public let status: String?
 
-    init(id: String, number: String? = nil, vendorId: String?, status: String?) {
+    public init(id: String, number: String? = nil, vendorId: String?, status: String?) {
         self.id = id
         self.number = number
         self.vendorId = vendorId
         self.status = status
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let root = try JSONValue(from: decoder)
 
         // If server explicitly returns success=false, treat as invalid success payload.
@@ -1831,40 +2002,48 @@ private enum JSONValue: Decodable {
     }
 }
 
-struct PurchaseOrderResponse: Decodable, Identifiable {
-    enum LineItemKind: String, Hashable {
+public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
+    public enum LineItemKind: String, Hashable, Sendable {
         case part
         case fee
         case tire
     }
 
-    struct LineItem: Hashable {
-        let name: String
-        let quantity: Int
-        let costCents: Int
-        let partNumber: String?
-        let kind: LineItemKind
+    public struct LineItem: Hashable, Sendable {
+        public let name: String
+        public let quantity: Int
+        public let costCents: Int
+        public let partNumber: String?
+        public let kind: LineItemKind
+
+        public init(name: String, quantity: Int, costCents: Int, partNumber: String?, kind: LineItemKind) {
+            self.name = name
+            self.quantity = quantity
+            self.costCents = costCents
+            self.partNumber = partNumber
+            self.kind = kind
+        }
     }
 
-    let id: String
-    let vendorId: String?
-    let vendorName: String?
-    let number: String?
-    let orderId: String?
-    let status: String
-    let parts: [LineItem]
-    let fees: [LineItem]
-    let tires: [LineItem]
+    public let id: String
+    public let vendorId: String?
+    public let vendorName: String?
+    public let number: String?
+    public let orderId: String?
+    public let status: String
+    public let parts: [LineItem]
+    public let fees: [LineItem]
+    public let tires: [LineItem]
 
-    var isDraft: Bool {
+    public var isDraft: Bool {
         status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "draft"
     }
 
-    var allLineItems: [LineItem] {
+    public var allLineItems: [LineItem] {
         parts + fees + tires
     }
 
-    init(
+    public init(
         id: String,
         vendorId: String?,
         vendorName: String? = nil,
@@ -1886,7 +2065,7 @@ struct PurchaseOrderResponse: Decodable, Identifiable {
         self.tires = tires
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let root = try JSONValue(from: decoder)
 
         guard let resolvedID = Self.firstString(
@@ -2077,13 +2256,13 @@ struct PurchaseOrderResponse: Decodable, Identifiable {
     }
 }
 
-struct OrderSummary: Decodable, Identifiable {
-    let id: String
-    let number: String?
-    let orderName: String?
-    let customerName: String?
+public struct OrderSummary: Decodable, Identifiable, Sendable {
+    public let id: String
+    public let number: String?
+    public let orderName: String?
+    public let customerName: String?
 
-    var displayTitle: String {
+    public var displayTitle: String {
         let trimmedNumber = number?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOrderName = orderName?.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -2102,14 +2281,14 @@ struct OrderSummary: Decodable, Identifiable {
         return "Order \(id)"
     }
 
-    init(id: String, number: String?, orderName: String? = nil, customerName: String? = nil) {
+    public init(id: String, number: String?, orderName: String? = nil, customerName: String? = nil) {
         self.id = id
         self.number = number
         self.orderName = orderName
         self.customerName = customerName
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let rootValue = try JSONValue(from: decoder)
         guard case .object(let rootObject) = rootValue else {
             throw DecodingError.dataCorrupted(
@@ -2249,7 +2428,12 @@ struct OrderSummary: Decodable, Identifiable {
     }
 }
 
-struct ServiceSummary: Decodable, Identifiable {
-    let id: String
-    let name: String?
+public struct ServiceSummary: Decodable, Identifiable, Sendable {
+    public let id: String
+    public let name: String?
+
+    public init(id: String, name: String?) {
+        self.id = id
+        self.name = name
+    }
 }

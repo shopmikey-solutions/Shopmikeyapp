@@ -8,9 +8,10 @@ import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
 import ShopmikeyCoreSync
 import Testing
+import ShopmikeyCoreNetworking
 @testable import POScannerApp
 
-private final class MockShopmonkeyService: ShopmonkeyServicing {
+private final class MockShopmonkeyService: ShopmonkeyServicing, @unchecked Sendable {
     struct CallCounts: Hashable {
         var createVendor: Int = 0
         var createPart: Int = 0

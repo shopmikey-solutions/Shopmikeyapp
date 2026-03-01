@@ -11,6 +11,7 @@ import ShopmikeyCoreSync
 import CryptoKit
 import Foundation
 import os
+import ShopmikeyCoreNetworking
 
 enum ValidationError: Error {
     case invalidPayload(String)

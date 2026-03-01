@@ -6,6 +6,7 @@
 import Testing
 import ShopmikeyCoreModels
 import Foundation
+import ShopmikeyCoreNetworking
 @testable import POScannerApp
 
 private actor OperationInvocationCounter {
@@ -53,7 +54,7 @@ private struct StubShopmonkeyService: ShopmonkeyServicing {
     }
 }
 
-private final class RecordingMutationShopmonkeyService: ShopmonkeyServicing {
+private final class RecordingMutationShopmonkeyService: ShopmonkeyServicing, @unchecked Sendable {
     private(set) var createdPartRequests: [CreatePartRequest] = []
     private(set) var createdFeeRequests: [CreateFeeRequest] = []
     private(set) var createdTireRequests: [CreateTireRequest] = []

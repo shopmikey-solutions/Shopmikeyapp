@@ -116,6 +116,16 @@ struct InventoryLookupView: View {
         .task {
             await activeTicketContext.loadCachedState()
         }
+        .animation(.easeInOut(duration: 0.2), value: viewModel.scanSuggestion)
+        .onChange(of: viewModel.ticketMutationState) { _, state in
+            if case .succeeded = state {
+                AppHaptics.success()
+            }
+        }
+        .onChange(of: viewModel.draftMutationMessage) { _, message in
+            guard let message, message.lowercased().contains("added") else { return }
+            AppHaptics.success()
+        }
     }
 
     @ViewBuilder
@@ -426,12 +436,10 @@ struct InventoryLookupView: View {
     private func suggestionBanner(matchedItem: InventoryItem?) -> some View {
         switch viewModel.scanSuggestion {
         case .receivePO(let poID, _):
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Suggested next step")
-                    .font(.subheadline.weight(.semibold))
-                Text("Receive item against PO \(poID)?")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            suggestionCard(
+                title: "Suggested next step",
+                detail: "Receive item against PO \(poID)?"
+            ) {
                 Button("Receive against PO") {
                     suggestedReceivePOID = poID
                     isSuggestedReceivePresented = true
@@ -439,17 +447,13 @@ struct InventoryLookupView: View {
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("inventory.lookup.suggestion.receivePO")
             }
-            .padding(10)
-            .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .accessibilityIdentifier("inventory.lookup.suggestionBanner")
+            .transition(.opacity.combined(with: .move(edge: .top)))
 
         case .addToTicket(let ticketID):
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Suggested next step")
-                    .font(.subheadline.weight(.semibold))
-                Text("Add this item to active ticket \(ticketID)?")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            suggestionCard(
+                title: "Suggested next step",
+                detail: "Add this item to active ticket \(ticketID)?"
+            ) {
                 Button("Add to Active Ticket") {
                     Task { @MainActor in
                         await handleAddToTicket(ticketID: ticketID)
@@ -458,17 +462,13 @@ struct InventoryLookupView: View {
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("inventory.lookup.suggestion.addToTicket")
             }
-            .padding(10)
-            .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .accessibilityIdentifier("inventory.lookup.suggestionBanner")
+            .transition(.opacity.combined(with: .move(edge: .top)))
 
         case .addToPODraft:
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Suggested next step")
-                    .font(.subheadline.weight(.semibold))
-                Text("Stock is low. Add this item to PO Draft?")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            suggestionCard(
+                title: "Suggested next step",
+                detail: "Stock is low. Add this item to PO Draft?"
+            ) {
                 Button("Restock in PO Draft") {
                     Task { @MainActor in
                         if let matchedItem {
@@ -481,12 +481,28 @@ struct InventoryLookupView: View {
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("inventory.lookup.suggestion.addToPODraft")
             }
-            .padding(10)
-            .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .accessibilityIdentifier("inventory.lookup.suggestionBanner")
+            .transition(.opacity.combined(with: .move(edge: .top)))
 
         case .none:
             EmptyView()
         }
+    }
+
+    private func suggestionCard<Content: View>(
+        title: String,
+        detail: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            Text(detail)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .padding(10)
+        .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityIdentifier("inventory.lookup.suggestionBanner")
     }
 }

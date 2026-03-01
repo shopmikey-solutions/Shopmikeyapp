@@ -39,9 +39,15 @@ struct POBuilderView: View {
 
             if viewModel.lines.isEmpty {
                 Section {
-                    Text("No lines in PO Draft yet. Add lines from Inventory Lookup.")
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("poBuilder.emptyState")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("No draft lines yet")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Add lines from Inventory Lookup to build a restock purchase order.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 6)
+                    .accessibilityIdentifier("poBuilder.emptyState")
                 }
             } else {
                 Section("Line Items") {
@@ -132,7 +138,10 @@ struct POBuilderView: View {
                     }
                 } label: {
                     if viewModel.isSubmitting {
-                        ProgressView()
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Submitting…")
+                        }
                     } else {
                         Text("Submit Draft")
                     }
@@ -165,12 +174,17 @@ struct POBuilderView: View {
         }
         .navigationTitle("PO Draft")
         .navigationBarTitleDisplayMode(.inline)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.lines)
         .task {
             await viewModel.loadDraft()
             syncLocalStateFromDraft()
         }
         .onChange(of: viewModel.draft) { _, _ in
             syncLocalStateFromDraft()
+        }
+        .onChange(of: viewModel.statusMessage) { _, statusMessage in
+            guard let statusMessage, !statusMessage.isEmpty else { return }
+            AppHaptics.success()
         }
     }
 

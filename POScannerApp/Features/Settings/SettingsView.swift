@@ -374,6 +374,13 @@ struct SettingsView: View {
 
     private var syncHealthSection: some View {
         Section("Sync Health") {
+            HStack(spacing: 8) {
+                healthChip(title: "Pending \(viewModel.pendingOperationCount)", color: AppSurfaceStyle.info)
+                healthChip(title: "In Progress \(viewModel.inProgressOperationCount)", color: .blue)
+                healthChip(title: "Failed \(viewModel.failedOperationCount)", color: viewModel.failedOperationCount > 0 ? .red : AppSurfaceStyle.success)
+            }
+            .accessibilityIdentifier("settings.syncHealthChips")
+
             LabeledContent("Pending") {
                 Text("\(viewModel.pendingOperationCount)")
                     .font(.subheadline.monospacedDigit())
@@ -410,6 +417,7 @@ struct SettingsView: View {
                 AppHaptics.selection()
                 Task { await viewModel.retryFailedNow() }
             }
+            .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("settings.retryFailedNowButton")
             .accessibilityLabel("Retry failed sync operations now")
 
@@ -417,6 +425,7 @@ struct SettingsView: View {
                 AppHaptics.selection()
                 Task { await viewModel.clearFailedOperations() }
             }
+            .buttonStyle(.bordered)
             .accessibilityIdentifier("settings.clearFailedOperationsButton")
             .accessibilityLabel("Clear failed sync operations")
         }

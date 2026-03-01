@@ -9,6 +9,7 @@ import ShopmikeyCoreModels
 protocol PurchaseOrderStoring: Sendable {
     func saveOpenPurchaseOrders(_ orders: [PurchaseOrderSummary]) async
     func loadOpenPurchaseOrders() async -> [PurchaseOrderSummary]
+    func loadOpenPurchaseOrderDetails() async -> [PurchaseOrderDetail]
     func savePurchaseOrderDetail(_ detail: PurchaseOrderDetail) async
     func applyReceiveResult(_ detail: PurchaseOrderDetail, at date: Date) async
     func loadPurchaseOrderDetail(id: String) async -> PurchaseOrderDetail?
@@ -42,6 +43,19 @@ actor PurchaseOrderStore: PurchaseOrderStoring {
     func loadOpenPurchaseOrders() async -> [PurchaseOrderSummary] {
         loadStateIfNeeded()
         return openPurchaseOrders
+    }
+
+    func loadOpenPurchaseOrderDetails() async -> [PurchaseOrderDetail] {
+        loadStateIfNeeded()
+
+        let openOrderIDs = Set(openPurchaseOrders.map { normalizedID($0.id) })
+        guard !openOrderIDs.isEmpty else { return [] }
+
+        return openPurchaseOrders.compactMap { summary in
+            let key = normalizedID(summary.id)
+            guard openOrderIDs.contains(key) else { return nil }
+            return detailsByID[key]
+        }
     }
 
     func savePurchaseOrderDetail(_ detail: PurchaseOrderDetail) async {

@@ -81,6 +81,28 @@ run_gate_step() {
   return "$exit_code"
 }
 
+run_command_step() {
+  local stage="$1"
+  local label="$2"
+  shift 2
+
+  log_step "$label"
+
+  set +e
+  "$@"
+  local exit_code=$?
+  set -e
+
+  if [[ "$exit_code" -eq 0 ]]; then
+    record_stage_status "$stage" "passed" "$label" "-"
+    return 0
+  fi
+
+  record_stage_status "$stage" "failed" "$label" "-"
+  echo "error: $label failed." >&2
+  return "$exit_code"
+}
+
 finalize_release_gate() {
   local exit_code=$?
   set +e
@@ -163,6 +185,12 @@ resolve_sim_destination() {
 
 TEST_PARALLEL_FLAGS=(-parallel-testing-enabled NO -maximum-parallel-testing-workers 1)
 SIM_DESTINATION_RESOLVED="$(resolve_sim_destination)"
+
+run_command_step \
+  "core-networking-package-build" \
+  "Release gate: CoreNetworking package build" \
+  swift build \
+  --package-path "$ROOT_DIR/Packages/ShopmikeyCoreNetworking"
 
 run_gate_step \
   "build" \

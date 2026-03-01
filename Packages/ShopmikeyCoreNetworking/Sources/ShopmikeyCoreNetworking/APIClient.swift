@@ -6,8 +6,29 @@
 import Foundation
 import ShopmikeyCoreDiagnostics
 
+/// Supplies Bearer tokens for outbound API requests.
+///
+/// Implementations should return quickly and avoid long blocking work on the caller's execution context.
+/// If token refresh is required, perform it asynchronously and ensure internal state is concurrency-safe.
 public protocol TokenProvider: Sendable {
     func fetchBearerToken() async throws -> String
+}
+
+/// Actor-backed adapter that serializes token access for callers that want a single-flight fetch path.
+public actor TokenProviderActorAdapter: TokenProvider {
+    private let upstream: @Sendable () async throws -> String
+
+    public init(provider: any TokenProvider) {
+        self.upstream = { try await provider.fetchBearerToken() }
+    }
+
+    public init(fetchToken: @escaping @Sendable () async throws -> String) {
+        self.upstream = fetchToken
+    }
+
+    public func fetchBearerToken() async throws -> String {
+        try await upstream()
+    }
 }
 
 public protocol FallbackAnalyticsRecording: Sendable {

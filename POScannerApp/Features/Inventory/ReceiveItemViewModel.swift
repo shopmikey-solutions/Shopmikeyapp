@@ -11,24 +11,47 @@ import ShopmikeyCoreSync
 
 struct PurchaseOrderLineItemReceivePayload: Hashable, Codable, Sendable {
     static let fingerprintPrefix = "purchase_order_receive_v1"
+    static let receiveKeyPrefix = "__smk_receive_key__="
 
     var purchaseOrderID: String
     var lineItemID: String
     var quantityReceived: Decimal
+    var priorReceivedQuantity: Decimal
     var barcode: String
     var sku: String?
     var partNumber: String?
     var description: String?
+
+    private var receiveKey: String {
+        let matchToken = Self.normalized(barcode)
+            ?? Self.normalized(sku)
+            ?? Self.normalized(partNumber)
+            ?? ""
+        return [
+            "po=\(purchaseOrderID)",
+            "line=\(lineItemID)",
+            "qty=\(Self.decimalString(quantityReceived))",
+            "match=\(matchToken)",
+            "prior=\(Self.decimalString(priorReceivedQuantity))"
+        ].joined(separator: "|")
+    }
+
+    private var encodedDescriptionForInventory: String {
+        let encodedReceiveKey = Self.percentEncode(receiveKey)
+        let cleanDescription = Self.trimmed(description) ?? ""
+        return Self.receiveKeyPrefix + encodedReceiveKey + "|" + cleanDescription
+    }
 
     var payloadFingerprint: String {
         let pairs: [(String, String)] = [
             ("purchaseOrderId", purchaseOrderID),
             ("lineItemId", lineItemID),
             ("quantityReceived", decimalString(quantityReceived)),
+            ("priorReceivedQuantity", decimalString(priorReceivedQuantity)),
             ("barcode", barcode),
             ("sku", sku ?? ""),
             ("partNumber", partNumber ?? ""),
-            ("description", description ?? "")
+            ("description", encodedDescriptionForInventory)
         ]
 
         return Self.fingerprintPrefix + "|" + pairs
@@ -60,6 +83,8 @@ struct PurchaseOrderLineItemReceivePayload: Hashable, Codable, Sendable {
               let lineItemID = normalized(values["lineItemId"]),
               let quantityRaw = normalized(values["quantityReceived"]),
               let quantityReceived = Decimal(string: quantityRaw),
+              let priorReceivedRaw = normalized(values["priorReceivedQuantity"]),
+              let priorReceivedQuantity = Decimal(string: priorReceivedRaw),
               quantityReceived > .zero else {
             return nil
         }
@@ -68,6 +93,7 @@ struct PurchaseOrderLineItemReceivePayload: Hashable, Codable, Sendable {
             purchaseOrderID: purchaseOrderID,
             lineItemID: lineItemID,
             quantityReceived: quantityReceived,
+            priorReceivedQuantity: priorReceivedQuantity,
             barcode: normalized(values["barcode"]) ?? "",
             sku: normalized(values["sku"]),
             partNumber: normalized(values["partNumber"]),
@@ -76,13 +102,22 @@ struct PurchaseOrderLineItemReceivePayload: Hashable, Codable, Sendable {
     }
 
     private func decimalString(_ value: Decimal) -> String {
+        Self.decimalString(value)
+    }
+
+    private static func decimalString(_ value: Decimal) -> String {
         NSDecimalNumber(decimal: value).stringValue
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    private static func trimmed(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = trimmed(value) else { return nil }
+        return trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
     private static func percentEncode(_ value: String) -> String {
@@ -129,6 +164,29 @@ final class ReceiveItemViewModel: ObservableObject {
     private let syncOperationQueue: SyncOperationQueueStore
     private let syncEngine: SyncEngine
     private let dateProvider: any DateProviding
+
+    var matchedLineItem: PurchaseOrderLineItem? {
+        guard case .matched(let lineItem) = matchState else { return nil }
+        return lineItem
+    }
+
+    var canReceiveMatchedLine: Bool {
+        guard let lineItem = matchedLineItem else { return false }
+        if lineItem.isFullyReceived {
+            return false
+        }
+        return receiveState != .receiving
+    }
+
+    var statusIndicatorText: String {
+        switch receiveState {
+        case .idle: return "Status: Idle"
+        case .receiving: return "Status: Receiving"
+        case .succeeded: return "Status: Received"
+        case .queued: return "Status: Queued"
+        case .failed: return "Status: Failed"
+        }
+    }
 
     init(
         purchaseOrderID: String,
@@ -204,6 +262,13 @@ final class ReceiveItemViewModel: ObservableObject {
         matchState = .noMatch
     }
 
+    func suggestedQuantityTextForMatchedLine() -> String {
+        guard let lineItem = matchedLineItem else { return "1" }
+        guard lineItem.remainingQty > .zero else { return "0" }
+        let suggested = min(Decimal(1), lineItem.remainingQty)
+        return NSDecimalNumber(decimal: suggested).stringValue
+    }
+
     func receiveMatchedLine(quantity: Decimal) async {
         guard case .matched(let lineItem) = matchState else {
             receiveState = .failed(diagnosticCode: nil)
@@ -211,10 +276,22 @@ final class ReceiveItemViewModel: ObservableObject {
             return
         }
 
+        guard !lineItem.isFullyReceived else {
+            receiveState = .failed(diagnosticCode: nil)
+            receiveMessage = "Line fully received."
+            return
+        }
+
         let normalizedQuantity = max(quantity, Decimal.zero)
         guard normalizedQuantity > .zero else {
             receiveState = .failed(diagnosticCode: nil)
             receiveMessage = "Enter a quantity greater than 0."
+            return
+        }
+
+        guard normalizedQuantity <= lineItem.remainingQty else {
+            receiveState = .failed(diagnosticCode: nil)
+            receiveMessage = "Quantity exceeds remaining amount (\(NSDecimalNumber(decimal: lineItem.remainingQty).stringValue))."
             return
         }
 
@@ -230,6 +307,7 @@ final class ReceiveItemViewModel: ObservableObject {
             purchaseOrderID: purchaseOrderID,
             lineItemID: lineItemID,
             quantityReceived: normalizedQuantity,
+            priorReceivedQuantity: lineItem.receivedQty,
             barcode: Self.trimmed(scannedCode) ?? "",
             sku: metadata.sku ?? Self.trimmed(lineItem.sku),
             partNumber: metadata.partNumber ?? Self.trimmed(lineItem.partNumber),
@@ -256,6 +334,7 @@ final class ReceiveItemViewModel: ObservableObject {
             receiveState = .succeeded
             receiveMessage = "Received successfully."
             purchaseOrderDetail = await purchaseOrderStore.loadPurchaseOrderDetail(id: purchaseOrderID)
+            clearScanAndMatchState()
             return
         }
 
@@ -263,6 +342,7 @@ final class ReceiveItemViewModel: ObservableObject {
         case .pending, .inProgress:
             receiveState = .queued(diagnosticCode: persisted.lastErrorCode)
             receiveMessage = "Receive queued for retry."
+            clearScanAndMatchState()
         case .failed:
             receiveState = .failed(diagnosticCode: persisted.lastErrorCode)
             if let code = persisted.lastErrorCode {
@@ -275,6 +355,7 @@ final class ReceiveItemViewModel: ObservableObject {
             receiveMessage = "Received successfully."
             await syncOperationQueue.remove(id: operation.id)
             purchaseOrderDetail = await purchaseOrderStore.loadPurchaseOrderDetail(id: purchaseOrderID)
+            clearScanAndMatchState()
         }
     }
 
@@ -343,5 +424,10 @@ final class ReceiveItemViewModel: ObservableObject {
     private static func normalized(_ value: String?) -> String? {
         guard let trimmed = trimmed(value) else { return nil }
         return trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private func clearScanAndMatchState() {
+        scannedCode = nil
+        matchState = .idle
     }
 }

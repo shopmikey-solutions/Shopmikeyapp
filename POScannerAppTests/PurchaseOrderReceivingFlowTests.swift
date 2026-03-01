@@ -216,6 +216,8 @@ struct PurchaseOrderReceivingFlowTests {
 
         #expect(await harness.queueStore.allOperations().isEmpty)
         #expect(viewModel.receiveState == .succeeded)
+        #expect(viewModel.matchState == .idle)
+        #expect(viewModel.scannedCode == nil)
     }
 
     @Test func transientFailureQueuesAndLaterSyncRunIncrementsInventoryOnSuccess() async {
@@ -272,6 +274,8 @@ struct PurchaseOrderReceivingFlowTests {
 
         #expect(await recorder.count() == 1)
         #expect(viewModel.receiveState == .queued(diagnosticCode: DiagnosticCode.netRate429.rawValue))
+        #expect(viewModel.matchState == .idle)
+        #expect(viewModel.scannedCode == nil)
 
         let queuedOperationID = try? #require(viewModel.lastOperationID)
         if let queuedOperationID {
@@ -295,6 +299,89 @@ struct PurchaseOrderReceivingFlowTests {
 
         let inventoryAfterRetrySuccess = await harness.inventoryStore.allItems()
         #expect(abs(inventoryAfterRetrySuccess[0].quantityOnHand - 12) < 0.001)
+    }
+
+    @Test func replayedReceivePayloadDoesNotDoubleIncrementInventory() async {
+        let harness = StoreHarness()
+        defer { harness.cleanup() }
+
+        let now = Date(timeIntervalSince1970: 1_773_120_000)
+        let dateProvider = MutableDateProvider(now)
+
+        await harness.purchaseOrderStore.savePurchaseOrderDetail(seedPurchaseOrderDetail(quantityReceived: 1))
+        await harness.inventoryStore.replaceAll([
+            InventoryItem(
+                id: "inv_1",
+                sku: "SKU-100",
+                partNumber: "BP-100",
+                description: "Brake Pad",
+                price: 10,
+                quantityOnHand: 10
+            )
+        ], at: now)
+
+        let recorder = ReceiveRecorder()
+        let resultQueue = ReceiveResultQueue(results: [
+            .success(seedPurchaseOrderDetail(quantityReceived: 2)),
+            .success(seedPurchaseOrderDetail(quantityReceived: 2))
+        ])
+        let shopmonkey = ShopmonkeyReceiveStub(
+            recorder: recorder,
+            receiveQueue: resultQueue,
+            fallbackDetail: seedPurchaseOrderDetail(quantityReceived: 2)
+        )
+
+        let syncEngine = AppEnvironment.makeSyncEngine(
+            syncOperationQueue: harness.queueStore,
+            dateProvider: dateProvider,
+            shopmonkeyAPI: shopmonkey,
+            ticketStore: harness.ticketStore,
+            inventoryStore: harness.inventoryStore,
+            purchaseOrderStore: harness.purchaseOrderStore
+        )
+        let viewModel = ReceiveItemViewModel(
+            purchaseOrderID: "po_1",
+            shopmonkeyAPI: shopmonkey,
+            purchaseOrderStore: harness.purchaseOrderStore,
+            inventoryStore: harness.inventoryStore,
+            syncOperationQueue: harness.queueStore,
+            syncEngine: syncEngine,
+            dateProvider: dateProvider
+        )
+
+        await viewModel.loadInitialDetail()
+        await viewModel.lookup(scannedCode: "BP-100")
+        await viewModel.receiveMatchedLine(quantity: 1)
+
+        let inventoryAfterFirstReceive = await harness.inventoryStore.allItems()
+        #expect(abs(inventoryAfterFirstReceive[0].quantityOnHand - 11) < 0.001)
+        #expect(await recorder.count() == 1)
+
+        let replayPayload = PurchaseOrderLineItemReceivePayload(
+            purchaseOrderID: "po_1",
+            lineItemID: "line_1",
+            quantityReceived: 1,
+            priorReceivedQuantity: 1,
+            barcode: "BP-100",
+            sku: "SKU-100",
+            partNumber: "BP-100",
+            description: "Brake Pad"
+        )
+        _ = await harness.queueStore.enqueue(
+            SyncOperation(
+                id: UUID(),
+                type: .receivePurchaseOrderLineItem,
+                payloadFingerprint: replayPayload.payloadFingerprint,
+                status: .pending,
+                retryCount: 0,
+                createdAt: dateProvider.now
+            )
+        )
+        await syncEngine.runOnce()
+
+        #expect(await recorder.count() == 2)
+        let inventoryAfterReplay = await harness.inventoryStore.allItems()
+        #expect(abs(inventoryAfterReplay[0].quantityOnHand - 11) < 0.001)
     }
 
     @Test func noMatchDoesNotCallAPIOrQueueOperation() async {
@@ -337,5 +424,83 @@ struct PurchaseOrderReceivingFlowTests {
 
         let inventoryItems = await harness.inventoryStore.allItems()
         #expect(abs(inventoryItems[0].quantityOnHand - 10) < 0.001)
+    }
+
+    @Test func overReceiveIsBlockedBeforeAPIAndQueue() async {
+        let harness = StoreHarness()
+        defer { harness.cleanup() }
+
+        let now = Date(timeIntervalSince1970: 1_773_300_000)
+        let dateProvider = MutableDateProvider(now)
+
+        await harness.purchaseOrderStore.savePurchaseOrderDetail(seedPurchaseOrderDetail(quantityReceived: 3))
+        await harness.inventoryStore.replaceAll([
+            InventoryItem(
+                id: "inv_1",
+                sku: "SKU-100",
+                partNumber: "BP-100",
+                description: "Brake Pad",
+                price: 10,
+                quantityOnHand: 10
+            )
+        ], at: now)
+
+        let recorder = ReceiveRecorder()
+        let resultQueue = ReceiveResultQueue(results: [.success(seedPurchaseOrderDetail(quantityReceived: 4))])
+        let shopmonkey = ShopmonkeyReceiveStub(
+            recorder: recorder,
+            receiveQueue: resultQueue,
+            fallbackDetail: seedPurchaseOrderDetail(quantityReceived: 4)
+        )
+
+        let viewModel = makeViewModel(harness: harness, dateProvider: dateProvider, shopmonkey: shopmonkey)
+        await viewModel.loadInitialDetail()
+        await viewModel.lookup(scannedCode: "BP-100")
+        await viewModel.receiveMatchedLine(quantity: 2)
+
+        #expect(await recorder.count() == 0)
+        #expect(await harness.queueStore.allOperations().isEmpty)
+        #expect(viewModel.receiveState == .failed(diagnosticCode: nil))
+        #expect(viewModel.receiveMessage == "Quantity exceeds remaining amount (1).")
+    }
+
+    @Test func fullyReceivedLineCannotBeReceived() async {
+        let harness = StoreHarness()
+        defer { harness.cleanup() }
+
+        let now = Date(timeIntervalSince1970: 1_773_400_000)
+        let dateProvider = MutableDateProvider(now)
+
+        await harness.purchaseOrderStore.savePurchaseOrderDetail(seedPurchaseOrderDetail(quantityReceived: 4))
+        await harness.inventoryStore.replaceAll([
+            InventoryItem(
+                id: "inv_1",
+                sku: "SKU-100",
+                partNumber: "BP-100",
+                description: "Brake Pad",
+                price: 10,
+                quantityOnHand: 10
+            )
+        ], at: now)
+
+        let recorder = ReceiveRecorder()
+        let resultQueue = ReceiveResultQueue(results: [.success(seedPurchaseOrderDetail(quantityReceived: 5))])
+        let shopmonkey = ShopmonkeyReceiveStub(
+            recorder: recorder,
+            receiveQueue: resultQueue,
+            fallbackDetail: seedPurchaseOrderDetail(quantityReceived: 5)
+        )
+
+        let viewModel = makeViewModel(harness: harness, dateProvider: dateProvider, shopmonkey: shopmonkey)
+        await viewModel.loadInitialDetail()
+        await viewModel.lookup(scannedCode: "BP-100")
+
+        #expect(viewModel.canReceiveMatchedLine == false)
+        await viewModel.receiveMatchedLine(quantity: 1)
+
+        #expect(await recorder.count() == 0)
+        #expect(await harness.queueStore.allOperations().isEmpty)
+        #expect(viewModel.receiveState == .failed(diagnosticCode: nil))
+        #expect(viewModel.receiveMessage == "Line fully received.")
     }
 }

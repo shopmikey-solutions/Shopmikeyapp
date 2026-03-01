@@ -293,6 +293,56 @@ struct ShopmonkeyAPISandboxTests {
         #expect(vendors.first?.notes == "Preferred vendor")
     }
 
+    @Test func fetchInventoryDecodesWrappedInventoryList() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PurchaseOrderURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        PurchaseOrderURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            #expect(url.path == "/v3/part")
+            #expect(request.httpMethod == "GET")
+
+            let body = Data(
+                #"""
+                {
+                  "data": [
+                    {
+                      "id": "part_1",
+                      "sku": "PAD-001",
+                      "part_number": "PAD-001",
+                      "description": "Front Brake Pad Set",
+                      "price": 99.95,
+                      "quantity_on_hand": 12,
+                      "vendor_id": "vendor_1",
+                      "updated_at": "2026-02-28T21:00:00Z"
+                    }
+                  ]
+                }
+                """#.utf8
+            )
+            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, body)
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyAPI.baseURL,
+            urlSession: session,
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
+        )
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
+
+        let items = try await api.fetchInventory()
+        #expect(items.count == 1)
+        #expect(items.first?.id == "part_1")
+        #expect(items.first?.partNumber == "PAD-001")
+        #expect(items.first?.description == "Front Brake Pad Set")
+        #expect(items.first?.quantityOnHand == 12)
+    }
+
     @Test func getPurchaseOrdersDecodesWrappedListWithNullableVendorId() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PurchaseOrderURLProtocol.self]

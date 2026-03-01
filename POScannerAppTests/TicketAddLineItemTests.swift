@@ -61,6 +61,10 @@ struct TicketAddLineItemTests {
         func last() -> Request? {
             requests.last
         }
+
+        func count() -> Int {
+            requests.count
+        }
     }
 
     private struct ShopmonkeyStub: ShopmonkeyServicing {
@@ -251,5 +255,40 @@ struct TicketAddLineItemTests {
         #expect(failed?.retryCount == 0)
         #expect(failed?.lastErrorCode == DiagnosticCode.authUnauthorized401.rawValue)
         #expect(viewModel.ticketMutationState == .failed(diagnosticCode: DiagnosticCode.authUnauthorized401.rawValue))
+    }
+
+    @Test func incrementModeIsRejectedWhenRemoteQuantityUpdateIsUnavailable() async {
+        let harness = StoreHarness()
+        defer { harness.cleanup() }
+
+        let recorder = RequestRecorder()
+        let shopmonkey = ShopmonkeyStub(
+            recorder: recorder,
+            addBehavior: {
+                TicketLineItem(
+                    id: "line_1",
+                    kind: "part",
+                    sku: "PAD-001",
+                    partNumber: "PAD-001",
+                    description: "Front Brake Pad Set",
+                    quantity: 1,
+                    unitPrice: 99.95,
+                    extendedPrice: 99.95,
+                    vendorId: "vendor_1"
+                )
+            }
+        )
+
+        let now = Date(timeIntervalSince1970: 1_772_500_300)
+        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
+        await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .incrementQuantity)
+
+        #expect(viewModel.ticketMutationState == .failed(diagnosticCode: nil))
+        #expect(viewModel.ticketMutationMessage?.contains("Increment quantity is unavailable") == true)
+        #expect(viewModel.lastTicketMutationOperationID == nil)
+        #expect(await recorder.count() == 0)
+        #expect(await harness.queueStore.allOperations().isEmpty)
+        let ticket = await harness.ticketStore.loadTicket(id: "ticket_1")
+        #expect(ticket?.lineItems.isEmpty == true)
     }
 }

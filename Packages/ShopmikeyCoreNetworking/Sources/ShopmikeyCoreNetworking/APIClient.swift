@@ -35,10 +35,10 @@ public protocol FallbackAnalyticsRecording: Sendable {
     func record(branch: String, context: String) async
 }
 
-struct NoopFallbackAnalyticsRecorder: FallbackAnalyticsRecording {
-    init() {}
+public struct NoopFallbackAnalyticsRecorder: FallbackAnalyticsRecording {
+    public init() {}
 
-    func record(branch: String, context: String) async {
+    public func record(branch: String, context: String) async {
         _ = branch
         _ = context
     }
@@ -468,7 +468,7 @@ public final class APIClient: @unchecked Sendable {
         }
     }
 
-    public static func defaultSleeper(_ seconds: TimeInterval) async throws {
+    public static let defaultSleeper: Sleeper = { seconds in
         let clamped = max(0, seconds)
         let nanosDouble = clamped * 1_000_000_000
         let nanos = UInt64(min(nanosDouble, Double(UInt64.max)))

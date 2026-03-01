@@ -189,8 +189,9 @@ SIM_DESTINATION_RESOLVED="$(resolve_sim_destination)"
 run_command_step \
   "core-networking-package-build" \
   "Release gate: CoreNetworking package build" \
-  swift build \
-  --package-path "$ROOT_DIR/Packages/ShopmikeyCoreNetworking"
+  xcodebuild \
+  -resolvePackageDependencies \
+  -project "$PROJECT_PATH"
 
 run_gate_step \
   "build" \

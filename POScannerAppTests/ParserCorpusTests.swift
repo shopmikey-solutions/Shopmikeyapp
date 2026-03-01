@@ -1,6 +1,7 @@
 import Foundation
 import ShopmikeyCoreModels
 import Testing
+import ShopmikeyCoreParsing
 @testable import POScannerApp
 
 struct ParserCorpusTests {

@@ -5,9 +5,9 @@
 
 import Foundation
 
-enum ParserNoiseTaxonomy {
+public enum ParserNoiseTaxonomy {
     // Ecommerce status rows that should never become product line items.
-    static let ecommerceStatusPrefixKeywords: [String] = [
+    public static let ecommerceStatusPrefixKeywords: [String] = [
         "fits ",
         "warning:",
         "reg.",
@@ -16,7 +16,7 @@ enum ParserNoiseTaxonomy {
         "purchase of"
     ]
 
-    static let ecommerceStatusContainsKeywords: [String] = [
+    public static let ecommerceStatusContainsKeywords: [String] = [
         "free pick up",
         "pick up today",
         "deliver by",
@@ -31,7 +31,7 @@ enum ParserNoiseTaxonomy {
     ]
 
     // Checkout/cart-summary rail content that should never be treated as item detail.
-    static let ecommerceCheckoutRailContainsKeywords: [String] = [
+    public static let ecommerceCheckoutRailContainsKeywords: [String] = [
         "cart summary",
         "item subtotal",
         "total discounts",
@@ -52,26 +52,26 @@ enum ParserNoiseTaxonomy {
     ]
 
     // Legal/compliance footer lines that should be filtered from item parsing.
-    static let legalComplianceContainsKeywords: [String] = [
+    public static let legalComplianceContainsKeywords: [String] = [
         "p65warnings",
         "reproductive harm",
         "chemicals known to the state of california",
         "all the parts your car will ever need"
     ]
 
-    static let legalComplianceInfoPairKeywords: (trigger: String, secondary: [String]) = (
+    public static let legalComplianceInfoPairKeywords: (trigger: String, secondary: [String]) = (
         "for more information",
         ["go to", "visit"]
     )
 
-    static let legalComplianceOrderStatusPairKeywords: [String] = [
+    public static let legalComplianceOrderStatusPairKeywords: [String] = [
         "http://",
         "https://"
     ]
 
-    static let legalComplianceOrderStatusSecondaryKeyword = "orderstatus"
+    public static let legalComplianceOrderStatusSecondaryKeyword = "orderstatus"
 
-    static let parserSummaryUpperKeywords: [String] = [
+    public static let parserSummaryUpperKeywords: [String] = [
         "SUBTOTAL",
         "TOTAL",
         "TAX",
@@ -79,7 +79,7 @@ enum ParserNoiseTaxonomy {
     ]
 
     // Keep this aligned with InvoiceLineClassifier.isLaborServiceLine fee exceptions.
-    static let laborFeeSignalKeywords: [String] = [
+    public static let laborFeeSignalKeywords: [String] = [
         "fee",
         "shop-fee",
         "shop fee",
@@ -100,7 +100,7 @@ enum ParserNoiseTaxonomy {
         "balance"
     ]
 
-    static let handoffLowSignalKeywords: Set<String> = [
+    public static let handoffLowSignalKeywords: Set<String> = [
         "remittance",
         "wire transfer",
         "terms and conditions",

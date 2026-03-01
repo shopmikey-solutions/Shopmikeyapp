@@ -140,6 +140,7 @@ public final class APIClient: @unchecked Sendable {
         body: Data? = nil
     ) async throws -> Response {
         let requestStart = Date()
+        let requestID = UUID()
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -162,7 +163,9 @@ public final class APIClient: @unchecked Sendable {
             method: method,
             didRetryOn429: false,
             didRetryTransientGET: false,
-            startedAt: requestStart
+            startedAt: requestStart,
+            requestID: requestID,
+            attempt: 1
         )
         let requestDurationMillis = elapsedMillis(since: requestStart)
         do {
@@ -180,6 +183,14 @@ public final class APIClient: @unchecked Sendable {
             )
             return decoded
         } catch {
+            NetworkingLogger.logRequestError(
+                requestID: requestID,
+                method: method.rawValue,
+                url: request.url,
+                error: APIError.decodingFailed,
+                durationMillis: requestDurationMillis,
+                attempt: 1
+            )
             await diagnosticsRecorder.record(
                 NetworkDiagnosticsEntry(
                     method: method.rawValue,
@@ -221,12 +232,32 @@ public final class APIClient: @unchecked Sendable {
         method: HTTPMethod,
         didRetryOn429: Bool,
         didRetryTransientGET: Bool,
-        startedAt: Date
+        startedAt: Date,
+        requestID: UUID,
+        attempt: Int
     ) async throws -> (Data, HTTPURLResponse) {
+        let redactedHeaders = NetworkingLogger.redactedHeaders(for: request)
+        NetworkingLogger.logRequestStart(
+            requestID: requestID,
+            method: method.rawValue,
+            url: request.url,
+            timeout: request.timeoutInterval,
+            attempt: attempt,
+            headers: redactedHeaders
+        )
+
         let dataAndResponse: (Data, URLResponse)
         do {
             dataAndResponse = try await urlSession.data(for: request)
         } catch {
+            NetworkingLogger.logRequestError(
+                requestID: requestID,
+                method: method.rawValue,
+                url: request.url,
+                error: error,
+                durationMillis: elapsedMillis(since: startedAt),
+                attempt: attempt
+            )
             if method == .get,
                !didRetryTransientGET,
                shouldRetryTransientNetworkError(error) {
@@ -249,7 +280,9 @@ public final class APIClient: @unchecked Sendable {
                     method: method,
                     didRetryOn429: didRetryOn429,
                     didRetryTransientGET: true,
-                    startedAt: startedAt
+                    startedAt: startedAt,
+                    requestID: requestID,
+                    attempt: attempt + 1
                 )
             }
 
@@ -267,8 +300,25 @@ public final class APIClient: @unchecked Sendable {
 
         let (data, response) = dataAndResponse
         guard let http = response as? HTTPURLResponse else {
+            NetworkingLogger.logRequestError(
+                requestID: requestID,
+                method: method.rawValue,
+                url: request.url,
+                error: URLError(.badServerResponse),
+                durationMillis: elapsedMillis(since: startedAt),
+                attempt: attempt
+            )
             throw APIError.network(URLError(.badServerResponse))
         }
+
+        NetworkingLogger.logRequestEnd(
+            requestID: requestID,
+            method: method.rawValue,
+            url: request.url,
+            statusCode: http.statusCode,
+            durationMillis: elapsedMillis(since: startedAt),
+            attempt: attempt
+        )
 
         if http.statusCode == 429 {
             if !didRetryOn429,
@@ -288,7 +338,9 @@ public final class APIClient: @unchecked Sendable {
                     method: method,
                     didRetryOn429: true,
                     didRetryTransientGET: didRetryTransientGET,
-                    startedAt: startedAt
+                    startedAt: startedAt,
+                    requestID: requestID,
+                    attempt: attempt + 1
                 )
             }
             await diagnosticsRecorder.record(
@@ -325,7 +377,9 @@ public final class APIClient: @unchecked Sendable {
                 method: method,
                 didRetryOn429: didRetryOn429,
                 didRetryTransientGET: true,
-                startedAt: startedAt
+                startedAt: startedAt,
+                requestID: requestID,
+                attempt: attempt + 1
             )
         }
 

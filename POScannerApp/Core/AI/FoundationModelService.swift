@@ -5,6 +5,7 @@
 
 import Foundation
 import ShopmikeyCoreModels
+import ShopmikeyCoreParsing
 
 #if canImport(FoundationModels)
 import FoundationModels

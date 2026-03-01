@@ -6,18 +6,23 @@
 import Foundation
 import ShopmikeyCoreModels
 
-enum VendorMatchConfidence: String {
+public enum VendorMatchConfidence: String {
     case high
     case medium
     case low
     case mismatch
 }
 
-struct RankedVendorMatch {
-    let vendor: VendorSummary
-    let score: Double
+public struct RankedVendorMatch {
+    public let vendor: VendorSummary
+    public let score: Double
 
-    var confidence: VendorMatchConfidence {
+    public init(vendor: VendorSummary, score: Double) {
+        self.vendor = vendor
+        self.score = score
+    }
+
+    public var confidence: VendorMatchConfidence {
         if score >= VendorMatcher.autoSelectScore {
             return .high
         }
@@ -28,12 +33,12 @@ struct RankedVendorMatch {
     }
 }
 
-enum VendorMatcher {
-    static let minimumSuggestionScore: Double = 0.55
-    static let mediumSuggestionScore: Double = 0.74
-    static let autoSelectScore: Double = 0.80
+public enum VendorMatcher {
+    public static let minimumSuggestionScore: Double = 0.55
+    public static let mediumSuggestionScore: Double = 0.74
+    public static let autoSelectScore: Double = 0.80
 
-    static func rankVendors(
+    public static func rankVendors(
         _ vendors: [VendorSummary],
         query: String,
         minimumScore: Double = minimumSuggestionScore
@@ -63,7 +68,7 @@ enum VendorMatcher {
         }
     }
 
-    static func score(query: String, candidate: String) -> Double {
+    public static func score(query: String, candidate: String) -> Double {
         let normalizedQuery = query.normalizedVendorName
         let normalizedCandidate = candidate.normalizedVendorName
         guard !normalizedQuery.isEmpty, !normalizedCandidate.isEmpty else { return 0 }
@@ -106,7 +111,7 @@ enum VendorMatcher {
         return min(1.0, score)
     }
 
-    static func canonicalVendorName(_ raw: String) -> String {
+    public static func canonicalVendorName(_ raw: String) -> String {
         let normalized = raw.normalizedVendorName
         guard !normalized.isEmpty else { return "" }
 
@@ -118,7 +123,7 @@ enum VendorMatcher {
         return tokens.joined(separator: " ")
     }
 
-    static func confidence(
+    public static func confidence(
         for topMatch: RankedVendorMatch?,
         selectedVendorID: String?,
         inferredVendorName: String?,
@@ -138,7 +143,7 @@ enum VendorMatcher {
         return topMatch.confidence
     }
 
-    static func shouldShowMismatchWarning(
+    public static func shouldShowMismatchWarning(
         confidence: VendorMatchConfidence,
         inferredVendorName: String?,
         selectedVendorName: String?
@@ -150,7 +155,7 @@ enum VendorMatcher {
         )
     }
 
-    static func isMaterialMismatch(
+    public static func isMaterialMismatch(
         inferredVendorName: String?,
         selectedVendorName: String?
     ) -> Bool {

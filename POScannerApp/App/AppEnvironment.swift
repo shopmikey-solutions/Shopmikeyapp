@@ -6,6 +6,7 @@
 import Foundation
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
+import ShopmikeyCoreParsing
 import ShopmikeyCoreSync
 import SwiftUI
 

@@ -9,14 +9,14 @@ import Foundation
 ///
 /// When `ignoreTax` is enabled, this removes non-product summary lines such as tax/subtotal/total rows.
 /// It is intentionally conservative: SKU/product rows are preserved even if they contain words like "total".
-func filterNonProductLines(_ lines: [String], ignoreTax: Bool) -> [String] {
+public func filterNonProductLines(_ lines: [String], ignoreTax: Bool) -> [String] {
     guard ignoreTax else { return lines }
     return lines.filter { !InvoiceLineClassifier.isNonProductSummaryLine($0) }
 }
 
-enum InvoiceLineClassifier {
+public enum InvoiceLineClassifier {
     /// Returns true for OCR artifacts that represent table header metadata rather than item rows.
-    static func isHeaderArtifactLine(_ line: String) -> Bool {
+    public static func isHeaderArtifactLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
@@ -64,7 +64,7 @@ enum InvoiceLineClassifier {
     }
 
     /// Returns true when a line is semantically a tax/subtotal/total summary row (not a product row).
-    static func isNonProductSummaryLine(_ line: String) -> Bool {
+    public static func isNonProductSummaryLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
@@ -102,7 +102,7 @@ enum InvoiceLineClassifier {
 
     /// Returns true when a line appears to be a labor/service charge row that should not be posted
     /// as a parts/tire/fee inventory line item.
-    static func isLaborServiceLine(_ line: String) -> Bool {
+    public static func isLaborServiceLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 

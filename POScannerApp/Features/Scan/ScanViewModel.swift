@@ -5,6 +5,7 @@
 
 import Foundation
 import ShopmikeyCoreModels
+import ShopmikeyCoreParsing
 import Combine
 import CoreGraphics
 import CoreData

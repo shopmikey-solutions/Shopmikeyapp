@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreParsing
 
 struct ParseHandoffMetrics: Hashable {
     let rawLineCount: Int

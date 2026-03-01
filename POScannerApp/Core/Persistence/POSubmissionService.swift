@@ -6,6 +6,7 @@
 import CoreData
 import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
+import ShopmikeyCoreParsing
 import ShopmikeyCoreSync
 import CryptoKit
 import Foundation

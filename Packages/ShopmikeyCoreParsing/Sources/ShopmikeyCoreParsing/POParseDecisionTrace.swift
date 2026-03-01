@@ -5,15 +5,30 @@
 
 import Foundation
 
-struct POParseDecisionTrace: Hashable {
-    struct RejectedLine: Hashable {
-        let line: String
-        let reason: String
+public struct POParseDecisionTrace: Hashable, Sendable {
+    public struct RejectedLine: Hashable, Sendable {
+        public let line: String
+        public let reason: String
+
+        public init(line: String, reason: String) {
+            self.line = line
+            self.reason = reason
+        }
     }
 
-    let chosenProfile: POParser.DocumentProfile
-    let fallbackTriggered: Bool
-    let rejectedLines: [RejectedLine]
+    public let chosenProfile: POParser.DocumentProfile
+    public let fallbackTriggered: Bool
+    public let rejectedLines: [RejectedLine]
+
+    public init(
+        chosenProfile: POParser.DocumentProfile,
+        fallbackTriggered: Bool,
+        rejectedLines: [RejectedLine]
+    ) {
+        self.chosenProfile = chosenProfile
+        self.fallbackTriggered = fallbackTriggered
+        self.rejectedLines = rejectedLines
+    }
 }
 
 final class POParseDecisionTraceRecorder {

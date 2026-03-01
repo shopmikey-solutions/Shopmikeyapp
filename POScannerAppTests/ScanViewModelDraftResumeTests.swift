@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreParsing
 import ShopmikeyCoreModels
 import Testing
 @testable import POScannerApp

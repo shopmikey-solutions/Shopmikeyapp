@@ -9,13 +9,15 @@ import ShopmikeyCoreModels
 /// Regex-based parser with basic confidence scoring.
 ///
 /// - Important: Parsing is pure text -> model only. No Core Data, no networking, no shared state.
-final class POParser: @unchecked Sendable {
-    var decisionTraceEnabled = false
-    var arithmeticDiagnosticsEnabled = false
-    private(set) var latestDecisionTrace: POParseDecisionTrace?
-    private(set) var latestArithmeticDiagnosticsReport: ParserArithmeticDiagnosticsReport?
+public final class POParser: @unchecked Sendable {
+    public var decisionTraceEnabled = false
+    public var arithmeticDiagnosticsEnabled = false
+    public private(set) var latestDecisionTrace: POParseDecisionTrace?
+    public private(set) var latestArithmeticDiagnosticsReport: ParserArithmeticDiagnosticsReport?
 
-    func parse(from text: String, ignoreTaxAndTotals: Bool = false) -> ParsedInvoice {
+    public init() {}
+
+    public func parse(from text: String, ignoreTaxAndTotals: Bool = false) -> ParsedInvoice {
         let lines = nonEmptyLines(from: text)
         let headerLines = vendorHeaderCandidateLines(from: lines)
 
@@ -221,13 +223,13 @@ private extension String {
 }
 
 extension POParser {
-    enum DocumentProfile: String {
+    public enum DocumentProfile: String {
         case ecommerceCart
         case tabularInvoice
         case generic
     }
 
-    func governanceDocumentProfile(for text: String) -> DocumentProfile {
+    public func governanceDocumentProfile(for text: String) -> DocumentProfile {
         documentProfile(for: nonEmptyLines(from: text))
     }
 }
@@ -1106,7 +1108,7 @@ private extension POParser {
         if costResult.hadCurrencySymbol { score += 0.2 }
         if vendorMatch { score += 0.2 }
         let confidence = min(1.0, score)
-        let kindSuggestion = LineItemSuggestionService.classify(
+        let kindSuggestion = ParserLineItemClassifier.classify(
             description: name,
             partNumber: partResult.value,
             contextText: combined
@@ -1438,7 +1440,7 @@ private extension POParser {
             }
         }
 
-        if let suggested = LineItemSuggestionService.preferredPartNumber(
+        if let suggested = ParserLineItemClassifier.preferredPartNumber(
             from: text,
             explicitPartNumber: explicitPartNumber
         ) {
@@ -1788,15 +1790,15 @@ private extension POParser {
 }
 
 extension POParser {
-    static var governanceStatusPrefixKeywords: [String] {
+    public static var governanceStatusPrefixKeywords: [String] {
         ParserNoiseTaxonomy.ecommerceStatusPrefixKeywords
     }
 
-    static var governanceStatusContainsKeywords: [String] {
+    public static var governanceStatusContainsKeywords: [String] {
         ParserNoiseTaxonomy.ecommerceStatusContainsKeywords
     }
 
-    static var governanceLegalContainsKeywords: [String] {
+    public static var governanceLegalContainsKeywords: [String] {
         ParserNoiseTaxonomy.legalComplianceContainsKeywords
     }
 }

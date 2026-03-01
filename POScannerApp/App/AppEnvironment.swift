@@ -644,6 +644,7 @@ struct AppEnvironment {
     let parseHandoffService: LocalParseHandoffService
     let ticketStore: any TicketStoring
     let inventoryStore: any InventoryStoring
+    let purchaseOrderDraftStore: any PurchaseOrderDraftStoring
     let inventoryRepository: any InventoryRepositorying
     let inventorySyncCoordinator: any InventorySyncCoordinating
     let orderRepository: any OrderRepositorying
@@ -668,6 +669,7 @@ struct AppEnvironment {
         parseHandoffService: LocalParseHandoffService,
         ticketStore: any TicketStoring,
         inventoryStore: any InventoryStoring,
+        purchaseOrderDraftStore: any PurchaseOrderDraftStoring = PurchaseOrderDraftStore(),
         inventoryRepository: any InventoryRepositorying,
         inventorySyncCoordinator: any InventorySyncCoordinating,
         orderRepository: any OrderRepositorying,
@@ -695,6 +697,7 @@ struct AppEnvironment {
         self.parseHandoffService = parseHandoffService
         self.ticketStore = ticketStore
         self.inventoryStore = inventoryStore
+        self.purchaseOrderDraftStore = purchaseOrderDraftStore
         self.inventoryRepository = inventoryRepository
         self.inventorySyncCoordinator = inventorySyncCoordinator
         self.orderRepository = orderRepository
@@ -750,6 +753,7 @@ extension AppEnvironment {
         )
         let ticketStore = TicketStore(fileURL: ticketStateFileURL())
         let inventoryStore = InventoryStore(fileURL: inventoryItemsStateFileURL())
+        let purchaseOrderDraftStore = PurchaseOrderDraftStore(fileURL: purchaseOrderDraftStateFileURL())
         let syncEngine = makeSyncEngine(
             syncOperationQueue: syncOperationQueue,
             dateProvider: dateProvider,
@@ -780,6 +784,7 @@ extension AppEnvironment {
             parseHandoffService: LocalParseHandoffService(),
             ticketStore: ticketStore,
             inventoryStore: inventoryStore,
+            purchaseOrderDraftStore: purchaseOrderDraftStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,
@@ -820,6 +825,14 @@ extension AppEnvironment {
             .appendingPathComponent("tickets.json", isDirectory: false)
     }
 
+    private static func purchaseOrderDraftStateFileURL() -> URL {
+        let baseDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return baseDirectory
+            .appendingPathComponent("POScannerApp", isDirectory: true)
+            .appendingPathComponent("purchase_order_draft.json", isDirectory: false)
+    }
+
     static var preview: AppEnvironment {
         let dataController = DataController(inMemory: true)
         let keychainService = KeychainService(service: "POScannerApp.preview")
@@ -853,6 +866,10 @@ extension AppEnvironment {
         )
         let ticketStore = TicketStore()
         let inventoryStore = InventoryStore()
+        let purchaseOrderDraftStore = PurchaseOrderDraftStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("preview_purchase_order_draft.json", isDirectory: false)
+        )
         let syncEngine = makeSyncEngine(
             syncOperationQueue: syncOperationQueue,
             dateProvider: dateProvider,
@@ -883,6 +900,7 @@ extension AppEnvironment {
             parseHandoffService: LocalParseHandoffService(),
             ticketStore: ticketStore,
             inventoryStore: inventoryStore,
+            purchaseOrderDraftStore: purchaseOrderDraftStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,
@@ -926,6 +944,10 @@ extension AppEnvironment {
         )
         let ticketStore = TicketStore()
         let inventoryStore = InventoryStore()
+        let purchaseOrderDraftStore = PurchaseOrderDraftStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("test_purchase_order_draft.json", isDirectory: false)
+        )
         let syncEngine = makeSyncEngine(
             syncOperationQueue: syncOperationQueue,
             dateProvider: dateProvider,
@@ -956,6 +978,7 @@ extension AppEnvironment {
             parseHandoffService: LocalParseHandoffService(),
             ticketStore: ticketStore,
             inventoryStore: inventoryStore,
+            purchaseOrderDraftStore: purchaseOrderDraftStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,

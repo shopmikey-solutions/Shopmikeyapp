@@ -15,7 +15,11 @@ struct InventoryLookupView: View {
     @State private var isScannerPresented = false
     @State private var isTicketPickerPresented = false
     @State private var isDuplicateChoicePresented = false
+    @State private var isManualDraftEntryPresented = false
     @State private var pendingTicketIDForAdd: String?
+    @State private var manualDraftDescription = ""
+    @State private var manualDraftQuantity = "1"
+    @State private var manualDraftUnitCost = ""
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -64,6 +68,9 @@ struct InventoryLookupView: View {
         }
         .sheet(isPresented: $isTicketPickerPresented) {
             TicketPickerView(context: activeTicketContext)
+        }
+        .sheet(isPresented: $isManualDraftEntryPresented) {
+            manualDraftEntrySheet
         }
         .confirmationDialog(
             "Matching ticket line found",
@@ -135,6 +142,22 @@ struct InventoryLookupView: View {
 
                 Divider()
 
+                Button("Add to PO Draft") {
+                    Task { @MainActor in
+                        await addMatchedItemToDraft(item)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("inventory.lookup.addToPODraftButton")
+
+                NavigationLink {
+                    POBuilderView(environment: environment)
+                } label: {
+                    Text("Open PO Draft")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("inventory.lookup.openPODraftButton")
+
                 if let activeTicket = activeTicketContext.activeTicket {
                     labeledRow(
                         "Active Ticket",
@@ -170,6 +193,13 @@ struct InventoryLookupView: View {
                         .foregroundStyle(ticketMutationColor)
                         .accessibilityIdentifier("inventory.lookup.ticketMutationMessage")
                 }
+
+                if let draftMutationMessage = viewModel.draftMutationMessage {
+                    Text(draftMutationMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.green)
+                        .accessibilityIdentifier("inventory.lookup.draftMutationMessage")
+                }
             }
             .accessibilityIdentifier("inventory.lookup.matchFound")
 
@@ -179,6 +209,30 @@ struct InventoryLookupView: View {
                     .font(.title3.weight(.semibold))
                 Text("No match found in inventory.")
                     .foregroundStyle(.secondary)
+
+                Button("Add to PO Draft") {
+                    manualDraftDescription = viewModel.scannedCode ?? ""
+                    manualDraftQuantity = "1"
+                    manualDraftUnitCost = ""
+                    isManualDraftEntryPresented = true
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("inventory.lookup.addUnknownToPODraftButton")
+
+                NavigationLink {
+                    POBuilderView(environment: environment)
+                } label: {
+                    Text("Open PO Draft")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("inventory.lookup.openPODraftButtonNoMatch")
+
+                if let draftMutationMessage = viewModel.draftMutationMessage {
+                    Text(draftMutationMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.green)
+                        .accessibilityIdentifier("inventory.lookup.draftMutationMessageNoMatch")
+                }
             }
             .accessibilityIdentifier("inventory.lookup.noMatch")
 
@@ -236,6 +290,50 @@ struct InventoryLookupView: View {
         await activeTicketContext.refreshOpenTickets(forceRemote: false)
     }
 
+    @MainActor
+    private func addMatchedItemToDraft(_ item: InventoryItem) async {
+        let line = viewModel.matchedItemDraftLine() ?? PurchaseOrderDraftLine(
+            sku: normalizedOptionalString(item.sku),
+            partNumber: normalizedOptionalString(item.partNumber),
+            description: item.description,
+            quantity: 1,
+            unitCost: item.price > .zero ? item.price : nil,
+            sourceBarcode: viewModel.scannedCode
+        )
+        _ = await environment.purchaseOrderDraftStore.addLine(line)
+        viewModel.setDraftMutationMessage("Added to PO Draft.")
+    }
+
+    @MainActor
+    private func addManualItemToDraft() async {
+        guard let quantity = Decimal(string: manualDraftQuantity.trimmingCharacters(in: .whitespacesAndNewlines)),
+              quantity >= 1 else {
+            viewModel.setDraftMutationMessage("Enter a valid quantity before adding.")
+            return
+        }
+
+        let unitCost: Decimal?
+        let trimmedUnitCost = manualDraftUnitCost.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedUnitCost.isEmpty {
+            unitCost = nil
+        } else {
+            unitCost = Decimal(string: trimmedUnitCost)
+        }
+
+        guard let line = viewModel.manualDraftLine(
+            description: manualDraftDescription,
+            quantity: quantity,
+            unitCost: unitCost
+        ) else {
+            viewModel.setDraftMutationMessage("Description is required before adding.")
+            return
+        }
+
+        _ = await environment.purchaseOrderDraftStore.addLine(line)
+        viewModel.setDraftMutationMessage("Added unknown item to PO Draft.")
+        isManualDraftEntryPresented = false
+    }
+
     private var ticketMutationColor: Color {
         switch viewModel.ticketMutationState {
         case .succeeded:
@@ -249,6 +347,42 @@ struct InventoryLookupView: View {
         }
     }
 
+    private var manualDraftEntrySheet: some View {
+        NavigationStack {
+            Form {
+                TextField("Description", text: $manualDraftDescription)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("inventory.lookup.manualDraftDescriptionField")
+
+                TextField("Quantity", text: $manualDraftQuantity)
+                    .keyboardType(.decimalPad)
+                    .accessibilityIdentifier("inventory.lookup.manualDraftQuantityField")
+
+                TextField("Unit Cost (optional)", text: $manualDraftUnitCost)
+                    .keyboardType(.decimalPad)
+                    .accessibilityIdentifier("inventory.lookup.manualDraftUnitCostField")
+            }
+            .navigationTitle("Add to PO Draft")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isManualDraftEntryPresented = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        Task { @MainActor in
+                            await addManualItemToDraft()
+                        }
+                    }
+                    .accessibilityIdentifier("inventory.lookup.manualDraftAddButton")
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private func labeledRow(_ title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -258,5 +392,11 @@ struct InventoryLookupView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func normalizedOptionalString(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

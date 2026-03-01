@@ -50,9 +50,9 @@ struct PurchaseOrderReceivingDecodeTests {
             #expect(request.httpMethod == "POST")
             #expect(url.path == "/v3/purchase_order/po_42/line_item/li_2/receive")
 
-            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
-            #expect(bodyString.contains("\"line_item_id\":\"li_2\""))
-            #expect(bodyString.contains("\"quantity_received\":2"))
+            let payload = try requestPayloadDictionary(from: request)
+            #expect(payload.string(forKey: "line_item_id") == "li_2")
+            #expect(payload.decimalString(forKey: "quantity_received") == "2")
 
             let body = Data(
                 #"""
@@ -120,9 +120,10 @@ struct PurchaseOrderReceivingDecodeTests {
             }
 
             #expect(url.path == "/v3/purchase_order/po_7/receive")
-            let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
-            #expect(bodyString.contains("\"line_items\""))
-            #expect(bodyString.contains("\"line_item_id\":\"li_1\""))
+            let payload = try requestPayloadDictionary(from: request)
+            let lineItems = payload.array(forKey: "line_items")
+            #expect(lineItems.count == 1)
+            #expect(lineItems.first?.string(forKey: "line_item_id") == "li_1")
 
             let body = Data(
                 #"""
@@ -188,5 +189,49 @@ private final class RequestPathRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return paths
+    }
+}
+
+private func requestPayloadDictionary(from request: URLRequest) throws -> [String: Any] {
+    let bodyData = request.httpBody ?? readBodyStream(request.httpBodyStream) ?? Data()
+    let object = try JSONSerialization.jsonObject(with: bodyData, options: [])
+    guard let payload = object as? [String: Any] else {
+        throw URLError(.cannotParseResponse)
+    }
+    return payload
+}
+
+private func readBodyStream(_ stream: InputStream?) -> Data? {
+    guard let stream else { return nil }
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 1024)
+    while stream.hasBytesAvailable {
+        let readCount = stream.read(&buffer, maxLength: buffer.count)
+        guard readCount > 0 else { break }
+        data.append(buffer, count: readCount)
+    }
+    return data.isEmpty ? nil : data
+}
+
+private extension Dictionary where Key == String, Value == Any {
+    func string(forKey key: String) -> String? {
+        self[key] as? String
+    }
+
+    func array(forKey key: String) -> [[String: Any]] {
+        self[key] as? [[String: Any]] ?? []
+    }
+
+    func decimalString(forKey key: String) -> String? {
+        if let number = self[key] as? NSNumber {
+            return number.decimalValue.description
+        }
+        if let string = self[key] as? String {
+            return string
+        }
+        return nil
     }
 }

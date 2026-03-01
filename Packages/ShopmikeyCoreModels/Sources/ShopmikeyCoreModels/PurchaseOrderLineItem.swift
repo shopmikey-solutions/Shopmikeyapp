@@ -37,4 +37,20 @@ public struct PurchaseOrderLineItem: Identifiable, Hashable, Codable, Sendable {
         self.unitCost = unitCost
         self.extendedCost = extendedCost
     }
+
+    public var orderedQty: Decimal {
+        max(0, quantityOrdered)
+    }
+
+    public var receivedQty: Decimal {
+        max(0, quantityReceived ?? 0)
+    }
+
+    public var remainingQty: Decimal {
+        max(0, orderedQty - receivedQty)
+    }
+
+    public var isFullyReceived: Bool {
+        remainingQty <= .zero
+    }
 }

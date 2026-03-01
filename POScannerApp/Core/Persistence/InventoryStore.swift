@@ -25,13 +25,31 @@ actor InventoryStore: InventoryStoring {
         var lastUpdatedAt: Date?
     }
 
+    private struct PersistedAppliedReceiveKeys: Codable {
+        var keys: [String]
+    }
+
+    private static let receiveKeyPrefix = "__smk_receive_key__="
+    private static let appliedReceiveKeysFilename = "inventory_receive_applied.json"
+    private static let maxAppliedReceiveKeys = 2_000
+
     private let fileURL: URL?
+    private let appliedReceiveKeysFileURL: URL?
     private var hasLoadedState = false
     private var items: [InventoryItem] = []
     private var syncedAt: Date?
+    private var appliedReceiveKeys: [String] = []
+    private var appliedReceiveKeySet: Set<String> = []
 
     init(fileURL: URL? = nil) {
         self.fileURL = fileURL
+        if let fileURL {
+            self.appliedReceiveKeysFileURL = fileURL
+                .deletingLastPathComponent()
+                .appendingPathComponent(Self.appliedReceiveKeysFilename, isDirectory: false)
+        } else {
+            self.appliedReceiveKeysFileURL = nil
+        }
     }
 
     func allItems() async -> [InventoryItem] {
@@ -58,11 +76,20 @@ actor InventoryStore: InventoryStoring {
         let delta = max(0, NSDecimalNumber(decimal: quantity).doubleValue)
         guard delta > 0 else { return true }
 
+        let receiveExtraction = extractReceiveKey(from: description)
+        if let receiveKey = receiveExtraction.receiveKey,
+           appliedReceiveKeySet.contains(receiveKey) {
+            return true
+        }
+
         guard let index = matchingIndex(
             sku: normalizedComparable(sku),
             partNumber: normalizedComparable(partNumber),
-            description: normalizedComparable(description)
+            description: normalizedComparable(receiveExtraction.cleanDescription)
         ) else {
+            if let receiveKey = receiveExtraction.receiveKey {
+                recordAppliedReceiveKey(receiveKey)
+            }
             return false
         }
 
@@ -73,6 +100,9 @@ actor InventoryStore: InventoryStoring {
         items.sort(by: Self.sortInventoryItems)
         syncedAt = date
         persistStateIfNeeded()
+        if let receiveKey = receiveExtraction.receiveKey {
+            recordAppliedReceiveKey(receiveKey)
+        }
         return true
     }
 
@@ -84,6 +114,7 @@ actor InventoryStore: InventoryStoring {
     private func loadStateIfNeeded() {
         guard !hasLoadedState else { return }
         hasLoadedState = true
+        loadAppliedReceiveKeys()
 
         guard let fileURL,
               let data = try? Data(contentsOf: fileURL),
@@ -107,6 +138,75 @@ actor InventoryStore: InventoryStoring {
         } catch {
             // Keep persistence best-effort to avoid blocking app flows.
         }
+    }
+
+    private func loadAppliedReceiveKeys() {
+        guard let appliedReceiveKeysFileURL,
+              let data = try? Data(contentsOf: appliedReceiveKeysFileURL),
+              let decoded = try? JSONDecoder().decode(PersistedAppliedReceiveKeys.self, from: data) else {
+            return
+        }
+
+        appliedReceiveKeys = decoded.keys
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if appliedReceiveKeys.count > Self.maxAppliedReceiveKeys {
+            appliedReceiveKeys = Array(appliedReceiveKeys.suffix(Self.maxAppliedReceiveKeys))
+        }
+        appliedReceiveKeySet = Set(appliedReceiveKeys)
+    }
+
+    private func persistAppliedReceiveKeysIfNeeded() {
+        guard let appliedReceiveKeysFileURL else { return }
+
+        do {
+            let directoryURL = appliedReceiveKeysFileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
+            let state = PersistedAppliedReceiveKeys(keys: appliedReceiveKeys)
+            let data = try JSONEncoder().encode(state)
+            try data.write(to: appliedReceiveKeysFileURL, options: .atomic)
+        } catch {
+            // Keep persistence best-effort to avoid blocking app flows.
+        }
+    }
+
+    private func recordAppliedReceiveKey(_ key: String) {
+        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        guard !appliedReceiveKeySet.contains(normalized) else { return }
+
+        appliedReceiveKeySet.insert(normalized)
+        appliedReceiveKeys.append(normalized)
+        if appliedReceiveKeys.count > Self.maxAppliedReceiveKeys {
+            let overflow = appliedReceiveKeys.count - Self.maxAppliedReceiveKeys
+            let removed = appliedReceiveKeys.prefix(overflow)
+            appliedReceiveKeys.removeFirst(overflow)
+            for key in removed {
+                appliedReceiveKeySet.remove(key)
+            }
+            for key in appliedReceiveKeys {
+                appliedReceiveKeySet.insert(key)
+            }
+        }
+        persistAppliedReceiveKeysIfNeeded()
+    }
+
+    private func extractReceiveKey(from description: String?) -> (receiveKey: String?, cleanDescription: String?) {
+        guard let description else { return (nil, nil) }
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix(Self.receiveKeyPrefix) else {
+            return (nil, description)
+        }
+
+        let payload = String(trimmed.dropFirst(Self.receiveKeyPrefix.count))
+        let components = payload.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        let encodedReceiveKey = components.first.map(String.init)
+        let cleanDescription = components.count > 1 ? String(components[1]) : nil
+
+        return (
+            encodedReceiveKey?.removingPercentEncoding?.trimmingCharacters(in: .whitespacesAndNewlines),
+            cleanDescription
+        )
     }
 
     private static func sortInventoryItems(lhs: InventoryItem, rhs: InventoryItem) -> Bool {

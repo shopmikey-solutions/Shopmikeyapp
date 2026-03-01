@@ -52,6 +52,9 @@ struct ReceiveItemView: View {
                         detailRow(label: "Scanned", value: scannedCode)
                     }
 
+                    detailRow(label: "Status", value: viewModel.statusIndicatorText.replacingOccurrences(of: "Status: ", with: ""))
+                        .accessibilityIdentifier("purchaseOrder.receive.status")
+
                     matchContent
 
                     if let receiveMessage = viewModel.receiveMessage {
@@ -74,8 +77,11 @@ struct ReceiveItemView: View {
                                     .font(.headline)
                                 HStack {
                                     Text("Ordered: \(decimalString(lineItem.quantityOrdered))")
-                                    if let quantityReceived = lineItem.quantityReceived {
-                                        Text("Received: \(decimalString(quantityReceived))")
+                                    Text("Received: \(decimalString(lineItem.receivedQty))")
+                                    if lineItem.isFullyReceived {
+                                        Text("Received")
+                                            .font(.caption)
+                                            .foregroundStyle(.green)
                                     }
                                 }
                                 .font(.subheadline)
@@ -120,6 +126,10 @@ struct ReceiveItemView: View {
         .task {
             await viewModel.loadInitialDetail()
         }
+        .onChange(of: viewModel.matchState) { _, newState in
+            guard case .matched = newState else { return }
+            quantityInput = viewModel.suggestedQuantityTextForMatchedLine()
+        }
     }
 
     @ViewBuilder
@@ -141,12 +151,19 @@ struct ReceiveItemView: View {
                 Text(lineItem.description)
                 HStack {
                     Text("Ordered: \(decimalString(lineItem.quantityOrdered))")
-                    if let quantityReceived = lineItem.quantityReceived {
-                        Text("Received: \(decimalString(quantityReceived))")
-                    }
+                    Text("Received: \(decimalString(lineItem.receivedQty))")
+                    Text("Remaining: \(decimalString(lineItem.remainingQty))")
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+                if lineItem.isFullyReceived {
+                    Text("Line fully received")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("purchaseOrder.receive.lineComplete")
+                }
+
                 TextField("Quantity Received", text: $quantityInput)
                     .keyboardType(.decimalPad)
                     .textInputAutocapitalization(.never)
@@ -157,6 +174,7 @@ struct ReceiveItemView: View {
                     submitReceive()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(!viewModel.canReceiveMatchedLine)
                 .accessibilityIdentifier("purchaseOrder.receive.confirmButton")
             }
             .accessibilityIdentifier("purchaseOrder.receive.matched")

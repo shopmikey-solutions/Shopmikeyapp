@@ -123,7 +123,7 @@ struct PurchaseOrderFetchDecodeTests {
                     "vendor_name": "Alpha Supply",
                     "status": "Draft",
                     "parts": [
-                      { "name": "Brake Pad", "quantity": 2, "cost_cents": 1299, "part_number": "BP-100" }
+                      { "name": "Brake Pad", "quantity": 2, "quantity_received": 1, "cost_cents": 1299, "part_number": "BP-100" }
                     ],
                     "fees": [
                       { "name": "Shop Supplies", "quantity": 1, "cost_cents": 250 }
@@ -157,6 +157,7 @@ struct PurchaseOrderFetchDecodeTests {
         let partLine = try #require(purchaseOrder.lineItems.first(where: { $0.kind == "part" }))
         #expect(partLine.partNumber == "BP-100")
         #expect(NSDecimalNumber(decimal: partLine.quantityOrdered).doubleValue == 2.0)
+        #expect(NSDecimalNumber(decimal: partLine.quantityReceived ?? 0).doubleValue == 1.0)
         #expect(NSDecimalNumber(decimal: partLine.unitCost ?? 0).doubleValue == 12.99)
         #expect(NSDecimalNumber(decimal: partLine.extendedCost ?? 0).doubleValue == 25.98)
 

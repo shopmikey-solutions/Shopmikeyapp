@@ -16,6 +16,11 @@ public protocol ShopmonkeyServicing: Sendable {
     func getPurchaseOrders() async throws -> [PurchaseOrderResponse]
     func fetchOpenPurchaseOrders() async throws -> [PurchaseOrderSummary]
     func fetchPurchaseOrder(id: String) async throws -> PurchaseOrderDetail
+    func receivePurchaseOrderLineItem(
+        purchaseOrderId: String,
+        lineItemId: String,
+        quantityReceived: Decimal?
+    ) async throws -> PurchaseOrderDetail
     func fetchOrders() async throws -> [OrderSummary]
     func fetchServices(orderId: String) async throws -> [ServiceSummary]
     func fetchOpenTickets() async throws -> [TicketModel]
@@ -60,6 +65,17 @@ public extension ShopmonkeyServicing {
 
     func fetchPurchaseOrder(id: String) async throws -> PurchaseOrderDetail {
         _ = id
+        throw APIError.serverError(501)
+    }
+
+    func receivePurchaseOrderLineItem(
+        purchaseOrderId: String,
+        lineItemId: String,
+        quantityReceived: Decimal?
+    ) async throws -> PurchaseOrderDetail {
+        _ = purchaseOrderId
+        _ = lineItemId
+        _ = quantityReceived
         throw APIError.serverError(501)
     }
 
@@ -430,6 +446,64 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         }
     }
 
+    /// POST receive endpoint candidates for purchase order line items.
+    ///
+    /// Contract notes:
+    /// - We try line-level receive routes first and then PO-level receive routes.
+    /// - If a route returns 404/405 (unavailable) or 400/422 (shape mismatch), we fallback to the next candidate.
+    /// - If the receive response doesn't include a decodable PO payload, we fetch the PO detail as a canonical fallback.
+    public func receivePurchaseOrderLineItem(
+        purchaseOrderId: String,
+        lineItemId: String,
+        quantityReceived: Decimal?
+    ) async throws -> PurchaseOrderDetail {
+        let safePurchaseOrderID = purchaseOrderId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeLineItemID = lineItemId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safePurchaseOrderID.isEmpty, !safeLineItemID.isEmpty else {
+            throw APIError.invalidURL
+        }
+
+        let normalizedQuantity = quantityReceived.map { max(Decimal.zero, $0) }
+        let lineRequest = ReceivePurchaseOrderLineItemRequest(
+            lineItemId: safeLineItemID,
+            quantityReceived: normalizedQuantity
+        )
+        let batchRequest = ReceivePurchaseOrderRequest(lineItems: [lineRequest])
+
+        let lineRequestBody = try APIClient.encodeJSON(lineRequest)
+        let batchRequestBody = try APIClient.encodeJSON(batchRequest)
+
+        let attempts: [(path: String, body: Data)] = [
+            ("/purchase_order/\(safePurchaseOrderID)/line_item/\(safeLineItemID)/receive", lineRequestBody),
+            ("/purchase_order/\(safePurchaseOrderID)/part/\(safeLineItemID)/receive", lineRequestBody),
+            ("/purchase_order/\(safePurchaseOrderID)/receive", batchRequestBody),
+            ("/purchase_order/\(safePurchaseOrderID)/receiving", batchRequestBody)
+        ]
+
+        var lastRecoverableError: APIError?
+        for attempt in attempts {
+            do {
+                let url = try makeURL(path: attempt.path)
+                let payload: JSONValue = try await client.perform(.post, url: url, body: attempt.body)
+                if let detail = mapPurchaseOrderDetailFromReceivePayload(payload) {
+                    return detail
+                }
+                return try await fetchPurchaseOrder(id: safePurchaseOrderID)
+            } catch let apiError as APIError {
+                if isRouteUnavailable(apiError) || isValidationError(apiError) {
+                    lastRecoverableError = apiError
+                    continue
+                }
+                throw apiError
+            }
+        }
+
+        if let lastRecoverableError {
+            throw lastRecoverableError
+        }
+        throw APIError.serverError(501)
+    }
+
     /// GET /order
     public func fetchOrders() async throws -> [OrderSummary] {
         let url = try makeURL(path: "/order")
@@ -582,6 +656,8 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
             (.get, "/order", nil),
             (.get, "/purchase_order", nil),
             (.post, "/purchase_order/search", ["query": ""]),
+            (.post, "/purchase_order/invalid/line_item/invalid/receive", ["line_item_id": "invalid", "quantity_received": "1"]),
+            (.post, "/purchase_order/invalid/receive", ["line_items": "[]"]),
             (.post, "/order/invalid/service/invalid/part", ["name": "probe"]),
             (.post, "/order/invalid/service/invalid/fee", ["name": "probe"]),
             (.post, "/order/invalid/service/invalid/tire", ["name": "probe"])
@@ -1513,6 +1589,7 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         response.allLineItems.enumerated().map { index, lineItem in
             let safeQuantity = max(0, lineItem.quantity)
             let quantityOrdered = Decimal(safeQuantity)
+            let quantityReceived = lineItem.quantityReceived.map { Decimal(max(0, $0)) }
             let unitCost = Decimal(max(0, lineItem.costCents)) / 100
             let extendedCost = unitCost * quantityOrdered
             return PurchaseOrderLineItem(
@@ -1522,10 +1599,70 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
                 partNumber: normalizedOptionalString(lineItem.partNumber),
                 description: lineItem.name,
                 quantityOrdered: quantityOrdered,
-                quantityReceived: nil,
+                quantityReceived: quantityReceived,
                 unitCost: unitCost,
                 extendedCost: extendedCost
             )
+        }
+    }
+
+    private func mapPurchaseOrderDetailFromReceivePayload(_ payload: JSONValue) -> PurchaseOrderDetail? {
+        if let decoded = decodePurchaseOrderResponse(from: payload) {
+            return mapPurchaseOrderDetail(from: decoded)
+        }
+
+        if case .object(let object) = payload {
+            let envelopeKeys = ["data", "result", "purchase_order", "purchaseOrder", "response", "order"]
+            for key in envelopeKeys {
+                guard let nested = object.first(where: { $0.key.lowercased() == key.lowercased() })?.value else {
+                    continue
+                }
+                if let decoded = decodePurchaseOrderResponse(from: nested) {
+                    return mapPurchaseOrderDetail(from: decoded)
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func decodePurchaseOrderResponse(from value: JSONValue) -> PurchaseOrderResponse? {
+        guard let data = makeJSONData(from: value) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(PurchaseOrderResponse.self, from: data)
+    }
+
+    private func makeJSONData(from value: JSONValue) -> Data? {
+        guard let object = makeJSONObject(from: value),
+              JSONSerialization.isValidJSONObject(object) else {
+            return nil
+        }
+        return try? JSONSerialization.data(withJSONObject: object)
+    }
+
+    private func makeJSONObject(from value: JSONValue) -> Any? {
+        switch value {
+        case .object(let object):
+            var dictionary: [String: Any] = [:]
+            for (key, nested) in object {
+                dictionary[key] = makeJSONObject(from: nested) ?? NSNull()
+            }
+            return dictionary
+
+        case .array(let values):
+            return values.map { makeJSONObject(from: $0) ?? NSNull() }
+
+        case .string(let value):
+            return value
+        case .int(let value):
+            return value
+        case .double(let value):
+            return value
+        case .bool(let value):
+            return value
+        case .null:
+            return NSNull()
         }
     }
 
@@ -2289,13 +2426,22 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
     public struct LineItem: Hashable, Sendable {
         public let name: String
         public let quantity: Int
+        public let quantityReceived: Int?
         public let costCents: Int
         public let partNumber: String?
         public let kind: LineItemKind
 
-        public init(name: String, quantity: Int, costCents: Int, partNumber: String?, kind: LineItemKind) {
+        public init(
+            name: String,
+            quantity: Int,
+            quantityReceived: Int? = nil,
+            costCents: Int,
+            partNumber: String?,
+            kind: LineItemKind
+        ) {
             self.name = name
             self.quantity = quantity
+            self.quantityReceived = quantityReceived
             self.costCents = costCents
             self.partNumber = partNumber
             self.kind = kind
@@ -2460,6 +2606,17 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
             if name.isEmpty { continue }
 
             let quantity = scalarInt(from: itemObject["quantity"] ?? .int(1)) ?? 1
+            let quantityReceived = scalarInt(
+                from: itemObject["quantity_received"]
+                    ?? itemObject["quantityReceived"]
+                    ?? itemObject["received_quantity"]
+                    ?? itemObject["receivedQuantity"]
+                    ?? itemObject["received_qty"]
+                    ?? itemObject["receivedQty"]
+                    ?? itemObject["qty_received"]
+                    ?? itemObject["qtyReceived"]
+                    ?? .null
+            )
             let costCents = scalarInt(
                 from: itemObject["cost_cents"]
                     ?? itemObject["costCents"]
@@ -2475,6 +2632,7 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
                 LineItem(
                     name: name,
                     quantity: max(1, quantity),
+                    quantityReceived: quantityReceived.map { max(0, $0) },
                     costCents: max(0, costCents),
                     partNumber: partNumber,
                     kind: kind

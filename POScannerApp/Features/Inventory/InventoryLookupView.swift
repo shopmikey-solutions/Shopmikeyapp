@@ -16,6 +16,8 @@ struct InventoryLookupView: View {
     @State private var isTicketPickerPresented = false
     @State private var isDuplicateChoicePresented = false
     @State private var isManualDraftEntryPresented = false
+    @State private var isSuggestedReceivePresented = false
+    @State private var suggestedReceivePOID: String?
     @State private var pendingTicketIDForAdd: String?
     @State private var manualDraftDescription = ""
     @State private var manualDraftQuantity = "1"
@@ -27,6 +29,7 @@ struct InventoryLookupView: View {
             wrappedValue: InventoryLookupViewModel(
                 inventoryStore: environment.inventoryStore,
                 ticketStore: environment.ticketStore,
+                purchaseOrderStore: environment.purchaseOrderStore,
                 syncOperationQueue: environment.syncOperationQueue,
                 syncEngine: environment.syncEngine,
                 dateProvider: environment.dateProvider
@@ -71,6 +74,13 @@ struct InventoryLookupView: View {
         }
         .sheet(isPresented: $isManualDraftEntryPresented) {
             manualDraftEntrySheet
+        }
+        .sheet(isPresented: $isSuggestedReceivePresented) {
+            if let suggestedReceivePOID {
+                NavigationStack {
+                    ReceiveItemView(environment: environment, purchaseOrderID: suggestedReceivePOID)
+                }
+            }
         }
         .confirmationDialog(
             "Matching ticket line found",
@@ -140,6 +150,7 @@ struct InventoryLookupView: View {
                     value: item.normalizedQuantityOnHand.formatted(.number.precision(.fractionLength(0...2)))
                 )
 
+                suggestionBanner(matchedItem: item)
                 Divider()
 
                 Button("Add to PO Draft") {
@@ -210,11 +221,10 @@ struct InventoryLookupView: View {
                 Text("No match found in inventory.")
                     .foregroundStyle(.secondary)
 
+                suggestionBanner(matchedItem: nil)
+
                 Button("Add to PO Draft") {
-                    manualDraftDescription = viewModel.scannedCode ?? ""
-                    manualDraftQuantity = "1"
-                    manualDraftUnitCost = ""
-                    isManualDraftEntryPresented = true
+                    openManualDraftSheetPrefilled()
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("inventory.lookup.addUnknownToPODraftButton")
@@ -272,13 +282,18 @@ struct InventoryLookupView: View {
             return
         }
 
-        if await viewModel.hasDuplicateMatch(in: activeTicketID) {
-            pendingTicketIDForAdd = activeTicketID
+        await handleAddToTicket(ticketID: activeTicketID)
+    }
+
+    @MainActor
+    private func handleAddToTicket(ticketID: String) async {
+        if await viewModel.hasDuplicateMatch(in: ticketID) {
+            pendingTicketIDForAdd = ticketID
             isDuplicateChoicePresented = true
             return
         }
 
-        pendingTicketIDForAdd = activeTicketID
+        pendingTicketIDForAdd = ticketID
         await performAddToTicket(mergeMode: .addNewLine)
     }
 
@@ -302,6 +317,13 @@ struct InventoryLookupView: View {
         )
         _ = await environment.purchaseOrderDraftStore.addLine(line)
         viewModel.setDraftMutationMessage("Added to PO Draft.")
+    }
+
+    private func openManualDraftSheetPrefilled() {
+        manualDraftDescription = viewModel.scannedCode ?? ""
+        manualDraftQuantity = "1"
+        manualDraftUnitCost = ""
+        isManualDraftEntryPresented = true
     }
 
     @MainActor
@@ -398,5 +420,73 @@ struct InventoryLookupView: View {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    @ViewBuilder
+    private func suggestionBanner(matchedItem: InventoryItem?) -> some View {
+        switch viewModel.scanSuggestion {
+        case .receivePO(let poID, _):
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Suggested next step")
+                    .font(.subheadline.weight(.semibold))
+                Text("Receive item against PO \(poID)?")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Receive against PO") {
+                    suggestedReceivePOID = poID
+                    isSuggestedReceivePresented = true
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("inventory.lookup.suggestion.receivePO")
+            }
+            .padding(10)
+            .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .accessibilityIdentifier("inventory.lookup.suggestionBanner")
+
+        case .addToTicket(let ticketID):
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Suggested next step")
+                    .font(.subheadline.weight(.semibold))
+                Text("Add this item to active ticket \(ticketID)?")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Add to Active Ticket") {
+                    Task { @MainActor in
+                        await handleAddToTicket(ticketID: ticketID)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("inventory.lookup.suggestion.addToTicket")
+            }
+            .padding(10)
+            .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .accessibilityIdentifier("inventory.lookup.suggestionBanner")
+
+        case .addToPODraft:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Suggested next step")
+                    .font(.subheadline.weight(.semibold))
+                Text("Stock is low. Add this item to PO Draft?")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Restock in PO Draft") {
+                    Task { @MainActor in
+                        if let matchedItem {
+                            await addMatchedItemToDraft(matchedItem)
+                        } else {
+                            openManualDraftSheetPrefilled()
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("inventory.lookup.suggestion.addToPODraft")
+            }
+            .padding(10)
+            .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .accessibilityIdentifier("inventory.lookup.suggestionBanner")
+
+        case .none:
+            EmptyView()
+        }
     }
 }

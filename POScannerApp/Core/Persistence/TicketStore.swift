@@ -17,6 +17,7 @@ protocol TicketStoring: Sendable {
     func loadTicket(id: String) async -> TicketModel?
     func loadOpenTickets() async -> [TicketModel]
     func activeTicketID() async -> String?
+    func loadActiveTicket() async -> TicketModel?
     func setActiveTicketID(_ id: String?) async
     func hasMatchingLineItem(ticketID: String, sku: String?, partNumber: String?, description: String?) async -> Bool
     func findMatchingLineItem(ticketID: String, sku: String?, partNumber: String?, description: String?) async -> TicketLineItem?
@@ -81,6 +82,12 @@ actor TicketStore: TicketStoring {
     func activeTicketID() async -> String? {
         loadStateIfNeeded()
         return selectedActiveTicketID
+    }
+
+    func loadActiveTicket() async -> TicketModel? {
+        loadStateIfNeeded()
+        guard let selectedActiveTicketID else { return nil }
+        return ticketsByID[selectedActiveTicketID]
     }
 
     func setActiveTicketID(_ id: String?) async {

@@ -34,9 +34,11 @@ final class InventoryLookupViewModel: ObservableObject {
     @Published private(set) var ticketMutationMessage: String?
     @Published private(set) var draftMutationMessage: String?
     @Published private(set) var lastTicketMutationOperationID: UUID?
+    @Published private(set) var scanSuggestion: ScanSuggestion = .none
 
     private let inventoryStore: InventoryStoring
     private let ticketStore: any TicketStoring
+    private let purchaseOrderStore: any PurchaseOrderStoring
     private let syncOperationQueue: SyncOperationQueueStore
     private let syncEngine: SyncEngine
     private let dateProvider: any DateProviding
@@ -44,12 +46,14 @@ final class InventoryLookupViewModel: ObservableObject {
     init(
         inventoryStore: InventoryStoring,
         ticketStore: any TicketStoring = TicketStore(),
+        purchaseOrderStore: any PurchaseOrderStoring = PurchaseOrderStore(),
         syncOperationQueue: SyncOperationQueueStore = .shared,
         syncEngine: SyncEngine? = nil,
         dateProvider: any DateProviding = SystemDateProvider()
     ) {
         self.inventoryStore = inventoryStore
         self.ticketStore = ticketStore
+        self.purchaseOrderStore = purchaseOrderStore
         self.syncOperationQueue = syncOperationQueue
         self.dateProvider = dateProvider
         self.syncEngine = syncEngine ?? SyncEngine(
@@ -63,10 +67,12 @@ final class InventoryLookupViewModel: ObservableObject {
         ticketMutationState = .idle
         ticketMutationMessage = nil
         draftMutationMessage = nil
+        scanSuggestion = .none
     }
 
     func setScannerUnavailable() {
         state = .error("Scanner unavailable on this device.")
+        scanSuggestion = .none
     }
 
     func reset() {
@@ -76,56 +82,54 @@ final class InventoryLookupViewModel: ObservableObject {
         ticketMutationMessage = nil
         draftMutationMessage = nil
         lastTicketMutationOperationID = nil
+        scanSuggestion = .none
     }
 
     func lookup(scannedCode rawCode: String?) async {
         let exactScannedCode = Self.trimmed(rawCode)
         self.scannedCode = exactScannedCode
+        ticketMutationState = .idle
+        ticketMutationMessage = nil
+        draftMutationMessage = nil
 
         guard let exactScannedCode else {
             state = .idle
+            scanSuggestion = .none
             return
         }
 
         let items = await inventoryStore.allItems()
+        var matchedInventoryItem: InventoryItem?
 
         if let exactSkuMatch = items.first(where: {
             Self.trimmed($0.sku) == exactScannedCode
         }) {
             state = .matchFound(exactSkuMatch)
-            ticketMutationState = .idle
-            ticketMutationMessage = nil
-            draftMutationMessage = nil
-            return
+            matchedInventoryItem = exactSkuMatch
         }
 
-        if let exactPartNumberMatch = items.first(where: {
+        if matchedInventoryItem == nil,
+           let exactPartNumberMatch = items.first(where: {
             Self.trimmed($0.partNumber) == exactScannedCode
         }) {
             state = .matchFound(exactPartNumberMatch)
-            ticketMutationState = .idle
-            ticketMutationMessage = nil
-            draftMutationMessage = nil
-            return
+            matchedInventoryItem = exactPartNumberMatch
         }
 
-        guard let normalizedScannedCode = Self.normalized(exactScannedCode) else {
-            state = .noMatch
-            return
+        if matchedInventoryItem == nil {
+            if let normalizedScannedCode = Self.normalized(exactScannedCode),
+               let normalizedMatch = items.first(where: { item in
+                   Self.normalized(item.sku) == normalizedScannedCode ||
+                   Self.normalized(item.partNumber) == normalizedScannedCode
+               }) {
+                state = .matchFound(normalizedMatch)
+                matchedInventoryItem = normalizedMatch
+            } else {
+                state = .noMatch
+            }
         }
 
-        if let normalizedMatch = items.first(where: { item in
-            Self.normalized(item.sku) == normalizedScannedCode ||
-            Self.normalized(item.partNumber) == normalizedScannedCode
-        }) {
-            state = .matchFound(normalizedMatch)
-            ticketMutationState = .idle
-            ticketMutationMessage = nil
-            draftMutationMessage = nil
-            return
-        }
-
-        state = .noMatch
+        await refreshSuggestion(scannedCode: exactScannedCode, inventoryMatch: matchedInventoryItem)
     }
 
     func hasDuplicateMatch(in ticketID: String) async -> Bool {
@@ -251,5 +255,16 @@ final class InventoryLookupViewModel: ObservableObject {
     private static func normalized(_ value: String?) -> String? {
         guard let trimmed = trimmed(value) else { return nil }
         return trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private func refreshSuggestion(scannedCode: String, inventoryMatch: InventoryItem?) async {
+        let activeTicket = await ticketStore.loadActiveTicket()
+        let openPurchaseOrders = await purchaseOrderStore.loadOpenPurchaseOrderDetails()
+        scanSuggestion = ScanSuggestionEngine.suggest(
+            scannedCode: scannedCode,
+            inventoryMatch: inventoryMatch,
+            activeTicket: activeTicket,
+            openPurchaseOrders: openPurchaseOrders
+        )
     }
 }

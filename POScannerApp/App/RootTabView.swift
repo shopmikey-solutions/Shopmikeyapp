@@ -9,6 +9,7 @@ import ShopmikeyCoreModels
 struct RootTabView: View {
     private enum Tab: Hashable {
         case scan
+        case inventory
         case history
         case settings
     }
@@ -54,6 +55,21 @@ struct RootTabView: View {
             .accessibilityLabel("Scan")
             .accessibilityHint("Capture invoices and review current intake sessions.")
             .accessibilityIdentifier("tab.scan")
+
+            NavigationStack {
+                if loadedTabs.contains(.inventory) {
+                    InventoryView(environment: environment)
+                } else {
+                    Color.clear
+                }
+            }
+            .tag(Tab.inventory)
+            .tabItem {
+                Label("Inventory", systemImage: "shippingbox")
+            }
+            .accessibilityLabel("Inventory")
+            .accessibilityHint("Review inventory pulled from Shopmonkey.")
+            .accessibilityIdentifier("tab.inventory")
 
             NavigationStack {
                 if loadedTabs.contains(.history) {

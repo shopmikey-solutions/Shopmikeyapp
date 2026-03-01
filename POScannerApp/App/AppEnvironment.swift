@@ -642,6 +642,7 @@ struct AppEnvironment {
     let poParser: POParser
     let foundationModelService: FoundationModelService
     let parseHandoffService: LocalParseHandoffService
+    let inventoryStore: any InventoryStoring
     let inventoryRepository: any InventoryRepositorying
     let inventorySyncCoordinator: any InventorySyncCoordinating
     let orderRepository: any OrderRepositorying
@@ -664,6 +665,7 @@ struct AppEnvironment {
         poParser: POParser,
         foundationModelService: FoundationModelService,
         parseHandoffService: LocalParseHandoffService,
+        inventoryStore: any InventoryStoring,
         inventoryRepository: any InventoryRepositorying,
         inventorySyncCoordinator: any InventorySyncCoordinating,
         orderRepository: any OrderRepositorying,
@@ -689,6 +691,7 @@ struct AppEnvironment {
         self.poParser = poParser
         self.foundationModelService = foundationModelService
         self.parseHandoffService = parseHandoffService
+        self.inventoryStore = inventoryStore
         self.inventoryRepository = inventoryRepository
         self.inventorySyncCoordinator = inventorySyncCoordinator
         self.orderRepository = orderRepository
@@ -717,10 +720,6 @@ extension AppEnvironment {
         let telemetryQueue = TelemetryQueue.shared
         let syncOperationQueue = SyncOperationQueueStore(fileURL: syncOperationQueueFileURL())
         let dateProvider = SystemDateProvider()
-        let syncEngine = makeSyncEngine(
-            syncOperationQueue: syncOperationQueue,
-            dateProvider: dateProvider
-        )
         let reviewDraftStore = ReviewDraftStore()
         let localNotificationService = LocalNotificationService()
         let fallbackAnalyticsRecorder = ClosureFallbackAnalyticsRecorder { branch, context in
@@ -746,6 +745,13 @@ extension AppEnvironment {
             fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
         )
+        let inventoryStore = InventoryStore(fileURL: inventoryItemsStateFileURL())
+        let syncEngine = makeSyncEngine(
+            syncOperationQueue: syncOperationQueue,
+            dateProvider: dateProvider,
+            shopmonkeyAPI: shopmonkeyAPI,
+            inventoryStore: inventoryStore
+        )
         let inventoryRepository = InventoryRepository(fileURL: inventorySyncStateFileURL())
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
         let orderRepository = OrderRepository(shopmonkey: shopmonkeyAPI)
@@ -767,6 +773,7 @@ extension AppEnvironment {
             poParser: POParser(),
             foundationModelService: FoundationModelService(),
             parseHandoffService: LocalParseHandoffService(),
+            inventoryStore: inventoryStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,
@@ -791,6 +798,14 @@ extension AppEnvironment {
             .appendingPathComponent("sync_operation_queue.json", isDirectory: false)
     }
 
+    private static func inventoryItemsStateFileURL() -> URL {
+        let baseDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return baseDirectory
+            .appendingPathComponent("POScannerApp", isDirectory: true)
+            .appendingPathComponent("inventory_items.json", isDirectory: false)
+    }
+
     static var preview: AppEnvironment {
         let dataController = DataController(inMemory: true)
         let keychainService = KeychainService(service: "POScannerApp.preview")
@@ -805,10 +820,6 @@ extension AppEnvironment {
                 .appendingPathComponent("preview_sync_operation_queue.json", isDirectory: false)
         )
         let dateProvider = SystemDateProvider()
-        let syncEngine = makeSyncEngine(
-            syncOperationQueue: syncOperationQueue,
-            dateProvider: dateProvider
-        )
         let reviewDraftStore = ReviewDraftStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("preview_review_drafts.json"))
         let localNotificationService = LocalNotificationService()
         let fallbackAnalyticsRecorder = ClosureFallbackAnalyticsRecorder { branch, context in
@@ -825,6 +836,13 @@ extension AppEnvironment {
             client: apiClient,
             fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
+        )
+        let inventoryStore = InventoryStore()
+        let syncEngine = makeSyncEngine(
+            syncOperationQueue: syncOperationQueue,
+            dateProvider: dateProvider,
+            shopmonkeyAPI: shopmonkeyAPI,
+            inventoryStore: inventoryStore
         )
         let inventoryRepository = InventoryRepository()
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
@@ -847,6 +865,7 @@ extension AppEnvironment {
             poParser: POParser(),
             foundationModelService: FoundationModelService(),
             parseHandoffService: LocalParseHandoffService(),
+            inventoryStore: inventoryStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,
@@ -872,10 +891,6 @@ extension AppEnvironment {
                 .appendingPathComponent("test_sync_operation_queue.json", isDirectory: false)
         )
         let dateProvider = SystemDateProvider()
-        let syncEngine = makeSyncEngine(
-            syncOperationQueue: syncOperationQueue,
-            dateProvider: dateProvider
-        )
         let localNotificationService = LocalNotificationService()
         let fallbackAnalyticsRecorder = ClosureFallbackAnalyticsRecorder { branch, context in
             await FallbackAnalyticsStore.shared.record(branch: branch, context: context)
@@ -891,6 +906,13 @@ extension AppEnvironment {
             client: apiClient,
             fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
+        )
+        let inventoryStore = InventoryStore()
+        let syncEngine = makeSyncEngine(
+            syncOperationQueue: syncOperationQueue,
+            dateProvider: dateProvider,
+            shopmonkeyAPI: shopmonkeyAPI,
+            inventoryStore: inventoryStore
         )
         let inventoryRepository = InventoryRepository()
         let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
@@ -913,6 +935,7 @@ extension AppEnvironment {
             poParser: POParser(),
             foundationModelService: FoundationModelService(),
             parseHandoffService: LocalParseHandoffService(),
+            inventoryStore: inventoryStore,
             inventoryRepository: inventoryRepository,
             inventorySyncCoordinator: inventorySyncCoordinator,
             orderRepository: orderRepository,
@@ -934,9 +957,11 @@ extension AppEnvironment {
         await telemetryQueue.enqueue(event: event)
     }
 
-    private static func makeSyncEngine(
+    static func makeSyncEngine(
         syncOperationQueue: SyncOperationQueueStore,
-        dateProvider: any DateProviding
+        dateProvider: any DateProviding,
+        shopmonkeyAPI: any ShopmonkeyServicing,
+        inventoryStore: any InventoryStoring
     ) -> SyncEngine {
         SyncEngine(
             queueStore: syncOperationQueue,
@@ -945,7 +970,17 @@ extension AppEnvironment {
                 case .submitPurchaseOrder:
                     // PR-16 schedules and retries queued operations; payload replay lands in a later phase.
                     return .failed(diagnosticCode: DiagnosticCode.submitFallbackExhausted.rawValue)
-                case .syncInventory, .syncVendor:
+                case .syncInventory:
+                    do {
+                        let items = try await shopmonkeyAPI.fetchInventory()
+                        await inventoryStore.replaceAll(items, at: dateProvider.now)
+                        return .succeeded
+                    } catch let apiError as APIError {
+                        return .failed(diagnosticCode: apiError.diagnosticCode?.rawValue)
+                    } catch {
+                        return .failed(diagnosticCode: DiagnosticCode.forNetworkError(error).rawValue)
+                    }
+                case .syncVendor:
                     return .succeeded
                 }
             },

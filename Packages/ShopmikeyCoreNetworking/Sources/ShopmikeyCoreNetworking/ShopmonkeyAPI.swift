@@ -16,6 +16,7 @@ public protocol ShopmonkeyServicing: Sendable {
     func getPurchaseOrders() async throws -> [PurchaseOrderResponse]
     func fetchOrders() async throws -> [OrderSummary]
     func fetchServices(orderId: String) async throws -> [ServiceSummary]
+    func fetchInventory() async throws -> [InventoryItem]
     func searchVendors(name: String) async throws -> [VendorSummary]
     func testConnection() async throws
     func runEndpointProbe() async throws -> ShopmonkeyEndpointProbeReport
@@ -38,6 +39,10 @@ public extension ShopmonkeyServicing {
 
     func createPurchaseOrder(_ request: CreatePurchaseOrderRequest) async throws -> CreatePurchaseOrderResponse {
         _ = request
+        throw APIError.serverError(501)
+    }
+
+    func fetchInventory() async throws -> [InventoryItem] {
         throw APIError.serverError(501)
     }
 
@@ -308,6 +313,13 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
 
         let url = try makeURL(path: "/order/\(safeOrderId)/service")
         let decoded: ListOrWrapped<ServiceSummary> = try await client.perform(.get, url: url)
+        return decoded.values
+    }
+
+    /// GET /part
+    public func fetchInventory() async throws -> [InventoryItem] {
+        let url = try makeURL(path: "/part")
+        let decoded: ListOrWrapped<InventoryItem> = try await client.perform(.get, url: url)
         return decoded.values
     }
 

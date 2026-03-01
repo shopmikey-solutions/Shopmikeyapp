@@ -23,6 +23,7 @@ private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
         diagnosticsRecorder: networkDiagnostics
     )
     let shopmonkeyAPI = ShopmonkeyAPI(client: apiClient, diagnosticsRecorder: networkDiagnostics)
+    let inventoryStore = InventoryStore()
     let inventoryRepository = InventoryRepository()
     let inventorySyncCoordinator = InventorySyncCoordinator(repository: inventoryRepository)
     let orderRepository = OrderRepository(shopmonkey: shopmonkeyAPI)
@@ -41,6 +42,7 @@ private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
         poParser: POParser(),
         foundationModelService: FoundationModelService(),
         parseHandoffService: LocalParseHandoffService(),
+        inventoryStore: inventoryStore,
         inventoryRepository: inventoryRepository,
         inventorySyncCoordinator: inventorySyncCoordinator,
         orderRepository: orderRepository,

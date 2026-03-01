@@ -14,27 +14,27 @@ public protocol FallbackAnalyticsRecording: Sendable {
     func record(branch: String, context: String) async
 }
 
-public struct NoopFallbackAnalyticsRecorder: FallbackAnalyticsRecording {
-    public init() {}
+struct NoopFallbackAnalyticsRecorder: FallbackAnalyticsRecording {
+    init() {}
 
-    public func record(branch: String, context: String) async {
+    func record(branch: String, context: String) async {
         _ = branch
         _ = context
     }
 }
 
-public struct ClosureTokenProvider: TokenProvider {
+struct ClosureTokenProvider: TokenProvider {
     private let closure: @Sendable () async throws -> String
 
-    public init(_ closure: @escaping @Sendable () async throws -> String) {
+    init(_ closure: @escaping @Sendable () async throws -> String) {
         self.closure = closure
     }
 
-    public init(_ closure: @escaping @Sendable () throws -> String) {
+    init(_ closure: @escaping @Sendable () throws -> String) {
         self.closure = { try closure() }
     }
 
-    public func fetchBearerToken() async throws -> String {
+    func fetchBearerToken() async throws -> String {
         try await closure()
     }
 }
@@ -180,7 +180,7 @@ public final class APIClient: @unchecked Sendable {
 
     // MARK: - Internals
 
-    public func fetchBearerToken() async throws -> String {
+    func fetchBearerToken() async throws -> String {
         let token = try await tokenProvider.fetchBearerToken().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else {
             throw APIError.missingToken
@@ -383,7 +383,7 @@ public final class APIClient: @unchecked Sendable {
         statusCode == 502 || statusCode == 503 || statusCode == 504
     }
 
-    public static func encodeJSON<T: Encodable>(_ value: T) throws -> Data {
+    static func encodeJSON<T: Encodable>(_ value: T) throws -> Data {
         do {
             let encoder = JSONEncoder()
             encoder.keyEncodingStrategy = .convertToSnakeCase

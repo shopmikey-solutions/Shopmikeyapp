@@ -16,6 +16,15 @@ struct InventoryView: View {
 
     var body: some View {
         List {
+            Section {
+                NavigationLink {
+                    InventoryLookupView(environment: environment)
+                } label: {
+                    Label("Scan Barcode", systemImage: "barcode.viewfinder")
+                }
+                .accessibilityIdentifier("inventory.scanBarcodeLink")
+            }
+
             if items.isEmpty {
                 Text("No inventory has been pulled yet.")
                     .foregroundStyle(.secondary)
@@ -86,4 +95,3 @@ struct InventoryView: View {
         lastUpdatedAt = await environment.inventoryStore.lastUpdatedAt()
     }
 }
-

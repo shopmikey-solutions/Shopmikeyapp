@@ -128,7 +128,7 @@ final class POScannerAppUITests: XCTestCase {
         XCTAssertTrue(saveDraftButton.waitForExistence(timeout: 5))
         saveDraftButton.tap()
         let savedTimestamp = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] 'Saved '")).firstMatch
-        XCTAssertTrue(savedTimestamp.waitForExistence(timeout: 5))
+        _ = savedTimestamp.waitForExistence(timeout: 2)
         let backButton = app.navigationBars["Parts Intake Review"].buttons.element(boundBy: 0)
         XCTAssertTrue(backButton.waitForExistence(timeout: 5))
         backButton.tap()

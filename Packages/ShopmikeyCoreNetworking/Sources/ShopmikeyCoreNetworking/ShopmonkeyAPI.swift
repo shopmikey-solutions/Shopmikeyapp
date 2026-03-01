@@ -16,6 +16,8 @@ public protocol ShopmonkeyServicing: Sendable {
     func getPurchaseOrders() async throws -> [PurchaseOrderResponse]
     func fetchOrders() async throws -> [OrderSummary]
     func fetchServices(orderId: String) async throws -> [ServiceSummary]
+    func fetchOpenTickets() async throws -> [TicketModel]
+    func fetchTicket(id: String) async throws -> TicketModel
     func fetchInventory() async throws -> [InventoryItem]
     func searchVendors(name: String) async throws -> [VendorSummary]
     func testConnection() async throws
@@ -43,6 +45,15 @@ public extension ShopmonkeyServicing {
     }
 
     func fetchInventory() async throws -> [InventoryItem] {
+        throw APIError.serverError(501)
+    }
+
+    func fetchOpenTickets() async throws -> [TicketModel] {
+        throw APIError.serverError(501)
+    }
+
+    func fetchTicket(id: String) async throws -> TicketModel {
+        _ = id
         throw APIError.serverError(501)
     }
 
@@ -165,6 +176,57 @@ private struct ListOrWrapped<T: Decodable>: Decodable {
             DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Expected an array or a wrapper object.")
         )
     }
+}
+
+private struct SingleOrWrapped<T: Decodable>: Decodable {
+    let value: T
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        if let direct = try? container.decode(T.self) {
+            value = direct
+            return
+        }
+
+        if let wrappedData = try? container.decode(DataSingleWrapper<T>.self) {
+            value = wrappedData.data
+            return
+        }
+
+        if let wrappedResult = try? container.decode(ResultSingleWrapper<T>.self) {
+            value = wrappedResult.result
+            return
+        }
+
+        if let wrappedDataList = try? container.decode(DataWrapper<T>.self),
+           let first = wrappedDataList.data.first {
+            value = first
+            return
+        }
+
+        if let wrappedResultsList = try? container.decode(ResultsWrapper<T>.self),
+           let first = wrappedResultsList.results.first {
+            value = first
+            return
+        }
+
+        throw DecodingError.typeMismatch(
+            T.self,
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Expected an object, wrapper object, or single-item wrapper array."
+            )
+        )
+    }
+}
+
+private struct DataSingleWrapper<T: Decodable>: Decodable {
+    let data: T
+}
+
+private struct ResultSingleWrapper<T: Decodable>: Decodable {
+    let result: T
 }
 
 private struct DataWrapper<T: Decodable>: Decodable {
@@ -314,6 +376,28 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         let url = try makeURL(path: "/order/\(safeOrderId)/service")
         let decoded: ListOrWrapped<ServiceSummary> = try await client.perform(.get, url: url)
         return decoded.values
+    }
+
+    /// GET /order
+    /// Returns open tickets only (status-based filter, keeping unknown status entries).
+    public func fetchOpenTickets() async throws -> [TicketModel] {
+        let url = try makeURL(path: "/order")
+        let decoded: ListOrWrapped<TicketEnvelope> = try await client.perform(.get, url: url)
+        return decoded.values
+            .map { $0.ticketModel(includeLineItems: false) }
+            .filter { isOpenTicketStatus($0.status) }
+    }
+
+    /// GET /order/{id}
+    public func fetchTicket(id: String) async throws -> TicketModel {
+        let safeID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeID.isEmpty else {
+            throw APIError.invalidURL
+        }
+
+        let url = try makeURL(path: "/order/\(safeID)")
+        let decoded: SingleOrWrapped<TicketEnvelope> = try await client.perform(.get, url: url)
+        return decoded.value.ticketModel(includeLineItems: true)
     }
 
     /// GET /part
@@ -528,6 +612,22 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
             "company",
             "plc"
         ]
+    }
+
+    private func isOpenTicketStatus(_ status: String?) -> Bool {
+        guard let status else { return true }
+        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return true }
+        let closedStatuses: Set<String> = [
+            "closed",
+            "complete",
+            "completed",
+            "paid",
+            "cancelled",
+            "canceled",
+            "archived"
+        ]
+        return !closedStatuses.contains(normalized)
     }
 
     private func executeProbe(method: ProbeHTTPMethod, path: String, body: [String: String]?) async throws -> EndpointProbeResult {
@@ -2266,6 +2366,322 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
             return nil
         }
     }
+}
+
+private struct TicketEnvelope: Decodable {
+    let id: String
+    let number: String?
+    let displayNumber: String?
+    let status: String?
+    let customerName: String?
+    let vehicleSummary: String?
+    let updatedAt: Date?
+    let lineItems: [TicketLineItem]
+
+    init(from decoder: Decoder) throws {
+        let rootValue = try JSONValue(from: decoder)
+        guard case .object(let rootObject) = rootValue else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Expected ticket object.")
+            )
+        }
+
+        let ticketObject = Self.resolveTicketObject(from: rootObject)
+
+        guard let resolvedID = Self.firstNonEmpty([
+            Self.string(in: ticketObject, keys: ["id", "public_id", "publicId"]),
+            Self.string(in: rootObject, keys: ["id", "public_id", "publicId"]),
+            Self.string(in: ticketObject, keys: ["order_id", "orderId"]),
+            Self.string(in: rootObject, keys: ["order_id", "orderId"])
+        ]) else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Missing ticket identifier.")
+            )
+        }
+
+        let customerContainer = Self.object(in: ticketObject, keys: ["customer", "customer_info", "customerInfo"])
+        let vehicleContainer = Self.object(in: ticketObject, keys: ["vehicle", "vehicle_info", "vehicleInfo"])
+
+        id = resolvedID
+        number = Self.firstNonEmpty([
+            Self.string(in: ticketObject, keys: ["number", "ticket_number", "ticketNumber", "external_number", "externalNumber"]),
+            Self.string(in: rootObject, keys: ["number", "ticket_number", "ticketNumber", "external_number", "externalNumber"])
+        ])
+        displayNumber = Self.firstNonEmpty([
+            Self.string(in: ticketObject, keys: ["display_number", "displayNumber"]),
+            Self.string(in: rootObject, keys: ["display_number", "displayNumber"]),
+            number
+        ])
+        status = Self.firstNonEmpty([
+            Self.string(in: ticketObject, keys: ["status", "state"]),
+            Self.string(in: rootObject, keys: ["status", "state"])
+        ])
+        customerName = Self.firstNonEmpty([
+            Self.string(in: ticketObject, keys: ["generated_customer_name", "generatedCustomerName", "customer_name", "customerName"]),
+            Self.string(in: customerContainer, keys: ["name"]),
+            Self.string(in: rootObject, keys: ["generated_customer_name", "generatedCustomerName", "customer_name", "customerName"])
+        ])
+        vehicleSummary = Self.firstNonEmpty([
+            Self.string(in: ticketObject, keys: ["vehicle_summary", "vehicleSummary"]),
+            Self.string(in: vehicleContainer, keys: ["name", "display_name", "displayName", "vin"]),
+            Self.string(in: rootObject, keys: ["vehicle_summary", "vehicleSummary"])
+        ])
+        updatedAt = Self.firstDate([
+            Self.string(in: ticketObject, keys: ["updated_at", "updatedAt", "modified_at", "modifiedAt"]),
+            Self.string(in: rootObject, keys: ["updated_at", "updatedAt", "modified_at", "modifiedAt"])
+        ])
+        lineItems = Self.parseLineItems(from: ticketObject, ticketID: resolvedID)
+    }
+
+    func ticketModel(includeLineItems: Bool) -> TicketModel {
+        TicketModel(
+            id: id,
+            number: number,
+            displayNumber: displayNumber ?? number,
+            status: status,
+            customerName: customerName,
+            vehicleSummary: vehicleSummary,
+            updatedAt: updatedAt,
+            lineItems: includeLineItems ? lineItems : []
+        )
+    }
+
+    private static func resolveTicketObject(from root: [String: JSONValue]) -> [String: JSONValue] {
+        if containsTicketIdentityFields(root) {
+            return root
+        }
+
+        if let nested = object(in: root, keys: ["order", "ticket", "order_summary", "orderSummary"]) {
+            return nested
+        }
+
+        if let first = firstObject(in: root, keys: ["data", "result", "results"]) {
+            return first
+        }
+
+        return root
+    }
+
+    private static func parseLineItems(from object: [String: JSONValue], ticketID: String) -> [TicketLineItem] {
+        var parsed: [TicketLineItem] = []
+        var index = 0
+
+        for value in objectArray(in: object, keys: ["line_items", "lineItems", "items"]) {
+            if let lineItem = parseLineItem(value, index: index, ticketID: ticketID, kindHint: nil) {
+                parsed.append(lineItem)
+                index += 1
+            }
+        }
+
+        for value in objectArray(in: object, keys: ["parts"]) {
+            if let lineItem = parseLineItem(value, index: index, ticketID: ticketID, kindHint: "part") {
+                parsed.append(lineItem)
+                index += 1
+            }
+        }
+
+        for value in objectArray(in: object, keys: ["tires"]) {
+            if let lineItem = parseLineItem(value, index: index, ticketID: ticketID, kindHint: "tire") {
+                parsed.append(lineItem)
+                index += 1
+            }
+        }
+
+        for value in objectArray(in: object, keys: ["fees"]) {
+            if let lineItem = parseLineItem(value, index: index, ticketID: ticketID, kindHint: "fee") {
+                parsed.append(lineItem)
+                index += 1
+            }
+        }
+
+        for value in objectArray(in: object, keys: ["labor", "labors"]) {
+            if let lineItem = parseLineItem(value, index: index, ticketID: ticketID, kindHint: "labor") {
+                parsed.append(lineItem)
+                index += 1
+            }
+        }
+
+        return parsed
+    }
+
+    private static func parseLineItem(
+        _ value: JSONValue,
+        index: Int,
+        ticketID: String,
+        kindHint: String?
+    ) -> TicketLineItem? {
+        guard case .object(let object) = value else { return nil }
+
+        let id = firstNonEmpty([
+            string(in: object, keys: ["id", "public_id", "publicId"]),
+            "\(ticketID)_\(index + 1)"
+        ]) ?? "\(ticketID)_\(index + 1)"
+
+        let quantity = firstDecimal([
+            scalar(in: object, keys: ["quantity", "qty"]),
+            .int(0)
+        ]) ?? 0
+
+        return TicketLineItem(
+            id: id,
+            kind: firstNonEmpty([
+                string(in: object, keys: ["kind", "type", "category"]),
+                kindHint
+            ]),
+            sku: string(in: object, keys: ["sku"]),
+            partNumber: firstNonEmpty([
+                string(in: object, keys: ["part_number", "partNumber", "number"])
+            ]),
+            description: firstNonEmpty([
+                string(in: object, keys: ["description", "name"])
+            ]) ?? "Line Item",
+            quantity: quantity,
+            unitPrice: firstDecimal([
+                scalar(in: object, keys: ["unit_price", "unitPrice", "price", "cost"]),
+                scalar(in: object, keys: ["unit_cost", "unitCost"])
+            ]),
+            extendedPrice: firstDecimal([
+                scalar(in: object, keys: ["extended_price", "extendedPrice", "line_total", "lineTotal", "amount"])
+            ]),
+            vendorId: string(in: object, keys: ["vendor_id", "vendorId"])
+        )
+    }
+
+    private static func containsTicketIdentityFields(_ object: [String: JSONValue]) -> Bool {
+        let lookup = Set(["id", "orderid", "order_id", "number", "ticketnumber", "ticket_number"])
+        return object.keys.contains { lookup.contains($0.lowercased()) }
+    }
+
+    private static func object(in object: [String: JSONValue]?, keys: [String]) -> [String: JSONValue]? {
+        guard let object else { return nil }
+        let lookup = Set(keys.map { $0.lowercased() })
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            if case .object(let nested) = value {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private static func firstObject(in object: [String: JSONValue], keys: [String]) -> [String: JSONValue]? {
+        let lookup = Set(keys.map { $0.lowercased() })
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            switch value {
+            case .object(let nested):
+                return nested
+            case .array(let values):
+                for entry in values {
+                    if case .object(let nested) = entry {
+                        return nested
+                    }
+                }
+            default:
+                break
+            }
+        }
+        return nil
+    }
+
+    private static func objectArray(in object: [String: JSONValue], keys: [String]) -> [JSONValue] {
+        let lookup = Set(keys.map { $0.lowercased() })
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            if case .array(let values) = value {
+                return values
+            }
+        }
+        return []
+    }
+
+    private static func scalar(in object: [String: JSONValue], keys: [String]) -> JSONValue? {
+        let lookup = Set(keys.map { $0.lowercased() })
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            return value
+        }
+        return nil
+    }
+
+    private static func string(in object: [String: JSONValue]?, keys: [String]) -> String? {
+        guard let object else { return nil }
+        let lookup = Set(keys.map { $0.lowercased() })
+        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
+            if let scalar = scalarString(from: value) {
+                let trimmed = scalar.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func firstNonEmpty(_ candidates: [String?]) -> String? {
+        for candidate in candidates {
+            guard let candidate else { continue }
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func firstDate(_ candidates: [String?]) -> Date? {
+        for candidate in candidates {
+            guard let candidate else { continue }
+            if let date = iso8601Formatter.date(from: candidate) ?? iso8601FractionalFormatter.date(from: candidate) {
+                return date
+            }
+        }
+        return nil
+    }
+
+    private static func firstDecimal(_ candidates: [JSONValue?]) -> Decimal? {
+        for candidate in candidates {
+            guard let candidate else { continue }
+            switch candidate {
+            case .int(let value):
+                return Decimal(value)
+            case .double(let value):
+                guard value.isFinite else { continue }
+                return Decimal(value)
+            case .string(let value):
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let decimal = Decimal(string: trimmed) {
+                    return decimal
+                }
+            default:
+                continue
+            }
+        }
+        return nil
+    }
+
+    private static func scalarString(from value: JSONValue) -> String? {
+        switch value {
+        case .string(let value):
+            return value
+        case .int(let value):
+            return String(value)
+        case .double(let value):
+            return String(value)
+        case .bool(let value):
+            return value ? "true" : "false"
+        default:
+            return nil
+        }
+    }
+
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let iso8601FractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }
 
 public struct OrderSummary: Decodable, Identifiable, Sendable {

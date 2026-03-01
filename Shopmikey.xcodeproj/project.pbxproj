@@ -10,6 +10,7 @@
 		A67282682F45F88F00A5001A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67282672F45F88F00A5001A /* WidgetKit.framework */; };
 		A672826A2F45F88F00A5001A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A67282692F45F88F00A5001A /* SwiftUI.framework */; };
 		A672827B2F45F89100A5001A /* ShopMikey ScannerExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A67282652F45F88F00A5001A /* ShopMikey ScannerExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B0A1F5A12F6A001100AABBCC /* Fixtures/ParserCorpus in Resources */ = {isa = PBXBuildFile; fileRef = B0A1F5A22F6A001100AABBCC /* Fixtures/ParserCorpus */; };
 		B0A1F5B12F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */; };
 		B0A1F5B22F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D22F6A101100AABBCC /* ShopmikeyCoreModels */; };
 		B0A1F5B32F6A101100AABBCC /* ShopmikeyCoreModels in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F5D32F6A101100AABBCC /* ShopmikeyCoreModels */; };
@@ -25,7 +26,6 @@
 		B0A1F9B12F6A101100AABBCC /* ShopmikeyCoreNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F9D12F6A101100AABBCC /* ShopmikeyCoreNetworking */; };
 		B0A1F9B22F6A101100AABBCC /* ShopmikeyCoreNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F9D22F6A101100AABBCC /* ShopmikeyCoreNetworking */; };
 		B0A1F9B32F6A101100AABBCC /* ShopmikeyCoreNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = B0A1F9D32F6A101100AABBCC /* ShopmikeyCoreNetworking */; };
-		B0A1F5A12F6A001100AABBCC /* Fixtures/ParserCorpus in Resources */ = {isa = PBXBuildFile; fileRef = B0A1F5A22F6A001100AABBCC /* Fixtures/ParserCorpus */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -367,8 +367,6 @@
 			);
 			mainGroup = A6E181B12F41BA33000EFB56;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
-			productRefGroup = A6E181BB2F41BA33000EFB56 /* Products */;
 			packageReferences = (
 				B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */,
 				B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */,
@@ -376,6 +374,8 @@
 				B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */,
 				B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A6E181BB2F41BA33000EFB56 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -467,107 +467,6 @@
 			targetProxy = A6E181D42F41BA34000EFB56 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/ShopmikeyCoreDiagnostics;
-		};
-		B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/ShopmikeyCoreModels;
-		};
-		B0A1F7C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreSync" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/ShopmikeyCoreSync;
-		};
-		B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/ShopmikeyCoreParsing;
-		};
-		B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/ShopmikeyCoreNetworking;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		B0A1F6D12F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
-			productName = ShopmikeyCoreDiagnostics;
-		};
-		B0A1F6D22F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
-			productName = ShopmikeyCoreDiagnostics;
-		};
-		B0A1F6D32F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
-			productName = ShopmikeyCoreDiagnostics;
-		};
-		B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
-			productName = ShopmikeyCoreModels;
-		};
-		B0A1F5D22F6A101100AABBCC /* ShopmikeyCoreModels */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
-			productName = ShopmikeyCoreModels;
-		};
-		B0A1F5D32F6A101100AABBCC /* ShopmikeyCoreModels */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
-			productName = ShopmikeyCoreModels;
-		};
-		B0A1F7D12F6A101100AABBCC /* ShopmikeyCoreSync */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F7C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreSync" */;
-			productName = ShopmikeyCoreSync;
-		};
-		B0A1F7D22F6A101100AABBCC /* ShopmikeyCoreSync */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F7C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreSync" */;
-			productName = ShopmikeyCoreSync;
-		};
-		B0A1F7D32F6A101100AABBCC /* ShopmikeyCoreSync */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F7C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreSync" */;
-			productName = ShopmikeyCoreSync;
-		};
-		B0A1F8D12F6A101100AABBCC /* ShopmikeyCoreParsing */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */;
-			productName = ShopmikeyCoreParsing;
-		};
-		B0A1F8D22F6A101100AABBCC /* ShopmikeyCoreParsing */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */;
-			productName = ShopmikeyCoreParsing;
-		};
-		B0A1F8D32F6A101100AABBCC /* ShopmikeyCoreParsing */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */;
-			productName = ShopmikeyCoreParsing;
-		};
-		B0A1F9D12F6A101100AABBCC /* ShopmikeyCoreNetworking */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */;
-			productName = ShopmikeyCoreNetworking;
-		};
-		B0A1F9D22F6A101100AABBCC /* ShopmikeyCoreNetworking */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */;
-			productName = ShopmikeyCoreNetworking;
-		};
-		B0A1F9D32F6A101100AABBCC /* ShopmikeyCoreNetworking */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */;
-			productName = ShopmikeyCoreNetworking;
-		};
-/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A672827D2F45F89100A5001A /* Debug */ = {
@@ -976,6 +875,107 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShopmikeyCoreModels;
+		};
+		B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShopmikeyCoreDiagnostics;
+		};
+		B0A1F7C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreSync" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShopmikeyCoreSync;
+		};
+		B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShopmikeyCoreParsing;
+		};
+		B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShopmikeyCoreNetworking;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B0A1F5D12F6A101100AABBCC /* ShopmikeyCoreModels */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
+			productName = ShopmikeyCoreModels;
+		};
+		B0A1F5D22F6A101100AABBCC /* ShopmikeyCoreModels */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
+			productName = ShopmikeyCoreModels;
+		};
+		B0A1F5D32F6A101100AABBCC /* ShopmikeyCoreModels */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F5C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreModels" */;
+			productName = ShopmikeyCoreModels;
+		};
+		B0A1F6D12F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
+			productName = ShopmikeyCoreDiagnostics;
+		};
+		B0A1F6D22F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
+			productName = ShopmikeyCoreDiagnostics;
+		};
+		B0A1F6D32F6A101100AABBCC /* ShopmikeyCoreDiagnostics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F6C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreDiagnostics" */;
+			productName = ShopmikeyCoreDiagnostics;
+		};
+		B0A1F7D12F6A101100AABBCC /* ShopmikeyCoreSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F7C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreSync" */;
+			productName = ShopmikeyCoreSync;
+		};
+		B0A1F7D22F6A101100AABBCC /* ShopmikeyCoreSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F7C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreSync" */;
+			productName = ShopmikeyCoreSync;
+		};
+		B0A1F7D32F6A101100AABBCC /* ShopmikeyCoreSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F7C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreSync" */;
+			productName = ShopmikeyCoreSync;
+		};
+		B0A1F8D12F6A101100AABBCC /* ShopmikeyCoreParsing */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */;
+			productName = ShopmikeyCoreParsing;
+		};
+		B0A1F8D22F6A101100AABBCC /* ShopmikeyCoreParsing */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */;
+			productName = ShopmikeyCoreParsing;
+		};
+		B0A1F8D32F6A101100AABBCC /* ShopmikeyCoreParsing */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F8C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreParsing" */;
+			productName = ShopmikeyCoreParsing;
+		};
+		B0A1F9D12F6A101100AABBCC /* ShopmikeyCoreNetworking */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */;
+			productName = ShopmikeyCoreNetworking;
+		};
+		B0A1F9D22F6A101100AABBCC /* ShopmikeyCoreNetworking */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */;
+			productName = ShopmikeyCoreNetworking;
+		};
+		B0A1F9D32F6A101100AABBCC /* ShopmikeyCoreNetworking */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0A1F9C12F6A101100AABBCC /* XCLocalSwiftPackageReference "Packages/ShopmikeyCoreNetworking" */;
+			productName = ShopmikeyCoreNetworking;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A6E181B22F41BA33000EFB56 /* Project object */;
 }

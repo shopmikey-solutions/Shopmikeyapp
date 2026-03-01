@@ -23,6 +23,13 @@ struct InventoryView: View {
                     Label("Scan Barcode", systemImage: "barcode.viewfinder")
                 }
                 .accessibilityIdentifier("inventory.scanBarcodeLink")
+
+                NavigationLink {
+                    POBuilderView(environment: environment)
+                } label: {
+                    Label("PO Draft", systemImage: "doc.plaintext")
+                }
+                .accessibilityIdentifier("inventory.poDraftLink")
             }
 
             if items.isEmpty {

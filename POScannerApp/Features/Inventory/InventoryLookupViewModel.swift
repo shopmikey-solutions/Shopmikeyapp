@@ -32,6 +32,7 @@ final class InventoryLookupViewModel: ObservableObject {
     @Published private(set) var scannedCode: String?
     @Published private(set) var ticketMutationState: TicketMutationState = .idle
     @Published private(set) var ticketMutationMessage: String?
+    @Published private(set) var draftMutationMessage: String?
     @Published private(set) var lastTicketMutationOperationID: UUID?
 
     private let inventoryStore: InventoryStoring
@@ -61,6 +62,7 @@ final class InventoryLookupViewModel: ObservableObject {
         state = .scanning
         ticketMutationState = .idle
         ticketMutationMessage = nil
+        draftMutationMessage = nil
     }
 
     func setScannerUnavailable() {
@@ -72,6 +74,7 @@ final class InventoryLookupViewModel: ObservableObject {
         state = .idle
         ticketMutationState = .idle
         ticketMutationMessage = nil
+        draftMutationMessage = nil
         lastTicketMutationOperationID = nil
     }
 
@@ -92,6 +95,7 @@ final class InventoryLookupViewModel: ObservableObject {
             state = .matchFound(exactSkuMatch)
             ticketMutationState = .idle
             ticketMutationMessage = nil
+            draftMutationMessage = nil
             return
         }
 
@@ -101,6 +105,7 @@ final class InventoryLookupViewModel: ObservableObject {
             state = .matchFound(exactPartNumberMatch)
             ticketMutationState = .idle
             ticketMutationMessage = nil
+            draftMutationMessage = nil
             return
         }
 
@@ -116,6 +121,7 @@ final class InventoryLookupViewModel: ObservableObject {
             state = .matchFound(normalizedMatch)
             ticketMutationState = .idle
             ticketMutationMessage = nil
+            draftMutationMessage = nil
             return
         }
 
@@ -202,6 +208,37 @@ final class InventoryLookupViewModel: ObservableObject {
             ticketMutationMessage = "Added to ticket."
             await syncOperationQueue.remove(id: operation.id)
         }
+    }
+
+    func matchedItemDraftLine() -> PurchaseOrderDraftLine? {
+        guard case .matchFound(let item) = state else { return nil }
+        return PurchaseOrderDraftLine(
+            sku: Self.trimmed(item.sku),
+            partNumber: Self.trimmed(item.partNumber),
+            description: item.description,
+            quantity: 1,
+            unitCost: item.price > .zero ? item.price : nil,
+            sourceBarcode: scannedCode
+        )
+    }
+
+    func manualDraftLine(
+        description: String,
+        quantity: Decimal,
+        unitCost: Decimal?
+    ) -> PurchaseOrderDraftLine? {
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDescription.isEmpty else { return nil }
+        return PurchaseOrderDraftLine(
+            description: trimmedDescription,
+            quantity: max(1, quantity),
+            unitCost: unitCost.map { max(0, $0) },
+            sourceBarcode: scannedCode
+        )
+    }
+
+    func setDraftMutationMessage(_ message: String?) {
+        draftMutationMessage = message
     }
 
     private static func trimmed(_ value: String?) -> String? {

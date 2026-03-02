@@ -17,7 +17,7 @@ Contract source policy:
 | Fetch open tickets | `GET` | `/order` | capability-proved required |
 | Fetch ticket detail | `GET` | `/order/{id}` | capability-proved required |
 | Fetch services for order/ticket | `GET` | `/order/{orderId}/service` | capability-proved required |
-| Add part to selected service (ticket mutation) | `POST` | `/order/{orderId}/service/{serviceId}/part` | capability-proved required |
+| Add part to selected service (ticket mutation) | `POST` | `/order/{orderId}/service/{serviceId}/part` | Official docs: [Shopmonkey Part resource](https://shopmonkey.dev/resources/part) (`Add Part to Service`) |
 | Legacy direct ticket line add (deprecated fallback candidate; not used by mutation flow) | `POST` | `/order/{ticketId}/part` | capability-proved required |
 | Fetch inventory parts | `POST` | `/inventory_part/search` | capability-proved required |
 

@@ -34,24 +34,32 @@ final class POScannerAppUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["scan.dashboardTitle"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["scan.scanButton"].waitForExistence(timeout: 5))
         let scanList = scrollContainer(in: app)
-        let ignoreTaxToggle = app.switches["scan.ignoreTaxToggle"]
+        let scanDocumentButton = app.buttons["scanHub.scanDocument"]
         if let scanList {
-            ensureVisible(ignoreTaxToggle, in: scanList)
+            ensureVisible(scanDocumentButton, in: scanList)
         }
-        XCTAssertTrue(ignoreTaxToggle.waitForExistence(timeout: 5))
-        let quickHistoryButton = app.buttons["scan.quickHistory"]
+        XCTAssertTrue(scanDocumentButton.waitForExistence(timeout: 5))
+        let importPhotoButton = app.buttons["scanHub.importPhoto"]
         if let scanList {
-            ensureVisible(quickHistoryButton, in: scanList)
+            ensureVisible(importPhotoButton, in: scanList)
         }
-        XCTAssertTrue(quickHistoryButton.waitForExistence(timeout: 5))
-        let quickSettingsButton = app.buttons["scan.quickSettings"]
+        XCTAssertTrue(importPhotoButton.waitForExistence(timeout: 5))
+        let importFilesButton = app.buttons["scanHub.importFiles"]
         if let scanList {
-            ensureVisible(quickSettingsButton, in: scanList)
+            ensureVisible(importFilesButton, in: scanList)
         }
-        XCTAssertTrue(quickSettingsButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(importFilesButton.waitForExistence(timeout: 5))
+        let scanBarcodeButton = app.buttons["scanHub.scanBarcode"]
+        if let scanList {
+            ensureVisible(scanBarcodeButton, in: scanList)
+        }
+        XCTAssertTrue(scanBarcodeButton.waitForExistence(timeout: 5))
+        let quickSyncHealthButton = app.buttons["scanHub.quick.syncHealth"]
+        if let scanList {
+            ensureVisible(quickSyncHealthButton, in: scanList)
+        }
+        XCTAssertTrue(quickSyncHealthButton.waitForExistence(timeout: 5))
 
         app.tabBars.buttons["Settings"].tap()
         let brandedSettingsNavBar = app.navigationBars["Shopmonkey Settings"]
@@ -96,7 +104,7 @@ final class POScannerAppUITests: XCTestCase {
         if scanTab.exists {
             scanTab.tap()
         }
-        let fixtureButton = app.buttons["scan.openReviewFixture"]
+        let fixtureButton = app.buttons["scanHub.openReviewFixture"]
         if let scanList = scrollContainer(in: app) {
             ensureVisible(fixtureButton, in: scanList)
         }
@@ -145,7 +153,7 @@ final class POScannerAppUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
-        let fixtureButton = app.buttons["scan.openReviewFixture"]
+        let fixtureButton = app.buttons["scanHub.openReviewFixture"]
         XCTAssertTrue(reveal(fixtureButton, in: app))
         fixtureButton.tap()
 

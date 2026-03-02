@@ -9,6 +9,7 @@ import ShopmikeyCoreNetworking
 
 struct InventoryLookupView: View {
     let environment: AppEnvironment
+    let prefilledScannedCode: String?
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: InventoryLookupViewModel
@@ -23,9 +24,11 @@ struct InventoryLookupView: View {
     @State private var manualDraftDescription = ""
     @State private var manualDraftQuantity = "1"
     @State private var manualDraftUnitCost = ""
+    @State private var didApplyPrefilledScan = false
 
-    init(environment: AppEnvironment) {
+    init(environment: AppEnvironment, prefilledScannedCode: String? = nil) {
         self.environment = environment
+        self.prefilledScannedCode = prefilledScannedCode
         let shopmonkeyAPI = environment.shopmonkeyAPI
         _viewModel = StateObject(
             wrappedValue: InventoryLookupViewModel(
@@ -120,6 +123,7 @@ struct InventoryLookupView: View {
         }
         .task {
             await activeTicketContext.loadCachedState()
+            await applyPrefilledScanIfNeeded()
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.scanSuggestion)
         .onChange(of: viewModel.ticketMutationState) { _, state in
@@ -517,5 +521,13 @@ struct InventoryLookupView: View {
         .padding(10)
         .background(.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityIdentifier("inventory.lookup.suggestionBanner")
+    }
+
+    @MainActor
+    private func applyPrefilledScanIfNeeded() async {
+        guard !didApplyPrefilledScan else { return }
+        didApplyPrefilledScan = true
+        guard let prefilledScannedCode else { return }
+        await viewModel.lookup(scannedCode: prefilledScannedCode)
     }
 }

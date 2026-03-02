@@ -9,14 +9,17 @@ import SwiftUI
 struct ReceiveItemView: View {
     let environment: AppEnvironment
     let purchaseOrderID: String
+    let prefilledScannedCode: String?
 
     @StateObject private var viewModel: ReceiveItemViewModel
     @State private var isScannerPresented = false
     @State private var quantityInput = "1"
+    @State private var didApplyPrefilledScan = false
 
-    init(environment: AppEnvironment, purchaseOrderID: String) {
+    init(environment: AppEnvironment, purchaseOrderID: String, prefilledScannedCode: String? = nil) {
         self.environment = environment
         self.purchaseOrderID = purchaseOrderID
+        self.prefilledScannedCode = prefilledScannedCode
         _viewModel = StateObject(
             wrappedValue: ReceiveItemViewModel(
                 purchaseOrderID: purchaseOrderID,
@@ -134,6 +137,7 @@ struct ReceiveItemView: View {
         }
         .task {
             await viewModel.loadInitialDetail()
+            await applyPrefilledScanIfNeeded()
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.matchState)
         .onChange(of: viewModel.matchState) { _, newState in
@@ -276,5 +280,13 @@ struct ReceiveItemView: View {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    @MainActor
+    private func applyPrefilledScanIfNeeded() async {
+        guard !didApplyPrefilledScan else { return }
+        didApplyPrefilledScan = true
+        guard let prefilledScannedCode else { return }
+        await viewModel.lookup(scannedCode: prefilledScannedCode)
     }
 }

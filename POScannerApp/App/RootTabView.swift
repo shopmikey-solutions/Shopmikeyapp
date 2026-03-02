@@ -41,10 +41,7 @@ struct RootTabView: View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 if loadedTabs.contains(.scan) {
-                    ScanView(
-                        environment: environment,
-                        isTabActive: selectedTab == .scan
-                    )
+                    ScanHubView(environment: environment)
                 } else {
                     Color.clear
                 }

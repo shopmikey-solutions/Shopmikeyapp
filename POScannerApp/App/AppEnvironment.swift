@@ -1059,13 +1059,35 @@ extension AppEnvironment {
                     }
 
                     do {
-                        let createdLineItem = try await shopmonkeyAPI.addPartLineItem(
-                            toTicketId: payload.ticketID,
+                        let quantity = max(1, NSDecimalNumber(decimal: payload.quantity).intValue)
+                        let unitPrice = payload.unitPrice ?? .zero
+                        let wholesaleCostCents = max(
+                            0,
+                            NSDecimalNumber(decimal: unitPrice * Decimal(100)).intValue
+                        )
+                        let request = CreatePartRequest(
+                            name: payload.description,
+                            quantity: quantity,
+                            partNumber: payload.partNumber ?? payload.sku,
+                            wholesaleCostCents: wholesaleCostCents,
+                            vendorId: payload.vendorID,
+                            purchaseOrderId: nil
+                        )
+                        let createdPart = try await shopmonkeyAPI.createPart(
+                            orderId: payload.ticketID,
+                            serviceId: payload.serviceID,
+                            request: request
+                        )
+                        let createdLineItem = TicketLineItem(
+                            id: createdPart.id,
+                            kind: "part",
                             sku: payload.sku,
                             partNumber: payload.partNumber,
                             description: payload.description,
                             quantity: payload.quantity,
-                            unitPrice: payload.unitPrice
+                            unitPrice: payload.unitPrice,
+                            extendedPrice: payload.unitPrice.map { $0 * payload.quantity },
+                            vendorId: payload.vendorID
                         )
                         _ = await ticketStore.applyAddedLineItem(
                             createdLineItem,

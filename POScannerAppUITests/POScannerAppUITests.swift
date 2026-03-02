@@ -81,8 +81,8 @@ final class POScannerAppUITests: XCTestCase {
         }
         XCTAssertTrue(testConnectionButton.waitForExistence(timeout: 5))
 
-        app.tabBars.buttons["History"].tap()
-        XCTAssertTrue(app.navigationBars["Purchase Order History"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Tickets"].tap()
+        XCTAssertTrue(app.navigationBars["Tickets"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -134,8 +134,8 @@ final class POScannerAppUITests: XCTestCase {
         backButton.tap()
 
         XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
-        app.tabBars.buttons["History"].tap()
-        XCTAssertTrue(app.navigationBars["Purchase Order History"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Tickets"].tap()
+        XCTAssertTrue(app.navigationBars["Tickets"].waitForExistence(timeout: 5))
     }
 
     @MainActor

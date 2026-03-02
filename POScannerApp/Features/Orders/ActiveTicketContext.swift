@@ -12,21 +12,25 @@ struct TicketLineItemMutationPayload: Hashable, Codable, Sendable {
     static let fingerprintPrefix = "ticket_line_item_add_v1"
 
     var ticketID: String
+    var serviceID: String
     var sku: String?
     var partNumber: String?
     var description: String
     var quantity: Decimal
     var unitPrice: Decimal?
+    var vendorID: String
     var mergeMode: TicketLineMergeMode
 
     var payloadFingerprint: String {
         let parts: [(String, String)] = [
             ("ticketId", ticketID),
+            ("serviceId", serviceID),
             ("sku", sku ?? ""),
             ("partNumber", partNumber ?? ""),
             ("description", description),
             ("quantity", decimalString(quantity)),
             ("unitPrice", unitPrice.map(decimalString) ?? ""),
+            ("vendorId", vendorID),
             ("mergeMode", mergeMode.rawValue)
         ]
 
@@ -54,9 +58,11 @@ struct TicketLineItemMutationPayload: Hashable, Codable, Sendable {
         }
 
         guard let ticketID = normalized(values["ticketId"]),
+              let serviceID = normalized(values["serviceId"]),
               let description = normalized(values["description"]),
               let quantityRaw = normalized(values["quantity"]),
               let quantity = Decimal(string: quantityRaw),
+              let vendorID = normalized(values["vendorId"]),
               let mergeModeRaw = normalized(values["mergeMode"]),
               let mergeMode = TicketLineMergeMode(rawValue: mergeModeRaw) else {
             return nil
@@ -66,11 +72,13 @@ struct TicketLineItemMutationPayload: Hashable, Codable, Sendable {
 
         return TicketLineItemMutationPayload(
             ticketID: ticketID,
+            serviceID: serviceID,
             sku: normalized(values["sku"]),
             partNumber: normalized(values["partNumber"]),
             description: description,
             quantity: quantity,
             unitPrice: unitPrice,
+            vendorID: vendorID,
             mergeMode: mergeMode
         )
     }
@@ -103,6 +111,7 @@ final class ActiveTicketContext {
 
     private(set) var openTickets: [TicketModel] = []
     private(set) var activeTicketID: String?
+    private(set) var activeServiceID: String?
     private(set) var isLoading = false
     var errorMessage: String?
 
@@ -121,6 +130,11 @@ final class ActiveTicketContext {
 
     func loadCachedState() async {
         activeTicketID = await ticketStore.activeTicketID()
+        if let activeTicketID {
+            activeServiceID = await ticketStore.selectedServiceID(forTicketID: activeTicketID)
+        } else {
+            activeServiceID = nil
+        }
         openTickets = await ticketStore.loadOpenTickets()
         if openTickets.isEmpty {
             await refreshOpenTickets(forceRemote: true)
@@ -154,6 +168,11 @@ final class ActiveTicketContext {
                !openTickets.contains(where: { $0.id == activeTicketID }) {
                 await setActiveTicketID(nil)
             }
+            if let activeTicketID {
+                activeServiceID = await ticketStore.selectedServiceID(forTicketID: activeTicketID)
+            } else {
+                activeServiceID = nil
+            }
         } catch {
             errorMessage = "Could not load open tickets."
             openTickets = await ticketStore.loadOpenTickets()
@@ -163,5 +182,30 @@ final class ActiveTicketContext {
     func setActiveTicketID(_ ticketID: String?) async {
         activeTicketID = ticketID
         await ticketStore.setActiveTicketID(ticketID)
+        if let ticketID {
+            activeServiceID = await ticketStore.selectedServiceID(forTicketID: ticketID)
+        } else {
+            activeServiceID = nil
+        }
+    }
+
+    func setActiveServiceID(_ serviceID: String?) async {
+        guard let activeTicketID else {
+            activeServiceID = nil
+            return
+        }
+        await ticketStore.setSelectedServiceID(serviceID, forTicketID: activeTicketID)
+        activeServiceID = await ticketStore.selectedServiceID(forTicketID: activeTicketID)
+    }
+
+    func selectedServiceID(for ticketID: String) async -> String? {
+        await ticketStore.selectedServiceID(forTicketID: ticketID)
+    }
+
+    func setSelectedServiceID(_ serviceID: String?, for ticketID: String) async {
+        await ticketStore.setSelectedServiceID(serviceID, forTicketID: ticketID)
+        if ticketID == activeTicketID {
+            activeServiceID = await ticketStore.selectedServiceID(forTicketID: ticketID)
+        }
     }
 }

@@ -25,6 +25,8 @@ protocol TicketStoring: Sendable {
     func activeTicketID() async -> String?
     func loadActiveTicket() async -> TicketModel?
     func setActiveTicketID(_ id: String?) async
+    func selectedServiceID(forTicketID ticketID: String) async -> String?
+    func setSelectedServiceID(_ serviceID: String?, forTicketID ticketID: String) async
     func hasMatchingLineItem(ticketID: String, sku: String?, partNumber: String?, description: String?) async -> Bool
     func findMatchingLineItem(ticketID: String, sku: String?, partNumber: String?, description: String?) async -> TicketLineItem?
     func applyAddedLineItem(
@@ -71,6 +73,16 @@ extension TicketStoring {
         _ = threshold
         return true
     }
+
+    func selectedServiceID(forTicketID ticketID: String) async -> String? {
+        _ = ticketID
+        return nil
+    }
+
+    func setSelectedServiceID(_ serviceID: String?, forTicketID ticketID: String) async {
+        _ = serviceID
+        _ = ticketID
+    }
 }
 
 actor TicketStore: TicketStoring {
@@ -81,6 +93,7 @@ actor TicketStore: TicketStoring {
         var tickets: [TicketModel]
         var activeTicketID: String?
         var lastRefreshedAt: Date?
+        var selectedServiceByTicketID: [String: String]?
     }
 
     private let fileURL: URL?
@@ -88,6 +101,7 @@ actor TicketStore: TicketStoring {
     private var ticketsByID: [String: TicketModel] = [:]
     private var selectedActiveTicketID: String?
     private var lastRefreshedAtValue: Date?
+    private var selectedServiceByTicketID: [String: String] = [:]
     private var inFlightPages: Set<Int> = []
 
     init(fileURL: URL? = nil) {
@@ -121,6 +135,7 @@ actor TicketStore: TicketStoring {
            ticketsByID[selectedActiveTicketID] == nil {
             self.selectedActiveTicketID = nil
         }
+        selectedServiceByTicketID = selectedServiceByTicketID.filter { ticketsByID[$0.key] != nil }
         persistStateIfNeeded()
     }
 
@@ -184,6 +199,7 @@ actor TicketStore: TicketStoring {
            ticketsByID[selectedActiveTicketID] == nil {
             self.selectedActiveTicketID = nil
         }
+        selectedServiceByTicketID = selectedServiceByTicketID.filter { ticketsByID[$0.key] != nil }
         persistStateIfNeeded()
         return true
     }
@@ -240,6 +256,33 @@ actor TicketStore: TicketStoring {
         selectedActiveTicketID = normalizedID(id ?? "")
         if selectedActiveTicketID?.isEmpty == true {
             selectedActiveTicketID = nil
+        }
+        persistStateIfNeeded()
+    }
+
+    func selectedServiceID(forTicketID ticketID: String) async -> String? {
+        loadStateIfNeeded()
+        let key = normalizedID(ticketID)
+        guard !key.isEmpty else { return nil }
+        return selectedServiceByTicketID[key]
+    }
+
+    func setSelectedServiceID(_ serviceID: String?, forTicketID ticketID: String) async {
+        loadStateIfNeeded()
+        let ticketKey = normalizedID(ticketID)
+        guard !ticketKey.isEmpty else { return }
+
+        guard ticketsByID[ticketKey] != nil else {
+            selectedServiceByTicketID.removeValue(forKey: ticketKey)
+            persistStateIfNeeded()
+            return
+        }
+
+        let normalizedServiceID = normalizedID(serviceID ?? "")
+        if normalizedServiceID.isEmpty {
+            selectedServiceByTicketID.removeValue(forKey: ticketKey)
+        } else {
+            selectedServiceByTicketID[ticketKey] = normalizedServiceID
         }
         persistStateIfNeeded()
     }
@@ -318,6 +361,7 @@ actor TicketStore: TicketStoring {
         ticketsByID.removeAll(keepingCapacity: false)
         selectedActiveTicketID = nil
         lastRefreshedAtValue = nil
+        selectedServiceByTicketID.removeAll(keepingCapacity: false)
         inFlightPages.removeAll(keepingCapacity: false)
         persistStateIfNeeded()
     }
@@ -348,6 +392,13 @@ actor TicketStore: TicketStoring {
             selectedActiveTicketID = nil
         }
         lastRefreshedAtValue = decoded.lastRefreshedAt
+        selectedServiceByTicketID = (decoded.selectedServiceByTicketID ?? [:]).reduce(into: [:]) { partialResult, entry in
+            let ticketKey = normalizedID(entry.key)
+            let serviceID = normalizedID(entry.value)
+            guard !ticketKey.isEmpty, !serviceID.isEmpty else { return }
+            guard ticketsByID[ticketKey] != nil else { return }
+            partialResult[ticketKey] = serviceID
+        }
         enforceOpenTicketCap()
     }
 
@@ -356,7 +407,8 @@ actor TicketStore: TicketStoring {
         let persisted = PersistedState(
             tickets: Array(ticketsByID.values).sorted(by: Self.sortTickets),
             activeTicketID: selectedActiveTicketID,
-            lastRefreshedAt: lastRefreshedAtValue
+            lastRefreshedAt: lastRefreshedAtValue,
+            selectedServiceByTicketID: selectedServiceByTicketID.isEmpty ? nil : selectedServiceByTicketID
         )
 
         do {
@@ -488,5 +540,6 @@ actor TicketStore: TicketStoring {
            !keepIDs.contains(selectedActiveTicketID) {
             self.selectedActiveTicketID = nil
         }
+        selectedServiceByTicketID = selectedServiceByTicketID.filter { keepIDs.contains($0.key) }
     }
 }

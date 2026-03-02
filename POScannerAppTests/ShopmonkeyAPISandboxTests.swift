@@ -131,6 +131,22 @@ private func requestBodyString(_ request: URLRequest) -> String {
     return String(data: data, encoding: .utf8) ?? ""
 }
 
+private func requestBodyJSONObject(_ request: URLRequest) -> [String: Any]? {
+    guard let data = requestBodyString(request).data(using: .utf8), !data.isEmpty else {
+        return nil
+    }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+}
+
+private func fixtureData(named name: String) throws -> Data {
+    let fixturesDirectory = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .appendingPathComponent("Fixtures", isDirectory: true)
+        .appendingPathComponent("Shopmonkey", isDirectory: true)
+    let fileURL = fixturesDirectory.appendingPathComponent(name, isDirectory: false)
+    return try Data(contentsOf: fileURL)
+}
+
 @Suite(.serialized)
 struct ShopmonkeyAPISandboxTests {
     @Test func missingTokenThrowsMissingToken() async throws {
@@ -297,34 +313,26 @@ struct ShopmonkeyAPISandboxTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PurchaseOrderURLProtocol.self]
         let session = URLSession(configuration: configuration)
+        let fixture = try fixtureData(named: "inventory_part_search_response.json")
 
         PurchaseOrderURLProtocol.requestHandler = { request in
             guard let url = request.url else { throw URLError(.badURL) }
-            #expect(url.path == "/v3/part")
-            #expect(request.httpMethod == "GET")
+            #expect(url.host == "sandbox-api.shopmonkey.cloud")
+            #expect(url.path == "/v3/inventory_part/search")
+            #expect(url.absoluteString.contains("/v3/v3/") == false)
+            #expect(request.httpMethod == "POST")
+            #expect(request.value(forHTTPHeaderField: "Content-Type")?.contains("application/json") == true)
 
-            let body = Data(
-                #"""
-                {
-                  "data": [
-                    {
-                      "id": "part_1",
-                      "sku": "PAD-001",
-                      "part_number": "PAD-001",
-                      "description": "Front Brake Pad Set",
-                      "price": 99.95,
-                      "quantity_on_hand": 12,
-                      "vendor_id": "vendor_1",
-                      "updated_at": "2026-02-28T21:00:00Z"
-                    }
-                  ]
-                }
-                """#.utf8
-            )
+            let requestJSON = requestBodyJSONObject(request)
+            #expect(requestJSON?["limit"] as? String == nil)
+            #expect(requestJSON?["skip"] as? String == nil)
+            #expect((requestJSON?["limit"] as? NSNumber)?.intValue == 50)
+            #expect((requestJSON?["skip"] as? NSNumber)?.intValue == 0)
+
             guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
                 throw URLError(.badServerResponse)
             }
-            return (response, body)
+            return (response, fixture)
         }
 
         let client = APIClient(
@@ -336,11 +344,57 @@ struct ShopmonkeyAPISandboxTests {
         let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
 
         let items = try await api.fetchInventory()
-        #expect(items.count == 1)
-        #expect(items.first?.id == "part_1")
+        #expect(items.count == 2)
+        #expect(items.first?.id == "inv_part_1")
         #expect(items.first?.partNumber == "PAD-001")
         #expect(items.first?.description == "Front Brake Pad Set")
         #expect(items.first?.quantityOnHand == 12)
+    }
+
+    @Test func fetchInventoryMapsAuthAndTransientErrorsToDiagnostics() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PurchaseOrderURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        let client = APIClient(
+            baseURL: ShopmonkeyAPI.baseURL,
+            urlSession: session,
+            tokenProvider: { "token" },
+            fallbackRecorder: fallbackRecorder()
+        )
+        let api = ShopmonkeyAPI(client: client, fallbackRecorder: fallbackRecorder())
+
+        let cases: [(status: Int, expected: DiagnosticCode)] = [
+            (401, .authUnauthorized401),
+            (403, .authForbidden403),
+            (429, .netRate429),
+            (503, .apiServer5xx)
+        ]
+
+        for testCase in cases {
+            PurchaseOrderURLProtocol.requestHandler = { request in
+                guard let url = request.url else { throw URLError(.badURL) }
+                #expect(url.path == "/v3/inventory_part/search")
+                guard let response = HTTPURLResponse(
+                    url: url,
+                    statusCode: testCase.status,
+                    httpVersion: nil,
+                    headerFields: nil
+                ) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, Data())
+            }
+
+            do {
+                _ = try await api.fetchInventory()
+                #expect(Bool(false))
+            } catch let error as APIError {
+                #expect(error.diagnosticCode == testCase.expected)
+            } catch {
+                #expect(Bool(false))
+            }
+        }
     }
 
     @Test func addPartLineItemDecodesWrappedCreatedLineItem() async throws {

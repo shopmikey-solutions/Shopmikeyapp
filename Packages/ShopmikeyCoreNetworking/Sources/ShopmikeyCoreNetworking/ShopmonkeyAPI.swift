@@ -289,6 +289,11 @@ private struct ResultsWrapper<T: Decodable>: Decodable {
     let results: [T]
 }
 
+private struct InventoryPartSearchRequest: Encodable {
+    let limit: Int
+    let skip: Int
+}
+
 /// Shopmonkey sandbox API wrapper.
 public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
     #if DEBUG
@@ -576,10 +581,12 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         return decoded.value.lineItem
     }
 
-    /// GET /part
+    /// POST /inventory_part/search
     public func fetchInventory() async throws -> [InventoryItem] {
-        let url = try makeURL(path: "/part")
-        let decoded: ListOrWrapped<InventoryItem> = try await client.perform(.get, url: url)
+        let request = InventoryPartSearchRequest(limit: 50, skip: 0)
+        let url = try makeURL(path: "/inventory_part/search")
+        let body = try APIClient.encodeJSON(request)
+        let decoded: ListOrWrapped<InventoryItem> = try await client.perform(.post, url: url, body: body)
         return decoded.values
     }
 

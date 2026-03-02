@@ -1,0 +1,28 @@
+{
+  "data": [
+    {
+      "id": "inv_part_1",
+      "sku": "PAD-001",
+      "part_number": "PAD-001",
+      "description": "Front Brake Pad Set",
+      "quantity_on_hand": 12,
+      "unit_price": 99.95,
+      "vendor_id": "vendor_1",
+      "updated_at": "2026-02-28T21:00:00Z",
+      "extra_field_ignored": "ok"
+    },
+    {
+      "id": "inv_part_2",
+      "sku": "FILTER-002",
+      "part_number": "FILTER-002",
+      "description": "Oil Filter",
+      "quantity_on_hand": 4,
+      "unit_price": 12.5,
+      "vendor_id": "vendor_2",
+      "updated_at": "2026-02-28T22:00:00Z"
+    }
+  ],
+  "totalCount": 2,
+  "limit": 50,
+  "skip": 0
+}

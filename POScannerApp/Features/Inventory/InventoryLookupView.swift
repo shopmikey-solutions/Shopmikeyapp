@@ -5,6 +5,7 @@
 
 import SwiftUI
 import ShopmikeyCoreModels
+import ShopmikeyCoreNetworking
 
 struct InventoryLookupView: View {
     let environment: AppEnvironment
@@ -25,6 +26,7 @@ struct InventoryLookupView: View {
 
     init(environment: AppEnvironment) {
         self.environment = environment
+        let shopmonkeyAPI = environment.shopmonkeyAPI
         _viewModel = StateObject(
             wrappedValue: InventoryLookupViewModel(
                 inventoryStore: environment.inventoryStore,
@@ -32,7 +34,10 @@ struct InventoryLookupView: View {
                 purchaseOrderStore: environment.purchaseOrderStore,
                 syncOperationQueue: environment.syncOperationQueue,
                 syncEngine: environment.syncEngine,
-                dateProvider: environment.dateProvider
+                dateProvider: environment.dateProvider,
+                serviceResolver: { [shopmonkeyAPI] orderID in
+                    try await shopmonkeyAPI.fetchServices(orderId: orderID)
+                }
             )
         )
         _activeTicketContext = State(initialValue: ActiveTicketContext(
@@ -184,6 +189,14 @@ struct InventoryLookupView: View {
                         "Active Ticket",
                         value: activeTicket.displayNumber ?? activeTicket.number ?? activeTicket.id
                     )
+                    if let activeServiceID = activeTicketContext.activeServiceID {
+                        labeledRow("Selected Service", value: activeServiceID)
+                    } else {
+                        Text("Service not selected for this ticket.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("inventory.lookup.serviceMissing")
+                    }
                     Button("Add to Active Ticket") {
                         Task { @MainActor in
                             await handleAddToActiveTicketTapped()

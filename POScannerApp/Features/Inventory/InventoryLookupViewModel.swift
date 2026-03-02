@@ -5,7 +5,9 @@
 
 import Combine
 import Foundation
+import ShopmikeyCoreDiagnostics
 import ShopmikeyCoreModels
+import ShopmikeyCoreNetworking
 import ShopmikeyCoreSync
 
 @MainActor
@@ -43,6 +45,7 @@ final class InventoryLookupViewModel: ObservableObject {
     private let syncOperationQueue: SyncOperationQueueStore
     private let syncEngine: SyncEngine
     private let dateProvider: any DateProviding
+    private let serviceResolver: (@Sendable (String) async throws -> [ServiceSummary])?
 
     init(
         inventoryStore: InventoryStoring,
@@ -50,13 +53,15 @@ final class InventoryLookupViewModel: ObservableObject {
         purchaseOrderStore: any PurchaseOrderStoring = PurchaseOrderStore(),
         syncOperationQueue: SyncOperationQueueStore = .shared,
         syncEngine: SyncEngine? = nil,
-        dateProvider: any DateProviding = SystemDateProvider()
+        dateProvider: any DateProviding = SystemDateProvider(),
+        serviceResolver: (@Sendable (String) async throws -> [ServiceSummary])? = nil
     ) {
         self.inventoryStore = inventoryStore
         self.ticketStore = ticketStore
         self.purchaseOrderStore = purchaseOrderStore
         self.syncOperationQueue = syncOperationQueue
         self.dateProvider = dateProvider
+        self.serviceResolver = serviceResolver
         self.syncEngine = syncEngine ?? SyncEngine(
             queueStore: syncOperationQueue,
             executor: { _ in .succeeded }
@@ -135,8 +140,24 @@ final class InventoryLookupViewModel: ObservableObject {
             return
         }
 
+        guard let serviceID = await resolveServiceID(for: ticketID) else {
+            ticketMutationState = .failed(diagnosticCode: nil)
+            if ticketMutationMessage == nil {
+                ticketMutationMessage = "Select a ticket service before adding inventory."
+            }
+            lastTicketMutationOperationID = nil
+            return
+        }
+
+        guard let vendorID = Self.trimmed(item.vendorId) else {
+            ticketMutationState = .failed(diagnosticCode: nil)
+            ticketMutationMessage = "This inventory item is missing a vendor. Select or refresh inventory before adding."
+            lastTicketMutationOperationID = nil
+            return
+        }
+
         let ticketDataIsStale = await ticketStore.isStale(
-            now: Date(),
+            now: dateProvider.now,
             threshold: Self.mutationStalenessThreshold
         )
         if ticketDataIsStale {
@@ -155,11 +176,13 @@ final class InventoryLookupViewModel: ObservableObject {
 
         let payload = TicketLineItemMutationPayload(
             ticketID: ticketID,
+            serviceID: serviceID,
             sku: Self.trimmed(item.sku),
             partNumber: Self.trimmed(item.partNumber),
             description: item.description,
             quantity: 1,
             unitPrice: item.price,
+            vendorID: vendorID,
             mergeMode: mergeMode
         )
 
@@ -190,7 +213,9 @@ final class InventoryLookupViewModel: ObservableObject {
             ticketMutationMessage = "Queued for retry."
         case .failed:
             ticketMutationState = .failed(diagnosticCode: persisted.lastErrorCode)
-            if let code = persisted.lastErrorCode {
+            if persisted.lastErrorCode == DiagnosticCode.submitValidatePayload.rawValue {
+                ticketMutationMessage = "Ticket context changed. Re-run add action after selecting a service."
+            } else if let code = persisted.lastErrorCode {
                 ticketMutationMessage = "Could not add to ticket. (ID: \(code))"
             } else {
                 ticketMutationMessage = "Could not add to ticket."
@@ -255,7 +280,7 @@ final class InventoryLookupViewModel: ObservableObject {
             openPurchaseOrders: openPurchaseOrders
         )
 
-        let now = Date()
+        let now = dateProvider.now
         let inventoryIsStale = await inventoryStore.isStale(now: now, threshold: Self.mutationStalenessThreshold)
         let ticketIsStale = await ticketStore.isStale(now: now, threshold: Self.mutationStalenessThreshold)
         let purchaseOrdersAreStale = await purchaseOrderStore.isStale(now: now, threshold: Self.mutationStalenessThreshold)
@@ -280,5 +305,39 @@ final class InventoryLookupViewModel: ObservableObject {
             break
         }
         scanSuggestion = suggestion
+    }
+
+    private func resolveServiceID(for ticketID: String) async -> String? {
+        if let cached = await ticketStore.selectedServiceID(forTicketID: ticketID) {
+            return cached
+        }
+
+        guard let serviceResolver else {
+            ticketMutationMessage = "No cached service for this ticket. Select one in Tickets first."
+            return nil
+        }
+
+        do {
+            let services = try await serviceResolver(ticketID)
+            let normalizedServices = services.compactMap { service -> ServiceSummary? in
+                guard let id = Self.trimmed(service.id) else { return nil }
+                return ServiceSummary(id: id, name: service.name)
+            }
+
+            if normalizedServices.count == 1, let only = normalizedServices.first {
+                await ticketStore.setSelectedServiceID(only.id, forTicketID: ticketID)
+                return only.id
+            }
+
+            if normalizedServices.isEmpty {
+                ticketMutationMessage = "No services found for this ticket. Select a different ticket."
+            } else {
+                ticketMutationMessage = "Multiple services found. Select one from Tickets before adding items."
+            }
+            return nil
+        } catch {
+            ticketMutationMessage = "Unable to load ticket services while offline. Select a cached service first."
+            return nil
+        }
     }
 }

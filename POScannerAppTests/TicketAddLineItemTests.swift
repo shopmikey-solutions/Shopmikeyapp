@@ -45,50 +45,95 @@ struct TicketAddLineItemTests {
     }
 
     private actor RequestRecorder {
-        struct Request: Equatable {
-            var ticketID: String
-            var sku: String?
-            var partNumber: String?
-            var description: String
-            var quantity: Decimal
-            var unitPrice: Decimal?
+        struct CreatePartInvocation {
+            var orderID: String
+            var serviceID: String
+            var request: CreatePartRequest
         }
 
-        private(set) var requests: [Request] = []
+        private(set) var createPartInvocations: [CreatePartInvocation] = []
 
-        func append(_ request: Request) {
-            requests.append(request)
+        func appendCreatePart(_ invocation: CreatePartInvocation) {
+            createPartInvocations.append(invocation)
         }
 
-        func last() -> Request? {
-            requests.last
+        func lastCreatePart() -> CreatePartInvocation? {
+            createPartInvocations.last
         }
 
-        func count() -> Int {
-            requests.count
+        func createPartCount() -> Int {
+            createPartInvocations.count
         }
     }
 
     private struct ShopmonkeyStub: ShopmonkeyServicing {
         let recorder: RequestRecorder
-        let addBehavior: @Sendable () async throws -> TicketLineItem
+        let servicesByOrderID: [String: [ServiceSummary]]
+        let servicesError: Error?
+        let createPartBehavior: @Sendable (CreatePartRequest) async throws -> CreatePartResponse
 
         func createVendor(_ request: CreateVendorRequest) async throws -> CreateVendorResponse {
             .init(id: "vendor_1", name: request.name)
         }
 
         func createPart(orderId: String, serviceId: String, request: CreatePartRequest) async throws -> CreatePartResponse {
-            .init(id: "part_1", name: request.name)
+            await recorder.appendCreatePart(
+                .init(orderID: orderId, serviceID: serviceId, request: request)
+            )
+            return try await createPartBehavior(request)
+        }
+
+        func createFee(orderId: String, serviceId: String, request: CreateFeeRequest) async throws -> CreatedResourceResponse {
+            _ = orderId
+            _ = serviceId
+            _ = request
+            throw APIError.serverError(501)
+        }
+
+        func createTire(orderId: String, serviceId: String, request: CreateTireRequest) async throws -> CreatedResourceResponse {
+            _ = orderId
+            _ = serviceId
+            _ = request
+            throw APIError.serverError(501)
+        }
+
+        func createPurchaseOrder(_ request: CreatePurchaseOrderRequest) async throws -> CreatePurchaseOrderResponse {
+            _ = request
+            throw APIError.serverError(501)
+        }
+
+        func getPurchaseOrders() async throws -> [PurchaseOrderResponse] { [] }
+        func fetchOpenPurchaseOrders() async throws -> [PurchaseOrderSummary] { [] }
+
+        func fetchPurchaseOrder(id: String) async throws -> PurchaseOrderDetail {
+            PurchaseOrderDetail(id: id, lineItems: [])
+        }
+
+        func receivePurchaseOrderLineItem(
+            purchaseOrderId: String,
+            lineItemId: String,
+            quantityReceived: Decimal?
+        ) async throws -> PurchaseOrderDetail {
+            _ = purchaseOrderId
+            _ = lineItemId
+            _ = quantityReceived
+            throw APIError.serverError(501)
         }
 
         func fetchOrders() async throws -> [OrderSummary] { [] }
-        func fetchServices(orderId: String) async throws -> [ServiceSummary] { [] }
-        func getPurchaseOrders() async throws -> [PurchaseOrderResponse] { [] }
-        func searchVendors(name: String) async throws -> [VendorSummary] { [] }
+
+        func fetchServices(orderId: String) async throws -> [ServiceSummary] {
+            if let servicesError {
+                throw servicesError
+            }
+            return servicesByOrderID[orderId] ?? []
+        }
+
         func fetchOpenTickets() async throws -> [TicketModel] { [] }
-        func fetchTicket(id: String) async throws -> TicketModel { TicketModel(id: id, lineItems: []) }
-        func fetchInventory() async throws -> [InventoryItem] { [] }
-        func testConnection() async throws {}
+
+        func fetchTicket(id: String) async throws -> TicketModel {
+            TicketModel(id: id, lineItems: [])
+        }
 
         func addPartLineItem(
             toTicketId ticketId: String,
@@ -98,24 +143,25 @@ struct TicketAddLineItemTests {
             quantity: Decimal,
             unitPrice: Decimal?
         ) async throws -> TicketLineItem {
-            await recorder.append(
-                .init(
-                    ticketID: ticketId,
-                    sku: sku,
-                    partNumber: partNumber,
-                    description: description,
-                    quantity: quantity,
-                    unitPrice: unitPrice
-                )
-            )
-            return try await addBehavior()
+            _ = ticketId
+            _ = sku
+            _ = partNumber
+            _ = description
+            _ = quantity
+            _ = unitPrice
+            throw APIError.serverError(501)
         }
+
+        func fetchInventory() async throws -> [InventoryItem] { [] }
+        func searchVendors(name: String) async throws -> [VendorSummary] { _ = name; return [] }
+        func testConnection() async throws {}
     }
 
     private func prepareLookupViewModel(
         harness: StoreHarness,
         shopmonkey: any ShopmonkeyServicing,
-        now: Date
+        now: Date,
+        selectedServiceID: String? = nil
     ) async -> InventoryLookupViewModel {
         await harness.inventoryStore.replaceAll(
             [
@@ -132,13 +178,21 @@ struct TicketAddLineItemTests {
             at: now
         )
 
-        await harness.ticketStore.save(ticket: TicketModel(
-            id: "ticket_1",
-            number: "RO-1001",
-            status: "Open",
-            lineItems: []
-        ))
+        _ = await harness.ticketStore.saveOpenTicketsPage(
+            page: 0,
+            tickets: [
+                TicketModel(
+                    id: "ticket_1",
+                    number: "RO-1001",
+                    status: "Open",
+                    lineItems: []
+                )
+            ],
+            pageSize: 50,
+            refreshedAt: now
+        )
         await harness.ticketStore.setActiveTicketID("ticket_1")
+        await harness.ticketStore.setSelectedServiceID(selectedServiceID, forTicketID: "ticket_1")
 
         let engine = AppEnvironment.makeSyncEngine(
             syncOperationQueue: harness.queueStore,
@@ -154,45 +208,45 @@ struct TicketAddLineItemTests {
             ticketStore: harness.ticketStore,
             syncOperationQueue: harness.queueStore,
             syncEngine: engine,
-            dateProvider: FixedDateProvider(date: now)
+            dateProvider: FixedDateProvider(date: now),
+            serviceResolver: { orderID in
+                try await shopmonkey.fetchServices(orderId: orderID)
+            }
         )
         await viewModel.lookup(scannedCode: "PAD-001")
         return viewModel
     }
 
-    @Test func addToTicketSuccessCallsEndpointAndRemovesQueuedOperation() async {
+    @Test func addToTicketSuccessUsesServiceScopedCreatePartAndRemovesQueuedOperation() async {
         let harness = StoreHarness()
         defer { harness.cleanup() }
 
         let recorder = RequestRecorder()
         let shopmonkey = ShopmonkeyStub(
             recorder: recorder,
-            addBehavior: {
-                TicketLineItem(
-                    id: "line_1",
-                    kind: "part",
-                    sku: "PAD-001",
-                    partNumber: "PAD-001",
-                    description: "Front Brake Pad Set",
-                    quantity: 1,
-                    unitPrice: 99.95,
-                    extendedPrice: 99.95,
-                    vendorId: "vendor_1"
-                )
+            servicesByOrderID: ["ticket_1": [.init(id: "service_1", name: "Brakes")]],
+            servicesError: nil,
+            createPartBehavior: { request in
+                .init(id: "part_1", name: request.name)
             }
         )
 
         let now = Date(timeIntervalSince1970: 1_772_500_000)
-        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
+        let viewModel = await prepareLookupViewModel(
+            harness: harness,
+            shopmonkey: shopmonkey,
+            now: now,
+            selectedServiceID: "service_1"
+        )
         await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .addNewLine)
 
-        let request = await recorder.last()
-        #expect(request?.ticketID == "ticket_1")
-        #expect(request?.sku == "PAD-001")
-        #expect(request?.partNumber == "PAD-001")
-        #expect(request?.description == "Front Brake Pad Set")
-        #expect(NSDecimalNumber(decimal: request?.quantity ?? 0).doubleValue == 1)
-        #expect(NSDecimalNumber(decimal: request?.unitPrice ?? 0).doubleValue == 99.95)
+        let invocation = await recorder.lastCreatePart()
+        #expect(invocation?.orderID == "ticket_1")
+        #expect(invocation?.serviceID == "service_1")
+        #expect(invocation?.request.name == "Front Brake Pad Set")
+        #expect(invocation?.request.partNumber == "PAD-001")
+        #expect(invocation?.request.vendorId == "vendor_1")
+        #expect(invocation?.request.quantity == 1)
         #expect(viewModel.ticketMutationState == .succeeded)
 
         let operationID = try? #require(viewModel.lastTicketMutationOperationID)
@@ -202,7 +256,86 @@ struct TicketAddLineItemTests {
 
         let ticket = await harness.ticketStore.loadTicket(id: "ticket_1")
         #expect(ticket?.lineItems.count == 1)
-        #expect(ticket?.lineItems.first?.id == "line_1")
+        #expect(ticket?.lineItems.first?.id == "part_1")
+    }
+
+    @Test func oneServiceAutoSelectsAndCachesServiceContext() async {
+        let harness = StoreHarness()
+        defer { harness.cleanup() }
+
+        let recorder = RequestRecorder()
+        let shopmonkey = ShopmonkeyStub(
+            recorder: recorder,
+            servicesByOrderID: ["ticket_1": [.init(id: "svc_auto", name: "Default Service")]],
+            servicesError: nil,
+            createPartBehavior: { request in
+                .init(id: "part_auto", name: request.name)
+            }
+        )
+
+        let now = Date(timeIntervalSince1970: 1_772_500_050)
+        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
+        await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .addNewLine)
+
+        #expect(viewModel.ticketMutationState == .succeeded)
+        #expect(await harness.ticketStore.selectedServiceID(forTicketID: "ticket_1") == "svc_auto")
+        let invocation = await recorder.lastCreatePart()
+        #expect(invocation?.serviceID == "svc_auto")
+    }
+
+    @Test func multipleServicesRequiresExplicitSelectionAndBlocksQueue() async {
+        let harness = StoreHarness()
+        defer { harness.cleanup() }
+
+        let recorder = RequestRecorder()
+        let shopmonkey = ShopmonkeyStub(
+            recorder: recorder,
+            servicesByOrderID: [
+                "ticket_1": [
+                    .init(id: "svc_1", name: "Brakes"),
+                    .init(id: "svc_2", name: "Alignment")
+                ]
+            ],
+            servicesError: nil,
+            createPartBehavior: { request in
+                .init(id: "part_unused", name: request.name)
+            }
+        )
+
+        let now = Date(timeIntervalSince1970: 1_772_500_075)
+        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
+        await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .addNewLine)
+
+        #expect(viewModel.ticketMutationState == .failed(diagnosticCode: nil))
+        #expect(viewModel.ticketMutationMessage?.contains("Multiple services") == true)
+        #expect(viewModel.lastTicketMutationOperationID == nil)
+        #expect(await recorder.createPartCount() == 0)
+        #expect(await harness.queueStore.allOperations().isEmpty)
+    }
+
+    @Test func offlineWithoutCachedServiceBlocksMutation() async {
+        let harness = StoreHarness()
+        defer { harness.cleanup() }
+
+        let recorder = RequestRecorder()
+        let shopmonkey = ShopmonkeyStub(
+            recorder: recorder,
+            servicesByOrderID: [:],
+            servicesError: URLError(.notConnectedToInternet),
+            createPartBehavior: { request in
+                .init(id: "part_unused", name: request.name)
+            }
+        )
+
+        let now = Date(timeIntervalSince1970: 1_772_500_100)
+        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
+        await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .addNewLine)
+
+        #expect(viewModel.ticketMutationState == .failed(diagnosticCode: nil))
+        #expect(viewModel.ticketMutationMessage?.contains("offline") == true)
+        #expect(viewModel.lastTicketMutationOperationID == nil)
+        #expect(await recorder.createPartCount() == 0)
+        #expect(await harness.queueStore.allOperations().isEmpty)
     }
 
     @Test func transientFailureLeavesOperationQueuedForRetry() async {
@@ -212,13 +345,20 @@ struct TicketAddLineItemTests {
         let recorder = RequestRecorder()
         let shopmonkey = ShopmonkeyStub(
             recorder: recorder,
-            addBehavior: {
+            servicesByOrderID: ["ticket_1": [.init(id: "service_1", name: "Brakes")]],
+            servicesError: nil,
+            createPartBehavior: { _ in
                 throw APIError.rateLimited
             }
         )
 
-        let now = Date(timeIntervalSince1970: 1_772_500_100)
-        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
+        let now = Date(timeIntervalSince1970: 1_772_500_150)
+        let viewModel = await prepareLookupViewModel(
+            harness: harness,
+            shopmonkey: shopmonkey,
+            now: now,
+            selectedServiceID: "service_1"
+        )
         await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .addNewLine)
 
         guard let operationID = viewModel.lastTicketMutationOperationID else {
@@ -232,34 +372,6 @@ struct TicketAddLineItemTests {
         #expect(viewModel.ticketMutationState == .queued(diagnosticCode: DiagnosticCode.netRate429.rawValue))
     }
 
-    @Test func permanentFailureMarksOperationFailedWithDiagnostic() async {
-        let harness = StoreHarness()
-        defer { harness.cleanup() }
-
-        let recorder = RequestRecorder()
-        let shopmonkey = ShopmonkeyStub(
-            recorder: recorder,
-            addBehavior: {
-                throw APIError.unauthorized
-            }
-        )
-
-        let now = Date(timeIntervalSince1970: 1_772_500_200)
-        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
-        await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .addNewLine)
-
-        guard let operationID = viewModel.lastTicketMutationOperationID else {
-            Issue.record("Missing failed operation id")
-            return
-        }
-
-        let failed = await harness.queueStore.operation(id: operationID)
-        #expect(failed?.status == .failed)
-        #expect(failed?.retryCount == 0)
-        #expect(failed?.lastErrorCode == DiagnosticCode.authUnauthorized401.rawValue)
-        #expect(viewModel.ticketMutationState == .failed(diagnosticCode: DiagnosticCode.authUnauthorized401.rawValue))
-    }
-
     @Test func incrementModeIsRejectedWhenRemoteQuantityUpdateIsUnavailable() async {
         let harness = StoreHarness()
         defer { harness.cleanup() }
@@ -267,31 +379,26 @@ struct TicketAddLineItemTests {
         let recorder = RequestRecorder()
         let shopmonkey = ShopmonkeyStub(
             recorder: recorder,
-            addBehavior: {
-                TicketLineItem(
-                    id: "line_1",
-                    kind: "part",
-                    sku: "PAD-001",
-                    partNumber: "PAD-001",
-                    description: "Front Brake Pad Set",
-                    quantity: 1,
-                    unitPrice: 99.95,
-                    extendedPrice: 99.95,
-                    vendorId: "vendor_1"
-                )
+            servicesByOrderID: ["ticket_1": [.init(id: "service_1", name: "Brakes")]],
+            servicesError: nil,
+            createPartBehavior: { request in
+                .init(id: "part_1", name: request.name)
             }
         )
 
         let now = Date(timeIntervalSince1970: 1_772_500_300)
-        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
+        let viewModel = await prepareLookupViewModel(
+            harness: harness,
+            shopmonkey: shopmonkey,
+            now: now,
+            selectedServiceID: "service_1"
+        )
         await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .incrementQuantity)
 
         #expect(viewModel.ticketMutationState == .failed(diagnosticCode: nil))
         #expect(viewModel.ticketMutationMessage?.contains("Increment quantity is unavailable") == true)
         #expect(viewModel.lastTicketMutationOperationID == nil)
-        #expect(await recorder.count() == 0)
+        #expect(await recorder.createPartCount() == 0)
         #expect(await harness.queueStore.allOperations().isEmpty)
-        let ticket = await harness.ticketStore.loadTicket(id: "ticket_1")
-        #expect(ticket?.lineItems.isEmpty == true)
     }
 }

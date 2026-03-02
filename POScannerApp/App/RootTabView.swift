@@ -11,7 +11,7 @@ struct RootTabView: View {
         case scan
         case inventory
         case operations
-        case history
+        case tickets
         case settings
     }
 
@@ -88,22 +88,19 @@ struct RootTabView: View {
             .accessibilityIdentifier("tab.operations")
 
             NavigationStack {
-                if loadedTabs.contains(.history) {
-                    HistoryView(
-                        environment: environment,
-                        isTabActive: selectedTab == .history
-                    )
+                if loadedTabs.contains(.tickets) {
+                    TicketsView(environment: environment)
                 } else {
                     Color.clear
                 }
             }
-            .tag(Tab.history)
+            .tag(Tab.tickets)
             .tabItem {
-                Label("History", systemImage: "clock")
+                Label("Tickets", systemImage: "wrench.and.screwdriver")
             }
-            .accessibilityLabel("History")
-            .accessibilityHint("Browse submitted purchase orders and in-progress drafts.")
-            .accessibilityIdentifier("tab.history")
+            .accessibilityLabel("Tickets")
+            .accessibilityHint("Browse open tickets and set active ticket context.")
+            .accessibilityIdentifier("tab.tickets")
 
             NavigationStack {
                 if loadedTabs.contains(.settings) {
@@ -241,7 +238,7 @@ struct RootTabView: View {
                 self.pendingDeepLinkTask = nil
             }
         case .history:
-            selectedTab = .history
+            selectedTab = .tickets
             UserDefaults.standard.removeObject(forKey: self.pendingResumeDraftDefaultsKey)
             UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
             pendingDeepLinkTask?.cancel()

@@ -1,1 +1,12 @@
 artifacts/
+
+# SwiftPM generated metadata (do not commit)
+Packages/**/.swiftpm/
+.swiftpm/
+
+# Xcode per-user state (noise)
+**/xcuserdata/
+*.xcuserstate
+
+# macOS filesystem noise
+.DS_Store

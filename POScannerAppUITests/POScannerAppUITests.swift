@@ -208,6 +208,36 @@ final class POScannerAppUITests: XCTestCase {
     }
 
     @MainActor
+    func testSubmissionHealthNavigation() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Settings"].tap()
+
+        let brandedSettingsNavBar = app.navigationBars["Shopmonkey Settings"]
+        let fallbackSettingsNavBar = app.navigationBars["Settings"]
+        XCTAssertTrue(
+            brandedSettingsNavBar.waitForExistence(timeout: 5)
+                || fallbackSettingsNavBar.waitForExistence(timeout: 5)
+        )
+
+        let submissionHealthRow = app.buttons["settings.submissionHealth"]
+        if let settingsList = scrollContainer(in: app) {
+            ensureVisible(submissionHealthRow, in: settingsList, maxScrollAttempts: 10)
+        }
+        XCTAssertTrue(submissionHealthRow.waitForExistence(timeout: 5))
+        submissionHealthRow.tap()
+
+        XCTAssertTrue(app.navigationBars["Submission Health"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.tables["submissionHealth.list"].waitForExistence(timeout: 5)
+                || app.collectionViews["submissionHealth.list"].waitForExistence(timeout: 5)
+                || app.otherElements["submissionHealth.list"].waitForExistence(timeout: 5)
+        )
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()

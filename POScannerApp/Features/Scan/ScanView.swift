@@ -7,6 +7,8 @@ import SwiftUI
 import ShopmikeyCoreModels
 import VisionKit
 import PhotosUI
+import PDFKit
+import UniformTypeIdentifiers
 import os
 
 struct ScanView: View {
@@ -17,6 +19,7 @@ struct ScanView: View {
         let showScanner: Bool
         let showPhotoPicker: Bool
         let isImportingPhoto: Bool
+        let isImportingFile: Bool
     }
 
     private struct LiveActivityPayloadSignature: Equatable {
@@ -34,15 +37,19 @@ struct ScanView: View {
     }
 
     let isTabActive: Bool
+    let launchAction: ScanLaunchAction
 
     @AppStorage("ignoreTaxAndTotals") private var ignoreTaxAndTotals: Bool = false
     @State private var showScanner: Bool = false
     @State private var showSourceSheet: Bool = false
     @State private var showPhotoPicker: Bool = false
+    @State private var showFileImporter: Bool = false
     @State private var pendingCaptureSource: PendingCaptureSource?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isImportingPhoto: Bool = false
+    @State private var isImportingFile: Bool = false
     @State private var showProcessingDetails: Bool = true
+    @State private var didConsumeLaunchAction: Bool = false
     @State private var hasPerformedInitialLoad: Bool = false
     @State private var initialLoadTask: Task<Void, Never>?
     @State private var draftStoreRefreshTask: Task<Void, Never>?
@@ -74,12 +81,18 @@ struct ScanView: View {
             showSourceSheet: self.showSourceSheet,
             showScanner: self.showScanner,
             showPhotoPicker: self.showPhotoPicker,
-            isImportingPhoto: self.isImportingPhoto
+            isImportingPhoto: self.isImportingPhoto,
+            isImportingFile: self.isImportingFile
         )
     }
 
-    init(environment: AppEnvironment, isTabActive: Bool = true) {
+    init(
+        environment: AppEnvironment,
+        isTabActive: Bool = true,
+        launchAction: ScanLaunchAction = .none
+    ) {
         self.isTabActive = isTabActive
+        self.launchAction = launchAction
         _viewModel = StateObject(wrappedValue: ScanViewModel(environment: environment))
     }
 
@@ -110,24 +123,42 @@ struct ScanView: View {
             matching: .images,
             preferredItemEncoding: .current
         )
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.image, .pdf],
+            allowsMultipleSelection: false
+        ) { result in
+            Task { @MainActor in
+                await self.importFile(result)
+            }
+        }
         .fullScreenCover(isPresented: $showScanner) {
             ZStack {
                 Color.black.ignoresSafeArea()
 
                 if VNDocumentCameraViewController.isSupported {
-                    VisionDocumentScanner(
-                        onScan: { image, orientation in
+                    DocumentCameraView(
+                        onScan: { pages in
                             self.showScanner = false
-                            Self.logger.debug("Camera capture completed. Routing image into OCR pipeline.")
+                            guard let image = pages.first else {
+                                self.viewModel.errorMessage = "No pages were scanned."
+                                AppHaptics.error()
+                                return
+                            }
+                            Self.logger.debug("Camera capture completed. Routing first scanned page into OCR pipeline.")
                             self.viewModel.handleScannedImage(
                                 image,
-                                orientation: orientation,
                                 ignoreTaxAndTotals: self.ignoreTaxAndTotals
                             )
                         },
                         onCancel: {
                             self.showScanner = false
                             Self.logger.debug("Camera capture cancelled.")
+                        },
+                        onError: { message in
+                            self.showScanner = false
+                            self.viewModel.errorMessage = message
+                            AppHaptics.error()
                         }
                     )
                 } else {
@@ -166,6 +197,7 @@ struct ScanView: View {
         }
         .onAppear {
             guard self.isTabActive else { return }
+            self.consumeLaunchActionIfNeeded()
             self.updateCaptureFlowBusyMarker()
             self.scheduleInitialDashboardRefresh(force: true)
             self.scheduleConsumePendingDeepLinkRequests(after: 140_000_000)
@@ -188,6 +220,7 @@ struct ScanView: View {
         }
         .onChange(of: isTabActive) { _, active in
             if active {
+                self.consumeLaunchActionIfNeeded()
                 self.updateCaptureFlowBusyMarker()
                 self.scheduleInitialDashboardRefresh()
                 self.scheduleDraftStoreRefresh()
@@ -488,8 +521,10 @@ struct ScanView: View {
             showScanner ||
             showSourceSheet ||
             showPhotoPicker ||
+            showFileImporter ||
             viewModel.isProcessing ||
             isImportingPhoto ||
+            isImportingFile ||
             isReviewFlowPresented
         )
         .accessibilityIdentifier("scan.scanButton")
@@ -551,7 +586,7 @@ struct ScanView: View {
             self.clearCaptureFlowIntentIfIdle()
             return
         }
-        guard !self.showScanner, !self.showPhotoPicker, !self.viewModel.isProcessing, !self.isImportingPhoto else { return }
+        guard !self.showScanner, !self.showPhotoPicker, !self.showFileImporter, !self.viewModel.isProcessing, !self.isImportingPhoto, !self.isImportingFile else { return }
         guard !self.isReviewFlowPresented else { return }
         self.pendingCaptureSource = nil
 
@@ -574,8 +609,10 @@ struct ScanView: View {
         !self.showScanner
             && !self.showSourceSheet
             && !self.showPhotoPicker
+            && !self.showFileImporter
             && !self.viewModel.isProcessing
             && !self.isImportingPhoto
+            && !self.isImportingFile
             && !self.isReviewFlowPresented
     }
 
@@ -584,7 +621,9 @@ struct ScanView: View {
             || self.showSourceSheet
             || self.showScanner
             || self.showPhotoPicker
+            || self.showFileImporter
             || self.isImportingPhoto
+            || self.isImportingFile
             || self.viewModel.isProcessing
     }
 
@@ -617,7 +656,7 @@ struct ScanView: View {
         guard !self.viewModel.isProcessing else { return }
         guard !self.isReviewFlowPresented else { return }
         guard !self.isCaptureFlowTransitionActive else { return }
-        guard !self.showSourceSheet, !self.showPhotoPicker, !self.showScanner else { return }
+        guard !self.showSourceSheet, !self.showPhotoPicker, !self.showFileImporter, !self.showScanner else { return }
         if let lastCaptureSourceSheetDismissedAt = self.lastCaptureSourceSheetDismissedAt,
            Date().timeIntervalSince(lastCaptureSourceSheetDismissedAt) < self.captureSourceSheetDismissCooldown {
             return
@@ -659,6 +698,7 @@ struct ScanView: View {
             || self.isReviewFlowPresented
             || self.showSourceSheet
             || self.showPhotoPicker
+            || self.showFileImporter
             || self.showScanner {
             UserDefaults.standard.set(draftID.uuidString, forKey: self.pendingResumeDraftDefaultsKey)
             UserDefaults.standard.removeObject(forKey: self.pendingOpenComposerDefaultsKey)
@@ -1033,7 +1073,9 @@ struct ScanView: View {
             || self.showSourceSheet
             || self.showScanner
             || self.showPhotoPicker
+            || self.showFileImporter
             || self.isImportingPhoto
+            || self.isImportingFile
         guard hasCaptureIntent else { return nil }
 
         if self.showScanner {
@@ -1052,6 +1094,17 @@ struct ScanView: View {
                 true,
                 "Importing invoice",
                 "Step 1 of 4 • Loading selected photo.",
+                0.24,
+                AppDeepLink.scanURL(openComposer: true),
+                "capture"
+            )
+        }
+
+        if self.isImportingFile {
+            return (
+                true,
+                "Importing file",
+                "Step 1 of 4 • Loading selected file.",
                 0.24,
                 AppDeepLink.scanURL(openComposer: true),
                 "capture"
@@ -1290,11 +1343,116 @@ struct ScanView: View {
     }
 
     @MainActor
+    private func importFile(_ result: Result<[URL], Error>) async {
+        guard !isImportingFile else { return }
+        isImportingFile = true
+        defer { isImportingFile = false }
+
+        do {
+            let selectedURLs = try result.get()
+            guard let selectedURL = selectedURLs.first else { return }
+
+            let hasSecurityScope = selectedURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityScope {
+                    selectedURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let image = try self.imageFromImportedFile(url: selectedURL)
+            viewModel.handleScannedImage(image, ignoreTaxAndTotals: ignoreTaxAndTotals)
+        } catch is CancellationError {
+            return
+        } catch {
+            viewModel.errorMessage = "Could not load the selected file."
+            AppHaptics.error()
+        }
+    }
+
+    private func imageFromImportedFile(url: URL) throws -> UIImage {
+        let contentType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+        let pathExtensionType = UTType(filenameExtension: url.pathExtension)
+        let resolvedType = contentType ?? pathExtensionType
+
+        if resolvedType?.conforms(to: .pdf) == true || url.pathExtension.lowercased() == "pdf" {
+            guard let document = PDFDocument(url: url),
+                  let firstPage = document.page(at: 0) else {
+                throw NSError(domain: "POScannerApp.ScanView", code: 1)
+            }
+            let pageBounds = firstPage.bounds(for: .mediaBox)
+            let renderSize = CGSize(
+                width: max(pageBounds.width, 1),
+                height: max(pageBounds.height, 1)
+            )
+            let renderer = UIGraphicsImageRenderer(size: renderSize)
+            return renderer.image { context in
+                UIColor.white.setFill()
+                context.fill(CGRect(origin: .zero, size: renderSize))
+                context.cgContext.saveGState()
+                context.cgContext.translateBy(x: 0, y: renderSize.height)
+                context.cgContext.scaleBy(x: 1, y: -1)
+                firstPage.draw(with: .mediaBox, to: context.cgContext)
+                context.cgContext.restoreGState()
+            }
+        }
+
+        guard let image = UIImage(contentsOfFile: url.path) else {
+            throw NSError(domain: "POScannerApp.ScanView", code: 2)
+        }
+        return image
+    }
+
+    @MainActor
+    private func consumeLaunchActionIfNeeded() {
+        guard !didConsumeLaunchAction else { return }
+        didConsumeLaunchAction = true
+
+        switch launchAction {
+        case .none:
+            break
+
+        case .openComposer:
+            if canPresentCaptureFlow {
+                presentCaptureFlow()
+            }
+
+        case .cameraDocument:
+            guard canPresentCaptureFlow else { return }
+            clearPendingScanDeepLinkIntents()
+            captureFlowIntentStartedAt = Date()
+            viewModel.prepareForNewCaptureSession()
+            showScanner = true
+
+        case .addFromPhoto:
+            guard canPresentCaptureFlow else { return }
+            clearPendingScanDeepLinkIntents()
+            captureFlowIntentStartedAt = Date()
+            viewModel.prepareForNewCaptureSession()
+            showPhotoPicker = true
+
+        case .addFromFiles:
+            guard canPresentCaptureFlow else { return }
+            clearPendingScanDeepLinkIntents()
+            captureFlowIntentStartedAt = Date()
+            viewModel.prepareForNewCaptureSession()
+            showFileImporter = true
+
+        case .openReviewFixture:
+            viewModel.openUITestReviewFixture()
+
+        case .resumeDraft(let draftID):
+            requestResumeDraftFromDeepLink(draftID)
+        }
+    }
+
+    @MainActor
     private func clearCaptureFlowIntentIfIdle() {
         guard !self.showSourceSheet else { return }
         guard !self.showScanner else { return }
         guard !self.showPhotoPicker else { return }
+        guard !self.showFileImporter else { return }
         guard !self.isImportingPhoto else { return }
+        guard !self.isImportingFile else { return }
         guard !self.viewModel.isProcessing else { return }
         self.captureFlowIntentStartedAt = nil
         self.viewModel.markCaptureFlowSessionPending(false)

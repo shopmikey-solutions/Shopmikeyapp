@@ -23,6 +23,12 @@ if [[ ! -d "$PROJECT_PATH" ]]; then
   exit 1
 fi
 
+if find . -name "* 2.swift" | grep -q .; then
+  echo "Error: duplicate '* 2.swift' files detected." >&2
+  find . -name "* 2.swift" -print >&2
+  exit 1
+fi
+
 mkdir -p "$CI_ARTIFACTS_DIR"
 rm -rf "$CI_XCRESULT_DIR" "$CI_REPORTS_DIR"
 mkdir -p "$CI_XCRESULT_DIR" "$CI_REPORTS_DIR"

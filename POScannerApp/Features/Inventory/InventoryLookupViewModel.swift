@@ -11,6 +11,7 @@ import ShopmikeyCoreSync
 @MainActor
 final class InventoryLookupViewModel: ObservableObject {
     private static let supportsRemoteQuantityIncrement = false
+    private static let mutationStalenessThreshold: TimeInterval = 10 * 60
 
     enum State: Equatable {
         case idle
@@ -98,35 +99,11 @@ final class InventoryLookupViewModel: ObservableObject {
             return
         }
 
-        let items = await inventoryStore.allItems()
-        var matchedInventoryItem: InventoryItem?
-
-        if let exactSkuMatch = items.first(where: {
-            Self.trimmed($0.sku) == exactScannedCode
-        }) {
-            state = .matchFound(exactSkuMatch)
-            matchedInventoryItem = exactSkuMatch
-        }
-
-        if matchedInventoryItem == nil,
-           let exactPartNumberMatch = items.first(where: {
-            Self.trimmed($0.partNumber) == exactScannedCode
-        }) {
-            state = .matchFound(exactPartNumberMatch)
-            matchedInventoryItem = exactPartNumberMatch
-        }
-
-        if matchedInventoryItem == nil {
-            if let normalizedScannedCode = Self.normalized(exactScannedCode),
-               let normalizedMatch = items.first(where: { item in
-                   Self.normalized(item.sku) == normalizedScannedCode ||
-                   Self.normalized(item.partNumber) == normalizedScannedCode
-               }) {
-                state = .matchFound(normalizedMatch)
-                matchedInventoryItem = normalizedMatch
-            } else {
-                state = .noMatch
-            }
+        let matchedInventoryItem = await inventoryStore.lookupItem(scannedCode: exactScannedCode)
+        if let matchedInventoryItem {
+            state = .matchFound(matchedInventoryItem)
+        } else {
+            state = .noMatch
         }
 
         await refreshSuggestion(scannedCode: exactScannedCode, inventoryMatch: matchedInventoryItem)
@@ -155,6 +132,17 @@ final class InventoryLookupViewModel: ObservableObject {
         guard let ticketID = Self.trimmed(rawTicketID) else {
             ticketMutationState = .failed(diagnosticCode: nil)
             ticketMutationMessage = "Select an active ticket before adding."
+            return
+        }
+
+        let ticketDataIsStale = await ticketStore.isStale(
+            now: Date(),
+            threshold: Self.mutationStalenessThreshold
+        )
+        if ticketDataIsStale {
+            ticketMutationState = .failed(diagnosticCode: nil)
+            ticketMutationMessage = "Ticket data may be stale. Refresh tickets before proceeding."
+            lastTicketMutationOperationID = nil
             return
         }
 
@@ -260,11 +248,37 @@ final class InventoryLookupViewModel: ObservableObject {
     private func refreshSuggestion(scannedCode: String, inventoryMatch: InventoryItem?) async {
         let activeTicket = await ticketStore.loadActiveTicket()
         let openPurchaseOrders = await purchaseOrderStore.loadOpenPurchaseOrderDetails()
-        scanSuggestion = ScanSuggestionEngine.suggest(
+        var suggestion = ScanSuggestionEngine.suggest(
             scannedCode: scannedCode,
             inventoryMatch: inventoryMatch,
             activeTicket: activeTicket,
             openPurchaseOrders: openPurchaseOrders
         )
+
+        let now = Date()
+        let inventoryIsStale = await inventoryStore.isStale(now: now, threshold: Self.mutationStalenessThreshold)
+        let ticketIsStale = await ticketStore.isStale(now: now, threshold: Self.mutationStalenessThreshold)
+        let purchaseOrdersAreStale = await purchaseOrderStore.isStale(now: now, threshold: Self.mutationStalenessThreshold)
+
+        switch suggestion {
+        case .receivePO:
+            if purchaseOrdersAreStale {
+                suggestion = .none
+                draftMutationMessage = "Purchase order data may be stale. Refresh purchase orders before receiving."
+            }
+        case .addToTicket:
+            if ticketIsStale {
+                suggestion = .none
+                ticketMutationMessage = "Ticket data may be stale. Refresh tickets before adding."
+            }
+        case .addToPODraft:
+            if inventoryIsStale {
+                suggestion = .none
+                draftMutationMessage = "Inventory data may be stale. Refresh inventory before restocking."
+            }
+        case .none:
+            break
+        }
+        scanSuggestion = suggestion
     }
 }

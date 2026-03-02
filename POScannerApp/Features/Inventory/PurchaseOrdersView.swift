@@ -8,14 +8,46 @@ import ShopmikeyCoreNetworking
 import SwiftUI
 
 struct PurchaseOrdersView: View {
+    private static let pageSize = PurchaseOrderStore.defaultPageSize
+    private static let stalenessThreshold: TimeInterval = 10 * 60
+
     let environment: AppEnvironment
 
     @State private var purchaseOrders: [PurchaseOrderSummary] = []
+    @State private var currentPage = 0
+    @State private var hasMorePages = false
     @State private var isRefreshing = false
     @State private var errorMessage: String?
+    @State private var stalePromptDismissed = false
+    @State private var isStale = false
 
     var body: some View {
         List {
+            if isStale && !stalePromptDismissed {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Purchase order data may be stale.")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Refresh before using this data for receive actions.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("Refresh") {
+                            Task { await refreshFromAPI() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("purchaseOrders.staleRefreshButton")
+
+                        Button("Cancel") {
+                            stalePromptDismissed = true
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("purchaseOrders.staleCancelButton")
+                    }
+                }
+                .padding(.vertical, 4)
+                .accessibilityIdentifier("purchaseOrders.stalePrompt")
+            }
+
             if isRefreshing, purchaseOrders.isEmpty {
                 ProgressView("Loading purchase orders…")
                     .accessibilityIdentifier("purchaseOrders.loading")
@@ -65,6 +97,14 @@ struct PurchaseOrdersView: View {
                     }
                     .accessibilityIdentifier("purchaseOrders.row.\(purchaseOrder.id)")
                 }
+
+                if hasMorePages {
+                    Button("Load More") {
+                        Task { await loadNextPage() }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityIdentifier("purchaseOrders.loadMore")
+                }
             }
 
             if let errorMessage {
@@ -97,7 +137,36 @@ struct PurchaseOrdersView: View {
 
     @MainActor
     private func loadFromStore() async {
-        purchaseOrders = await environment.purchaseOrderStore.loadOpenPurchaseOrders()
+        currentPage = 0
+        purchaseOrders = await environment.purchaseOrderStore.loadOpenPurchaseOrdersPage(
+            page: currentPage,
+            pageSize: Self.pageSize
+        )
+        let total = await environment.purchaseOrderStore.openPurchaseOrderCount()
+        hasMorePages = purchaseOrders.count < total
+        isStale = await environment.purchaseOrderStore.isStale(
+            now: Date(),
+            threshold: Self.stalenessThreshold
+        )
+        stalePromptDismissed = !isStale
+    }
+
+    @MainActor
+    private func loadNextPage() async {
+        guard hasMorePages else { return }
+        let nextPage = currentPage + 1
+        let nextBatch = await environment.purchaseOrderStore.loadOpenPurchaseOrdersPage(
+            page: nextPage,
+            pageSize: Self.pageSize
+        )
+        guard !nextBatch.isEmpty else {
+            hasMorePages = false
+            return
+        }
+        purchaseOrders.append(contentsOf: nextBatch)
+        currentPage = nextPage
+        let total = await environment.purchaseOrderStore.openPurchaseOrderCount()
+        hasMorePages = purchaseOrders.count < total
     }
 
     @MainActor
@@ -109,7 +178,18 @@ struct PurchaseOrdersView: View {
         do {
             let fetched = try await environment.shopmonkeyAPI.fetchOpenPurchaseOrders()
             await environment.purchaseOrderStore.saveOpenPurchaseOrders(fetched)
-            purchaseOrders = await environment.purchaseOrderStore.loadOpenPurchaseOrders()
+            currentPage = 0
+            purchaseOrders = await environment.purchaseOrderStore.loadOpenPurchaseOrdersPage(
+                page: currentPage,
+                pageSize: Self.pageSize
+            )
+            let total = await environment.purchaseOrderStore.openPurchaseOrderCount()
+            hasMorePages = purchaseOrders.count < total
+            isStale = await environment.purchaseOrderStore.isStale(
+                now: Date(),
+                threshold: Self.stalenessThreshold
+            )
+            stalePromptDismissed = !isStale
             errorMessage = nil
         } catch {
             errorMessage = "Could not refresh purchase orders."

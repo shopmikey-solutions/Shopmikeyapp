@@ -8,6 +8,7 @@ import ShopmikeyCoreModels
 
 protocol InventoryStoring: Sendable {
     func allItems() async -> [InventoryItem]
+    func lookupItem(scannedCode: String) async -> InventoryItem?
     func replaceAll(_ items: [InventoryItem], at date: Date) async
     func incrementOnHand(
         sku: String?,
@@ -16,12 +17,43 @@ protocol InventoryStoring: Sendable {
         by quantity: Decimal,
         at date: Date
     ) async -> Bool
+    func lastRefreshedAt() async -> Date?
+    func isStale(now: Date, threshold: TimeInterval) async -> Bool
     func lastUpdatedAt() async -> Date?
+}
+
+extension InventoryStoring {
+    func lookupItem(scannedCode: String) async -> InventoryItem? {
+        let trimmed = scannedCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let normalized = trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let all = await allItems()
+        if let skuMatch = all.first(where: {
+            $0.sku.trimmingCharacters(in: .whitespacesAndNewlines)
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == normalized
+        }) {
+            return skuMatch
+        }
+        return all.first(where: {
+            $0.partNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == normalized
+        })
+    }
+
+    func lastRefreshedAt() async -> Date? {
+        await lastUpdatedAt()
+    }
+
+    func isStale(now: Date, threshold: TimeInterval) async -> Bool {
+        guard let lastRefreshedAt = await lastRefreshedAt() else { return true }
+        return now.timeIntervalSince(lastRefreshedAt) > threshold
+    }
 }
 
 actor InventoryStore: InventoryStoring {
     private struct PersistedState: Codable {
         var items: [InventoryItem]
+        var lastRefreshedAt: Date?
         var lastUpdatedAt: Date?
     }
 
@@ -38,6 +70,9 @@ actor InventoryStore: InventoryStoring {
     private var hasLoadedState = false
     private var items: [InventoryItem] = []
     private var syncedAt: Date?
+    private var skuIndex: [String: Int] = [:]
+    private var partNumberIndex: [String: Int] = [:]
+    private var descriptionFallbackIndex: [String: Int] = [:]
     private var appliedReceiveKeys: [String] = []
     private var appliedReceiveKeySet: Set<String> = []
 
@@ -57,10 +92,30 @@ actor InventoryStore: InventoryStoring {
         return items
     }
 
+    func lookupItem(scannedCode: String) async -> InventoryItem? {
+        loadStateIfNeeded()
+        guard let normalizedCode = normalizedComparable(scannedCode) else { return nil }
+
+        if let skuMatch = skuIndex[normalizedCode] {
+            return items[safe: skuMatch]
+        }
+
+        if let partMatch = partNumberIndex[normalizedCode] {
+            return items[safe: partMatch]
+        }
+
+        if let descriptionMatch = descriptionFallbackIndex[normalizedCode] {
+            return items[safe: descriptionMatch]
+        }
+
+        return nil
+    }
+
     func replaceAll(_ items: [InventoryItem], at date: Date) async {
         loadStateIfNeeded()
         self.items = items.sorted(by: Self.sortInventoryItems)
         syncedAt = date
+        rebuildIndexes()
         persistStateIfNeeded()
     }
 
@@ -99,6 +154,7 @@ actor InventoryStore: InventoryStoring {
         items[index] = matched
         items.sort(by: Self.sortInventoryItems)
         syncedAt = date
+        rebuildIndexes()
         persistStateIfNeeded()
         if let receiveKey = receiveExtraction.receiveKey {
             recordAppliedReceiveKey(receiveKey)
@@ -106,9 +162,25 @@ actor InventoryStore: InventoryStoring {
         return true
     }
 
+    func lastRefreshedAt() async -> Date? {
+        loadStateIfNeeded()
+        return syncedAt
+    }
+
+    func isStale(now: Date, threshold: TimeInterval) async -> Bool {
+        loadStateIfNeeded()
+        guard let syncedAt else { return true }
+        return now.timeIntervalSince(syncedAt) > threshold
+    }
+
     func lastUpdatedAt() async -> Date? {
         loadStateIfNeeded()
         return syncedAt
+    }
+
+    func debugIndexCounts() async -> (sku: Int, partNumber: Int, descriptionFallback: Int) {
+        loadStateIfNeeded()
+        return (skuIndex.count, partNumberIndex.count, descriptionFallbackIndex.count)
     }
 
     private func loadStateIfNeeded() {
@@ -123,13 +195,18 @@ actor InventoryStore: InventoryStoring {
         }
 
         items = decoded.items.sorted(by: Self.sortInventoryItems)
-        syncedAt = decoded.lastUpdatedAt
+        syncedAt = decoded.lastRefreshedAt ?? decoded.lastUpdatedAt
+        rebuildIndexes()
     }
 
     private func persistStateIfNeeded() {
         guard let fileURL else { return }
 
-        let state = PersistedState(items: items, lastUpdatedAt: syncedAt)
+        let state = PersistedState(
+            items: items,
+            lastRefreshedAt: syncedAt,
+            lastUpdatedAt: syncedAt
+        )
         do {
             let directoryURL = fileURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
@@ -222,12 +299,12 @@ actor InventoryStore: InventoryStoring {
         description: String?
     ) -> Int? {
         if let sku, !sku.isEmpty,
-           let skuMatch = items.firstIndex(where: { normalizedComparable($0.sku) == sku }) {
+           let skuMatch = skuIndex[sku] {
             return skuMatch
         }
 
         if let partNumber, !partNumber.isEmpty,
-           let partMatch = items.firstIndex(where: { normalizedComparable($0.partNumber) == partNumber }) {
+           let partMatch = partNumberIndex[partNumber] {
             return partMatch
         }
 
@@ -238,13 +315,36 @@ actor InventoryStore: InventoryStoring {
             return nil
         }
 
-        return items.firstIndex { item in
-            guard normalizedComparable(item.sku) == nil,
-                  normalizedComparable(item.partNumber) == nil else {
-                return false
+        return descriptionFallbackIndex[description]
+    }
+
+    private func rebuildIndexes() {
+        var newSKUIndex: [String: Int] = [:]
+        var newPartNumberIndex: [String: Int] = [:]
+        var newDescriptionFallbackIndex: [String: Int] = [:]
+
+        newSKUIndex.reserveCapacity(items.count)
+        newPartNumberIndex.reserveCapacity(items.count)
+        newDescriptionFallbackIndex.reserveCapacity(items.count)
+
+        for (index, item) in items.enumerated() {
+            if let sku = normalizedComparable(item.sku), newSKUIndex[sku] == nil {
+                newSKUIndex[sku] = index
             }
-            return normalizedComparable(item.description) == description
+            if let partNumber = normalizedComparable(item.partNumber), newPartNumberIndex[partNumber] == nil {
+                newPartNumberIndex[partNumber] = index
+            }
+            if normalizedComparable(item.sku) == nil,
+               normalizedComparable(item.partNumber) == nil,
+               let description = normalizedComparable(item.description),
+               newDescriptionFallbackIndex[description] == nil {
+                newDescriptionFallbackIndex[description] = index
+            }
         }
+
+        skuIndex = newSKUIndex
+        partNumberIndex = newPartNumberIndex
+        descriptionFallbackIndex = newDescriptionFallbackIndex
     }
 
     private func normalizedComparable(_ value: String?) -> String? {
@@ -252,5 +352,12 @@ actor InventoryStore: InventoryStoring {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        guard index >= 0, index < count else { return nil }
+        return self[index]
     }
 }

@@ -369,6 +369,13 @@ struct SettingsView: View {
             Text("Shows advanced add-to-order and add-to-PO flows during parts intake review.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
+            NavigationLink {
+                SubmissionHealthView(syncOperationQueue: viewModel.environment.syncOperationQueue)
+            } label: {
+                Label("Submission Health", systemImage: "waveform.path.ecg")
+            }
+            .accessibilityIdentifier("settings.submissionHealth")
         }
     }
 

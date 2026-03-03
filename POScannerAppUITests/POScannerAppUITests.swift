@@ -294,15 +294,15 @@ final class POScannerAppUITests: XCTestCase {
     }
 
     @MainActor
-    func testTabSwitchFromOperationsQuickNav() throws {
+    func testTabSwitchFromDashboardCards() throws {
         let app = XCUIApplication()
         app.launch()
 
         XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
-        app.tabBars.buttons["Operations"].tap()
-        XCTAssertTrue(app.navigationBars["Operations"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Dashboard"].tap()
+        XCTAssertTrue(app.navigationBars["Dashboard"].waitForExistence(timeout: 5))
 
-        let goToTicketsButton = app.buttons["operations.goToTickets"]
+        let goToTicketsButton = app.buttons["dashboard.card.openTickets"]
         if let operationsList = scrollContainer(in: app) {
             ensureVisible(goToTicketsButton, in: operationsList, maxScrollAttempts: 10)
         }

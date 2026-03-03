@@ -82,10 +82,10 @@ struct RootTabView: View {
             }
             .tag(RootTab.operations)
             .tabItem {
-                Label("Operations", systemImage: "gauge.with.dots.needle.bottom.50percent")
+                Label("Dashboard", systemImage: "gauge.with.dots.needle.bottom.50percent")
             }
-            .accessibilityLabel("Operations")
-            .accessibilityHint("Review operational counts and navigate to inventory, tickets, purchase orders, and sync health.")
+            .accessibilityLabel("Dashboard")
+            .accessibilityHint("Review operational counts and open inventory, tickets, purchase orders, and settings.")
             .accessibilityIdentifier("tab.operations")
 
             NavigationStack {

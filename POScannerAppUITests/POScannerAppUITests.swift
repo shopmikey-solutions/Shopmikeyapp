@@ -222,9 +222,23 @@ final class POScannerAppUITests: XCTestCase {
                 || fallbackSettingsNavBar.waitForExistence(timeout: 5)
         )
 
-        let submissionHealthRow = app.buttons["settings.submissionHealth"]
+        let diagnosticsRow = app.buttons["settings.diagnostics"]
         if let settingsList = scrollContainer(in: app) {
-            ensureVisible(submissionHealthRow, in: settingsList, maxScrollAttempts: 10)
+            ensureVisible(diagnosticsRow, in: settingsList, maxScrollAttempts: 10)
+        }
+        XCTAssertTrue(diagnosticsRow.waitForExistence(timeout: 5))
+        diagnosticsRow.tap()
+
+        XCTAssertTrue(app.navigationBars["Diagnostics"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.tables["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+                || app.collectionViews["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+                || app.otherElements["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+        )
+
+        let submissionHealthRow = app.buttons["diagnosticsCenter.syncQueue"]
+        if let diagnosticsList = scrollContainer(in: app) {
+            ensureVisible(submissionHealthRow, in: diagnosticsList, maxScrollAttempts: 10)
         }
         XCTAssertTrue(submissionHealthRow.waitForExistence(timeout: 5))
         submissionHealthRow.tap()
@@ -252,9 +266,23 @@ final class POScannerAppUITests: XCTestCase {
                 || fallbackSettingsNavBar.waitForExistence(timeout: 5)
         )
 
-        let exportDiagnosticsRow = app.buttons["settings.exportDiagnostics"]
+        let diagnosticsRow = app.buttons["settings.diagnostics"]
         if let settingsList = scrollContainer(in: app) {
-            ensureVisible(exportDiagnosticsRow, in: settingsList, maxScrollAttempts: 10)
+            ensureVisible(diagnosticsRow, in: settingsList, maxScrollAttempts: 10)
+        }
+        XCTAssertTrue(diagnosticsRow.waitForExistence(timeout: 5))
+        diagnosticsRow.tap()
+
+        XCTAssertTrue(app.navigationBars["Diagnostics"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.tables["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+                || app.collectionViews["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+                || app.otherElements["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+        )
+
+        let exportDiagnosticsRow = app.buttons["diagnosticsCenter.shareDiagnostics"]
+        if let diagnosticsList = scrollContainer(in: app) {
+            ensureVisible(exportDiagnosticsRow, in: diagnosticsList, maxScrollAttempts: 10)
         }
         XCTAssertTrue(exportDiagnosticsRow.waitForExistence(timeout: 5))
         exportDiagnosticsRow.tap()
@@ -282,6 +310,36 @@ final class POScannerAppUITests: XCTestCase {
         goToTicketsButton.tap()
 
         XCTAssertTrue(app.navigationBars["Tickets"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testDiagnosticsCenterNavigation() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Settings"].tap()
+
+        let brandedSettingsNavBar = app.navigationBars["Shopmonkey Settings"]
+        let fallbackSettingsNavBar = app.navigationBars["Settings"]
+        XCTAssertTrue(
+            brandedSettingsNavBar.waitForExistence(timeout: 5)
+                || fallbackSettingsNavBar.waitForExistence(timeout: 5)
+        )
+
+        let diagnosticsRow = app.buttons["settings.diagnostics"]
+        if let settingsList = scrollContainer(in: app) {
+            ensureVisible(diagnosticsRow, in: settingsList, maxScrollAttempts: 10)
+        }
+        XCTAssertTrue(diagnosticsRow.waitForExistence(timeout: 5))
+        diagnosticsRow.tap()
+
+        XCTAssertTrue(app.navigationBars["Diagnostics"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.tables["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+                || app.collectionViews["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+                || app.otherElements["diagnosticsCenter.list"].waitForExistence(timeout: 5)
+        )
     }
 
     @MainActor

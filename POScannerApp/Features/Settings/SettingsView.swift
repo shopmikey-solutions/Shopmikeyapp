@@ -26,10 +26,7 @@ struct SettingsView: View {
             connectivityChecksSection
             partsIntakePreferencesSection
             appExperienceSection
-            diagnosticsSection
-            syncHealthSection
-            fallbackAnalyticsSection
-            telemetrySection
+            diagnosticsEntrySection
         }
         .listStyle(.insetGrouped)
         .nativeListSurface()
@@ -37,12 +34,6 @@ struct SettingsView: View {
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
-        .task {
-            await viewModel.refreshSyncHealth()
-            await viewModel.refreshFallbackAnalytics()
-            await viewModel.setTelemetryEnabled(viewModel.isTelemetryEnabled, clearWhenDisabled: false)
-            await viewModel.refreshTelemetrySummary()
-        }
         .onChange(of: saveHistoryEnabled) { _, _ in
             AppHaptics.selection()
         }
@@ -67,15 +58,6 @@ struct SettingsView: View {
             guard enabled else { return }
             Task {
                 _ = await viewModel.environment.localNotificationService.requestAuthorizationIfNeeded()
-            }
-        }
-        .onChange(of: viewModel.experimentalOrderPOLinking) { _, _ in
-            AppHaptics.selection()
-        }
-        .onChange(of: viewModel.isTelemetryEnabled) { _, enabled in
-            AppHaptics.selection()
-            Task {
-                await viewModel.setTelemetryEnabled(enabled, clearWhenDisabled: !enabled)
             }
         }
         .onChange(of: viewModel.connectivityStatusMessage) { _, message in
@@ -270,36 +252,15 @@ struct SettingsView: View {
     }
 
     private var connectivityChecksSection: some View {
-        Section("Connectivity Checks") {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    healthChip(title: "\(viewModel.networkDiagnostics.count) captured calls", color: AppSurfaceStyle.info)
-                    healthChip(title: "\(failureDiagnosticsCount) failures", color: failureDiagnosticsCount > 0 ? .red : AppSurfaceStyle.success)
-                }
+        Section("Connection") {
+            Text("Verify account connectivity after key updates.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
 
-                Text("Use these checks before first submission or after key changes.")
+            if let connectivityStatusMessage = viewModel.connectivityStatusMessage, !connectivityStatusMessage.isEmpty {
+                Text(connectivityStatusMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-
-                if let formattedLastErrorMessage = viewModel.formattedLastErrorMessage, !formattedLastErrorMessage.isEmpty {
-                    Text(formattedLastErrorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-
-                    Button {
-                        AppHaptics.selection()
-                        Task { await viewModel.copyDiagnosticInfo() }
-                    } label: {
-                        Label("Copy Diagnostic Info", systemImage: "doc.on.doc")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("settings.copyDiagnosticInfoButton")
-                } else if let connectivityStatusMessage = viewModel.connectivityStatusMessage, !connectivityStatusMessage.isEmpty {
-                    Text(connectivityStatusMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             Button {
@@ -314,10 +275,6 @@ struct SettingsView: View {
             }
             .disabled(viewModel.isTestingConnection)
             .accessibilityIdentifier("settings.testConnectionButton")
-
-            NavigationLink("Endpoint Probe & Network Capture") {
-                SettingsDiagnosticsView(viewModel: viewModel)
-            }
         }
     }
 
@@ -361,209 +318,15 @@ struct SettingsView: View {
         }
     }
 
-    private var diagnosticsSection: some View {
+    private var diagnosticsEntrySection: some View {
         Section("Diagnostics") {
-            Toggle("Experimental Order / PO Linking", isOn: $viewModel.experimentalOrderPOLinking)
-                .accessibilityIdentifier("settings.experimentalLinkingToggle")
-
-            Text("Shows advanced add-to-order and add-to-PO flows during parts intake review.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
             NavigationLink {
-                SubmissionHealthView(syncOperationQueue: viewModel.environment.syncOperationQueue)
+                DiagnosticsCenterView(viewModel: viewModel)
             } label: {
-                Label("Submission Health", systemImage: "waveform.path.ecg")
+                Label("Diagnostics", systemImage: "stethoscope")
             }
-            .accessibilityIdentifier("settings.submissionHealth")
-
-            NavigationLink {
-                DiagnosticsExportView(syncOperationQueue: viewModel.environment.syncOperationQueue)
-            } label: {
-                Label("Export Diagnostics", systemImage: "square.and.arrow.up")
-            }
-            .accessibilityIdentifier("settings.exportDiagnostics")
+            .accessibilityIdentifier("settings.diagnostics")
         }
-    }
-
-    private var syncHealthSection: some View {
-        Section("Sync Health") {
-            HStack(spacing: 8) {
-                healthChip(title: "Pending \(viewModel.pendingOperationCount)", color: AppSurfaceStyle.info)
-                healthChip(title: "In Progress \(viewModel.inProgressOperationCount)", color: .blue)
-                healthChip(title: "Failed \(viewModel.failedOperationCount)", color: viewModel.failedOperationCount > 0 ? .red : AppSurfaceStyle.success)
-            }
-            .accessibilityIdentifier("settings.syncHealthChips")
-
-            LabeledContent("Pending") {
-                Text("\(viewModel.pendingOperationCount)")
-                    .font(.subheadline.monospacedDigit())
-                    .accessibilityIdentifier("settings.syncHealthPendingValue")
-            }
-
-            LabeledContent("In Progress") {
-                Text("\(viewModel.inProgressOperationCount)")
-                    .font(.subheadline.monospacedDigit())
-                    .accessibilityIdentifier("settings.syncHealthInProgressValue")
-            }
-
-            LabeledContent("Failed") {
-                Text("\(viewModel.failedOperationCount)")
-                    .font(.subheadline.monospacedDigit())
-                    .accessibilityIdentifier("settings.syncHealthFailedValue")
-            }
-
-            LabeledContent("Next Attempt") {
-                if let nextAttempt = viewModel.nextScheduledAttempt {
-                    Text(nextAttempt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("settings.syncHealthNextAttemptValue")
-                } else {
-                    Text("None")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("settings.syncHealthNextAttemptNone")
-                }
-            }
-
-            Button("Retry Failed Now") {
-                AppHaptics.selection()
-                Task { await viewModel.retryFailedNow() }
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("settings.retryFailedNowButton")
-            .accessibilityLabel("Retry failed sync operations now")
-
-            Button("Clear Failed", role: .destructive) {
-                AppHaptics.selection()
-                Task { await viewModel.clearFailedOperations() }
-            }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("settings.clearFailedOperationsButton")
-            .accessibilityLabel("Clear failed sync operations")
-        }
-    }
-
-    private var fallbackAnalyticsSection: some View {
-        Section("Fallback Analytics") {
-            LabeledContent("Total events") {
-                Text("\(viewModel.fallbackAnalyticsTotalEvents)")
-                    .font(.subheadline.monospacedDigit())
-            }
-
-            LabeledContent("Last branch") {
-                if let lastBranch = viewModel.fallbackAnalyticsLastBranch, !lastBranch.isEmpty {
-                    Text(lastBranch)
-                        .font(.footnote.monospaced())
-                        .multilineTextAlignment(.trailing)
-                } else {
-                    Text("n/a")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if let timestamp = viewModel.fallbackAnalyticsLastTimestamp {
-                LabeledContent("Last updated") {
-                    Text(timestamp.formatted(date: .abbreviated, time: .shortened))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if viewModel.fallbackAnalyticsTopBranches.isEmpty {
-                Text("No fallback branches recorded.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Top branches")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    ForEach(viewModel.fallbackAnalyticsTopBranches) { branch in
-                        HStack {
-                            Text(branch.branch)
-                                .font(.caption.monospaced())
-                                .lineLimit(2)
-                            Spacer(minLength: 12)
-                            Text("\(branch.count)")
-                                .font(.caption.monospacedDigit())
-                        }
-                    }
-                }
-            }
-
-            Button("Clear Fallback Analytics", role: .destructive) {
-                AppHaptics.selection()
-                Task { await viewModel.clearFallbackAnalytics() }
-            }
-            .accessibilityIdentifier("settings.clearFallbackAnalyticsButton")
-        }
-    }
-
-    private var telemetrySection: some View {
-        Section("Telemetry") {
-            Toggle("Share Diagnostics (Telemetry)", isOn: $viewModel.isTelemetryEnabled)
-                .accessibilityIdentifier("settings.telemetryToggle")
-
-            Text("Off by default. When enabled, only redacted diagnostics metadata is stored locally in a bounded queue.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            if viewModel.isTelemetryEnabled {
-                LabeledContent("Total events") {
-                    Text("\(viewModel.telemetryTotalEvents)")
-                        .font(.subheadline.monospacedDigit())
-                }
-
-                if let timestamp = viewModel.telemetryLastEventTimestamp {
-                    LabeledContent("Last event") {
-                        Text(timestamp.formatted(date: .abbreviated, time: .shortened))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if viewModel.telemetryTopEvents.isEmpty {
-                    Text("No telemetry events queued.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Top events")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.secondary)
-
-                        ForEach(viewModel.telemetryTopEvents) { event in
-                            HStack {
-                                Text(event.eventName)
-                                    .font(.caption.monospaced())
-                                Spacer(minLength: 12)
-                                Text("\(event.count)")
-                                    .font(.caption.monospacedDigit())
-                            }
-                        }
-                    }
-                }
-
-                Button("Export Telemetry Summary") {
-                    AppHaptics.selection()
-                    Task { await viewModel.copyTelemetrySummary() }
-                }
-                .accessibilityIdentifier("settings.exportTelemetrySummaryButton")
-
-                Button("Clear Telemetry Data", role: .destructive) {
-                    AppHaptics.selection()
-                    Task { await viewModel.clearTelemetryData() }
-                }
-                .accessibilityIdentifier("settings.clearTelemetryButton")
-            }
-        }
-    }
-
-    private var failureDiagnosticsCount: Int {
-        viewModel.networkDiagnostics.filter(\.isFailure).count
     }
 
     private var keyActionActivityText: String? {
@@ -602,16 +365,6 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private func healthChip(title: String, color: Color) -> some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(color)
-            .background(color.opacity(0.15))
-            .clipShape(Capsule())
     }
 
     private func pasteAPIKeyFromClipboard() {
@@ -709,7 +462,7 @@ private struct SettingsAPIKeyActionsView: View {
     }
 }
 
-private struct SettingsDiagnosticsView: View {
+struct SettingsDiagnosticsView: View {
     @ObservedObject var viewModel: SettingsViewModel
     @State private var showOnlyFailedCalls: Bool = false
 

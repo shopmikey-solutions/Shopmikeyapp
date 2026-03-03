@@ -38,6 +38,7 @@ extension ScanLaunchAction {
 
 enum ScanHubRoute: Identifiable, Equatable, Hashable {
     case scanWorkflow(ScanLaunchAction)
+    case scanNextStep(scannedCode: String?)
     case inventoryLookup(scannedCode: String?)
     case receivePurchaseOrder(id: String, scannedCode: String?)
     case purchaseOrderDraft
@@ -51,6 +52,8 @@ enum ScanHubRoute: Identifiable, Equatable, Hashable {
         switch self {
         case .scanWorkflow(let action):
             return "scan-workflow-\(action.routeToken)"
+        case .scanNextStep(let scannedCode):
+            return "scan-next-step-\(scannedCode ?? "none")"
         case .inventoryLookup(let scannedCode):
             return "inventory-lookup-\(scannedCode ?? "none")"
         case .receivePurchaseOrder(let id, let scannedCode):

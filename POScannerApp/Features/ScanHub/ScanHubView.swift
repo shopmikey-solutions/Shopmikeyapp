@@ -31,9 +31,9 @@ struct ScanHubView: View {
 
     var body: some View {
         List {
+            activeContextBannerSection
             scanAndImportSection
             smartSuggestionSection
-            activeContextSection
             recentActivitySection
             quickNavigationSection
             uiTestSection
@@ -48,6 +48,7 @@ struct ScanHubView: View {
                 Task { @MainActor in
                     await viewModel.handleScannedCode(scannedCode)
                     isBarcodeScannerPresented = false
+                    route = .scanNextStep(scannedCode: viewModel.lastScannedCode ?? scannedCode)
                     AppHaptics.success()
                 }
             }
@@ -66,6 +67,52 @@ struct ScanHubView: View {
         .onReceive(NotificationCenter.default.publisher(for: .appResumeScanDraft)) { notification in
             guard let draftID = notification.object as? UUID else { return }
             route = .scanWorkflow(.resumeDraft(draftID))
+        }
+    }
+
+    private var activeContextBannerSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Active Context")
+                    .font(.headline)
+
+                if let activeTicketLabel = viewModel.activeTicketLabel {
+                    labeledValueRow(title: "Ticket", value: activeTicketLabel)
+                    if let activeServiceID = viewModel.activeServiceID {
+                        labeledValueRow(title: "Service", value: activeServiceID)
+                    } else {
+                        Text("No service selected")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("Change Ticket") {
+                            requestTabSwitch(.tickets)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("scanHub.activeContext.changeTicket")
+
+                        if viewModel.activeServiceID == nil {
+                            Button("Change Service") {
+                                requestTabSwitch(.tickets)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("scanHub.activeContext.changeService")
+                        }
+                    }
+                } else {
+                    Text("No ticket selected")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button("Choose Ticket") {
+                        requestTabSwitch(.tickets)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("scanHub.activeContext.changeTicket")
+                }
+            }
+            .accessibilityIdentifier("scanHub.activeContextCard")
         }
     }
 
@@ -125,21 +172,21 @@ struct ScanHubView: View {
                 switch viewModel.scanSuggestion {
                 case .receivePO(let poID, _):
                     Button("Receive against PO \(poID)") {
-                        route = .receivePurchaseOrder(id: poID, scannedCode: viewModel.lastScannedCode)
+                        route = .scanNextStep(scannedCode: viewModel.lastScannedCode)
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("scanHub.suggestion.receivePO")
 
                 case .addToTicket:
                     Button("Add to Active Ticket") {
-                        route = .inventoryLookup(scannedCode: viewModel.lastScannedCode)
+                        route = .scanNextStep(scannedCode: viewModel.lastScannedCode)
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("scanHub.suggestion.addToTicket")
 
                 case .addToPODraft:
                     Button("Restock in PO Draft") {
-                        route = .inventoryLookup(scannedCode: viewModel.lastScannedCode)
+                        route = .scanNextStep(scannedCode: viewModel.lastScannedCode)
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("scanHub.suggestion.addToPODraft")
@@ -158,21 +205,6 @@ struct ScanHubView: View {
                 Text("Scan a barcode to compute a suggested next step.")
                     .foregroundStyle(.secondary)
             }
-        }
-    }
-
-    private var activeContextSection: some View {
-        Section("Active Context") {
-            labeledValueRow(title: "Active Ticket", value: viewModel.activeTicketLabel ?? "None selected")
-            labeledValueRow(title: "Selected Service", value: viewModel.activeServiceID ?? "None selected")
-            labeledValueRow(
-                title: "Active Receiving PO",
-                value: viewModel.activeReceivingPurchaseOrderID ?? "None selected"
-            )
-            labeledValueRow(
-                title: "Inventory Sync",
-                value: viewModel.lastInventorySyncAt?.formatted(date: .abbreviated, time: .shortened) ?? "Never"
-            )
         }
     }
 
@@ -233,6 +265,19 @@ struct ScanHubView: View {
                 .accessibilityIdentifier("scanHub.openReviewFixture")
             }
         }
+
+        if ProcessInfo.processInfo.arguments.contains("-ui-test-scan-next-step") {
+            Section {
+                Button("Open Scan Next Step Fixture") {
+                    Task { @MainActor in
+                        await viewModel.handleScannedCode("ui-test-scan-code")
+                        route = .scanNextStep(scannedCode: "ui-test-scan-code")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("scanHub.openNextStepFixture")
+            }
+        }
     }
 
     @ViewBuilder
@@ -240,6 +285,36 @@ struct ScanHubView: View {
         switch destination {
         case .scanWorkflow(let action):
             ScanView(environment: environment, launchAction: action)
+        case .scanNextStep(let scannedCode):
+            ScanResultActionsView(
+                viewModel: ScanResultActionsViewModel(
+                    scannedCode: scannedCode ?? "",
+                    suggestion: viewModel.scanSuggestion,
+                    context: .init(
+                        activeTicketID: viewModel.activeTicketID,
+                        activeTicketLabel: viewModel.activeTicketLabel,
+                        activeServiceID: viewModel.activeServiceID
+                    ),
+                    performSuggestionAction: { suggestion in
+                        switch suggestion {
+                        case .receivePO(let purchaseOrderID, _):
+                            route = .receivePurchaseOrder(id: purchaseOrderID, scannedCode: scannedCode)
+                        case .addToTicket:
+                            route = .inventoryLookup(scannedCode: scannedCode)
+                        case .addToPODraft:
+                            route = .inventoryLookup(scannedCode: scannedCode)
+                        case .none:
+                            break
+                        }
+                    },
+                    requestTabSwitchToTickets: {
+                        requestTabSwitch(.tickets)
+                    },
+                    requestTabSwitchToInventory: {
+                        requestTabSwitch(.inventory)
+                    }
+                )
+            )
         case .inventoryLookup(let scannedCode):
             InventoryLookupView(environment: environment, prefilledScannedCode: scannedCode)
         case .receivePurchaseOrder(let id, let scannedCode):

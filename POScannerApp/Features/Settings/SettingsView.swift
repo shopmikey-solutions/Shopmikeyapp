@@ -376,6 +376,13 @@ struct SettingsView: View {
                 Label("Submission Health", systemImage: "waveform.path.ecg")
             }
             .accessibilityIdentifier("settings.submissionHealth")
+
+            NavigationLink {
+                DiagnosticsExportView(syncOperationQueue: viewModel.environment.syncOperationQueue)
+            } label: {
+                Label("Export Diagnostics", systemImage: "square.and.arrow.up")
+            }
+            .accessibilityIdentifier("settings.exportDiagnostics")
         }
     }
 

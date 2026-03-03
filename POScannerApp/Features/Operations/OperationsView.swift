@@ -8,11 +8,16 @@ import SwiftUI
 
 struct OperationsView: View {
     let environment: AppEnvironment
+    let requestTabSwitch: (RootTab) -> Void
 
     @StateObject private var viewModel: OperationsViewModel
 
-    init(environment: AppEnvironment) {
+    init(
+        environment: AppEnvironment,
+        requestTabSwitch: @escaping (RootTab) -> Void = { _ in }
+    ) {
         self.environment = environment
+        self.requestTabSwitch = requestTabSwitch
         _viewModel = StateObject(
             wrappedValue: OperationsViewModel(
                 inventoryStore: environment.inventoryStore,
@@ -93,33 +98,33 @@ struct OperationsView: View {
 
     private var quickNavigationSection: some View {
         Section("Quick Navigation") {
-            NavigationLink {
-                InventoryView(environment: environment)
+            Button {
+                requestTabSwitch(.inventory)
             } label: {
                 Label("Go to Inventory", systemImage: "shippingbox")
             }
-            .accessibilityIdentifier("operations.nav.inventory")
+            .accessibilityIdentifier("operations.goToInventory")
 
-            NavigationLink {
-                PurchaseOrdersView(environment: environment)
+            Button {
+                requestTabSwitch(.inventory)
             } label: {
                 Label("Go to Purchase Orders", systemImage: "list.bullet.rectangle")
             }
-            .accessibilityIdentifier("operations.nav.purchaseOrders")
+            .accessibilityIdentifier("operations.goToPurchaseOrders")
 
-            NavigationLink {
-                OperationsTicketsView(environment: environment)
+            Button {
+                requestTabSwitch(.tickets)
             } label: {
                 Label("Go to Tickets", systemImage: "wrench.and.screwdriver")
             }
-            .accessibilityIdentifier("operations.nav.tickets")
+            .accessibilityIdentifier("operations.goToTickets")
 
-            NavigationLink {
-                SettingsView(environment: environment)
+            Button {
+                requestTabSwitch(.settings)
             } label: {
                 Label("Go to Sync Health", systemImage: "arrow.triangle.2.circlepath")
             }
-            .accessibilityIdentifier("operations.nav.syncHealth")
+            .accessibilityIdentifier("operations.goToSyncHealth")
         }
     }
 

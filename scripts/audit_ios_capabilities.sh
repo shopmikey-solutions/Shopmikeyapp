@@ -5,8 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_INFO_PLIST="$ROOT_DIR/POScannerApp/Resources/Info.plist"
 EXT_INFO_PLIST="$ROOT_DIR/ShopMikey Scanner/Info.plist"
 PROJECT_PBXPROJ="$ROOT_DIR/Shopmikey.xcodeproj/project.pbxproj"
+APP_ENTITLEMENTS="$ROOT_DIR/POScannerApp/Resources/POScannerApp.entitlements"
+EXT_ENTITLEMENTS="$ROOT_DIR/ShopMikey Scanner/ShopMikeyScannerExtension.entitlements"
 
-if [[ ! -f "$APP_INFO_PLIST" || ! -f "$EXT_INFO_PLIST" || ! -f "$PROJECT_PBXPROJ" ]]; then
+if [[ ! -f "$APP_INFO_PLIST" || ! -f "$EXT_INFO_PLIST" || ! -f "$PROJECT_PBXPROJ" || ! -f "$APP_ENTITLEMENTS" || ! -f "$EXT_ENTITLEMENTS" ]]; then
   echo "error: expected project files are missing" >&2
   exit 1
 fi
@@ -78,10 +80,11 @@ else
   warn "Project has no CODE_SIGN_ENTITLEMENTS build setting (verify required capabilities in Signing & Capabilities)"
 fi
 
-if grep -q "com\\.apple\\.security\\.application-groups" "$PROJECT_PBXPROJ"; then
-  pass "Project references app-group entitlements"
+if grep -q "com\\.apple\\.security\\.application-groups" "$APP_ENTITLEMENTS" \
+  && grep -q "com\\.apple\\.security\\.application-groups" "$EXT_ENTITLEMENTS"; then
+  pass "App and extension entitlements declare app-group key"
 else
-  warn "No app-group entitlement key found in project file (verify App Groups capability manually)"
+  warn "No app-group entitlement key found in app/extension entitlements"
 fi
 
 echo

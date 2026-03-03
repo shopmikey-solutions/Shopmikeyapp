@@ -6,19 +6,19 @@
 import SwiftUI
 import ShopmikeyCoreModels
 
-struct RootTabView: View {
-    private enum Tab: Hashable {
-        case scan
-        case inventory
-        case operations
-        case tickets
-        case settings
-    }
+enum RootTab: Hashable {
+    case scan
+    case inventory
+    case operations
+    case tickets
+    case settings
+}
 
+struct RootTabView: View {
     @Environment(\.appEnvironment) private var environment
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedTab: Tab = .scan
-    @State private var loadedTabs: Set<Tab> = [.scan]
+    @State private var selectedTab: RootTab = .scan
+    @State private var loadedTabs: Set<RootTab> = [.scan]
     @State private var lastRawDeepLinkSignature: String?
     @State private var lastRawDeepLinkHandledAt: Date?
     @State private var lastNormalizedDeepLinkSignature: String?
@@ -41,12 +41,14 @@ struct RootTabView: View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 if loadedTabs.contains(.scan) {
-                    ScanHubView(environment: environment)
+                    ScanHubView(environment: environment) { tab in
+                        selectedTab = tab
+                    }
                 } else {
                     Color.clear
                 }
             }
-            .tag(Tab.scan)
+            .tag(RootTab.scan)
             .tabItem {
                 Label("Scan", systemImage: "doc.text.viewfinder")
             }
@@ -61,7 +63,7 @@ struct RootTabView: View {
                     Color.clear
                 }
             }
-            .tag(Tab.inventory)
+            .tag(RootTab.inventory)
             .tabItem {
                 Label("Inventory", systemImage: "shippingbox")
             }
@@ -71,12 +73,14 @@ struct RootTabView: View {
 
             NavigationStack {
                 if loadedTabs.contains(.operations) {
-                    OperationsView(environment: environment)
+                    OperationsView(environment: environment) { tab in
+                        selectedTab = tab
+                    }
                 } else {
                     Color.clear
                 }
             }
-            .tag(Tab.operations)
+            .tag(RootTab.operations)
             .tabItem {
                 Label("Operations", systemImage: "gauge.with.dots.needle.bottom.50percent")
             }
@@ -91,7 +95,7 @@ struct RootTabView: View {
                     Color.clear
                 }
             }
-            .tag(Tab.tickets)
+            .tag(RootTab.tickets)
             .tabItem {
                 Label("Tickets", systemImage: "wrench.and.screwdriver")
             }
@@ -106,7 +110,7 @@ struct RootTabView: View {
                     Color.clear
                 }
             }
-            .tag(Tab.settings)
+            .tag(RootTab.settings)
             .tabItem {
                 Label("Settings", systemImage: "gearshape")
             }

@@ -55,7 +55,7 @@ final class POScannerAppUITests: XCTestCase {
             ensureVisible(scanBarcodeButton, in: scanList)
         }
         XCTAssertTrue(scanBarcodeButton.waitForExistence(timeout: 5))
-        let quickSyncHealthButton = app.buttons["scanHub.quick.syncHealth"]
+        let quickSyncHealthButton = app.buttons["scanHub.goToSyncHealth"]
         if let scanList {
             ensureVisible(quickSyncHealthButton, in: scanList)
         }
@@ -263,6 +263,25 @@ final class POScannerAppUITests: XCTestCase {
         XCTAssertTrue(
             app.buttons["exportDiagnostics.generateButton"].waitForExistence(timeout: 5)
         )
+    }
+
+    @MainActor
+    func testTabSwitchFromOperationsQuickNav() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Operations"].tap()
+        XCTAssertTrue(app.navigationBars["Operations"].waitForExistence(timeout: 5))
+
+        let goToTicketsButton = app.buttons["operations.goToTickets"]
+        if let operationsList = scrollContainer(in: app) {
+            ensureVisible(goToTicketsButton, in: operationsList, maxScrollAttempts: 10)
+        }
+        XCTAssertTrue(goToTicketsButton.waitForExistence(timeout: 5))
+        goToTicketsButton.tap()
+
+        XCTAssertTrue(app.navigationBars["Tickets"].waitForExistence(timeout: 5))
     }
 
     @MainActor

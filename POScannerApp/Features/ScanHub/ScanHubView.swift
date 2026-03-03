@@ -7,13 +7,18 @@ import SwiftUI
 
 struct ScanHubView: View {
     let environment: AppEnvironment
+    let requestTabSwitch: (RootTab) -> Void
 
     @StateObject private var viewModel: ScanHubViewModel
     @State private var route: ScanHubRoute?
     @State private var isBarcodeScannerPresented = false
 
-    init(environment: AppEnvironment) {
+    init(
+        environment: AppEnvironment,
+        requestTabSwitch: @escaping (RootTab) -> Void = { _ in }
+    ) {
         self.environment = environment
+        self.requestTabSwitch = requestTabSwitch
         _viewModel = StateObject(
             wrappedValue: ScanHubViewModel(
                 inventoryStore: environment.inventoryStore,
@@ -192,28 +197,28 @@ struct ScanHubView: View {
             labeledValueRow(title: "Open Purchase Orders", value: "\(viewModel.openPurchaseOrderCount)")
 
             Button("Go to Inventory") {
-                route = .inventory
+                requestTabSwitch(.inventory)
             }
             .buttonStyle(.bordered)
-            .accessibilityIdentifier("scanHub.quick.inventory")
+            .accessibilityIdentifier("scanHub.goToInventory")
 
             Button("Go to Purchase Orders") {
-                route = .purchaseOrders
+                requestTabSwitch(.inventory)
             }
             .buttonStyle(.bordered)
-            .accessibilityIdentifier("scanHub.quick.purchaseOrders")
+            .accessibilityIdentifier("scanHub.goToPurchaseOrders")
 
             Button("Go to Tickets") {
-                route = .tickets
+                requestTabSwitch(.tickets)
             }
             .buttonStyle(.bordered)
-            .accessibilityIdentifier("scanHub.quick.tickets")
+            .accessibilityIdentifier("scanHub.goToTickets")
 
             Button("Go to Sync Health") {
-                route = .settings
+                requestTabSwitch(.settings)
             }
             .buttonStyle(.bordered)
-            .accessibilityIdentifier("scanHub.quick.syncHealth")
+            .accessibilityIdentifier("scanHub.goToSyncHealth")
         }
     }
 

@@ -240,7 +240,7 @@ struct TicketAddPartProofsTests {
         await viewModel.addMatchedItemToTicket(ticketID: "order_1", mergeMode: .addNewLine)
 
         #expect(viewModel.ticketMutationState == .failed(diagnosticCode: nil))
-        #expect(viewModel.ticketMutationMessage?.contains("offline") == true)
+        #expect(viewModel.ticketMutationMessage?.contains("cached service") == true)
         #expect(viewModel.lastTicketMutationOperationID == nil)
         #expect(await harness.queueStore.allOperations().isEmpty)
         #expect(await recorder.count() == 0)

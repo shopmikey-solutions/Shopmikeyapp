@@ -119,6 +119,28 @@ struct TicketStoreTests {
         #expect(await reopened.activeTicketID() == "ticket_2")
     }
 
+    @Test func clearingActiveTicketCanClearServiceContext() async {
+        let fileURL = temporaryURL("clear_active_context")
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+
+        let store = TicketStore(fileURL: fileURL)
+        await store.save(tickets: [
+            TicketModel(id: "ticket_1", number: "RO-2001", status: "Open")
+        ])
+        await store.setActiveTicketID("ticket_1")
+        await store.setSelectedServiceID("service_1", forTicketID: "ticket_1")
+
+        await store.setSelectedServiceID(nil, forTicketID: "ticket_1")
+        await store.setActiveTicketID(nil)
+
+        #expect(await store.activeTicketID() == nil)
+        #expect(await store.loadActiveTicket() == nil)
+        #expect(await store.selectedServiceID(forTicketID: "ticket_1") == nil)
+    }
+
     @Test func applyAddedLineItemSupportsIncrementAndAddModes() async {
         let fileURL = temporaryURL("line_item_merge")
         defer {

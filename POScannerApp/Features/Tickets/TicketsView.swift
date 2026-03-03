@@ -77,6 +77,16 @@ struct TicketsView: View {
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("tickets.searchHint")
             }
+
+            if viewModel.activeTicketID != nil {
+                Button("Clear Active Ticket") {
+                    Task {
+                        await viewModel.clearActiveTicketContext()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("tickets.clearActiveTicket")
+            }
         }
     }
 

@@ -113,8 +113,8 @@ struct PurchaseOrdersView: View {
                 }
             }
 
-            if isRefreshing, purchaseOrders.isEmpty {
-                CenteredLoadingView(label: "Loading purchase orders…")
+            if isRefreshing {
+                CenteredLoadingView(label: purchaseOrders.isEmpty ? "Loading purchase orders…" : "Refreshing purchase orders…")
                     .accessibilityIdentifier("purchaseOrders.loading")
             }
         }

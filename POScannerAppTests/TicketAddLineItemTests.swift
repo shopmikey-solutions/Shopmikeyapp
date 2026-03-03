@@ -332,7 +332,32 @@ struct TicketAddLineItemTests {
         await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .addNewLine)
 
         #expect(viewModel.ticketMutationState == .failed(diagnosticCode: nil))
-        #expect(viewModel.ticketMutationMessage?.contains("offline") == true)
+        #expect(viewModel.ticketMutationMessage?.contains("cached service") == true)
+        #expect(viewModel.lastTicketMutationOperationID == nil)
+        #expect(await recorder.createPartCount() == 0)
+        #expect(await harness.queueStore.allOperations().isEmpty)
+    }
+
+    @Test func serviceEndpointNotFoundIsTreatedAsNoServices() async {
+        let harness = StoreHarness()
+        defer { harness.cleanup() }
+
+        let recorder = RequestRecorder()
+        let shopmonkey = ShopmonkeyStub(
+            recorder: recorder,
+            servicesByOrderID: [:],
+            servicesError: APIError.serverError(404),
+            createPartBehavior: { request in
+                .init(id: "part_unused", name: request.name)
+            }
+        )
+
+        let now = Date(timeIntervalSince1970: 1_772_500_125)
+        let viewModel = await prepareLookupViewModel(harness: harness, shopmonkey: shopmonkey, now: now)
+        await viewModel.addMatchedItemToTicket(ticketID: "ticket_1", mergeMode: .addNewLine)
+
+        #expect(viewModel.ticketMutationState == .failed(diagnosticCode: nil))
+        #expect(viewModel.ticketMutationMessage?.contains("No services found") == true)
         #expect(viewModel.lastTicketMutationOperationID == nil)
         #expect(await recorder.createPartCount() == 0)
         #expect(await harness.queueStore.allOperations().isEmpty)

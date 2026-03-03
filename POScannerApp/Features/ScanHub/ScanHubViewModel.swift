@@ -98,6 +98,14 @@ final class ScanHubViewModel: ObservableObject {
         scanSuggestion = .none
     }
 
+    func clearActiveContext() async {
+        if let activeTicketID {
+            await ticketStore.setSelectedServiceID(nil, forTicketID: activeTicketID)
+        }
+        await ticketStore.setActiveTicketID(nil)
+        await refreshContext()
+    }
+
     private static func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

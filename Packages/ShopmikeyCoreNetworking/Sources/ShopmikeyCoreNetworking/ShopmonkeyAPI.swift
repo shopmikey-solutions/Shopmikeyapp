@@ -524,8 +524,16 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         }
 
         let url = try makeURL(path: "/order/\(safeOrderId)/service")
-        let decoded: ListOrWrapped<ServiceSummary> = try await client.perform(.get, url: url)
-        return decoded.values
+        do {
+            let decoded: ListOrWrapped<ServiceSummary> = try await client.perform(.get, url: url)
+            return decoded.values
+        } catch let error as APIError {
+            // Service lists are optional for some tickets/orders. Treat 404 as no services.
+            if case .serverError(404) = error {
+                return []
+            }
+            throw error
+        }
     }
 
     /// GET /order

@@ -100,6 +100,14 @@ struct ScanHubView: View {
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("scanHub.activeContext.changeService")
                         }
+
+                        Button("Clear") {
+                            Task { @MainActor in
+                                await viewModel.clearActiveContext()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("scanHub.activeContext.clear")
                     }
                 } else {
                     Text("No ticket selected")

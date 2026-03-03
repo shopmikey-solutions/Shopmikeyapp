@@ -335,8 +335,17 @@ final class InventoryLookupViewModel: ObservableObject {
                 ticketMutationMessage = "Multiple services found. Select one from Tickets before adding items."
             }
             return nil
+        } catch let apiError as APIError {
+            guard !isRequestCancellation(apiError) else { return nil }
+            if case .serverError(404) = apiError {
+                ticketMutationMessage = "No services found for this ticket. Select a different ticket."
+                return nil
+            }
+            ticketMutationMessage = "Unable to load ticket services right now. Select a cached service first."
+            return nil
         } catch {
-            ticketMutationMessage = "Unable to load ticket services while offline. Select a cached service first."
+            guard !isRequestCancellation(error) else { return nil }
+            ticketMutationMessage = "Unable to load ticket services right now. Select a cached service first."
             return nil
         }
     }

@@ -84,6 +84,19 @@ struct TicketDetailView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(activeTicketID == ticket.id)
                 .accessibilityIdentifier("tickets.detail.setActiveButton")
+
+                if activeTicketID != nil {
+                    Button("Clear Active Ticket") {
+                        Task {
+                            await environment.ticketStore.setSelectedServiceID(nil, forTicketID: ticketID)
+                            await environment.ticketStore.setActiveTicketID(nil)
+                            activeTicketID = await environment.ticketStore.activeTicketID()
+                            selectedServiceID = await environment.ticketStore.selectedServiceID(forTicketID: ticketID)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("tickets.detail.clearActiveButton")
+                }
             } else {
                 Text("Ticket unavailable")
                     .foregroundStyle(.secondary)
@@ -101,7 +114,7 @@ struct TicketDetailView: View {
     private var serviceSection: some View {
         Section("Service Context") {
             if services.isEmpty {
-                Text("No services loaded for this ticket.")
+                Text("No services available for this ticket.")
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("tickets.detail.servicesEmpty")
             } else if services.count == 1 {
@@ -190,6 +203,7 @@ struct TicketDetailView: View {
                 ticket = await environment.ticketStore.loadTicket(id: ticketID)
                 errorMessage = nil
             } catch {
+                guard !isRequestCancellation(error) else { return }
                 if ticket == nil {
                     errorMessage = "Could not load ticket details."
                 }
@@ -203,15 +217,18 @@ struct TicketDetailView: View {
                 selectedServiceID = only.id
                 await environment.ticketStore.setSelectedServiceID(only.id, forTicketID: ticketID)
             }
-            if selectedServiceID == nil, fetchedServices.count > 1 {
+            if selectedServiceID == nil, fetchedServices.isEmpty {
+                errorMessage = "No services available for this ticket."
+            } else if selectedServiceID == nil, fetchedServices.count > 1 {
                 errorMessage = "Select a service before adding inventory items."
             } else if selectedServiceID != nil {
                 errorMessage = nil
             }
         } catch {
+            guard !isRequestCancellation(error) else { return }
             services = []
             if selectedServiceID == nil {
-                errorMessage = "Service context unavailable while offline. Use a cached service selection before mutating."
+                errorMessage = "Could not load services for this ticket. Use a cached service selection before mutating."
             }
         }
     }

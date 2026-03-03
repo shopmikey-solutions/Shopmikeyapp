@@ -16,13 +16,22 @@ private struct TicketsDateProvider: DateProviding {
 
 private actor TicketServiceStubState {
     var openTickets: [TicketModel] = []
+    var fetchOpenTicketsError: Error?
 
     func setOpenTickets(_ tickets: [TicketModel]) {
         openTickets = tickets
     }
 
+    func setFetchOpenTicketsError(_ error: Error?) {
+        fetchOpenTicketsError = error
+    }
+
     func getOpenTickets() -> [TicketModel] {
         openTickets
+    }
+
+    func getFetchOpenTicketsError() -> Error? {
+        fetchOpenTicketsError
     }
 }
 
@@ -46,7 +55,10 @@ private struct TicketsShopmonkeyStub: ShopmonkeyServicing {
     func testConnection() async throws {}
 
     func fetchOpenTickets() async throws -> [TicketModel] {
-        await state.getOpenTickets()
+        if let error = await state.getFetchOpenTicketsError() {
+            throw error
+        }
+        return await state.getOpenTickets()
     }
 
     func fetchTicket(id: String) async throws -> TicketModel {
@@ -180,5 +192,29 @@ struct TicketsViewModelTests {
         viewModel.searchText = "jordan"
 
         #expect(viewModel.filteredTickets.map(\.id) == ["ticket_beta"])
+    }
+
+    @Test func refreshCancellationDoesNotSetErrorOrClearCachedTickets() async {
+        let now = Date(timeIntervalSince1970: 1_772_900_400)
+        let ticketStore = TicketStore()
+        let serviceState = TicketServiceStubState()
+        let api = TicketsShopmonkeyStub(state: serviceState)
+
+        await ticketStore.save(tickets: [
+            makeTicket(id: "cached_1", number: "RO-5001", updatedAt: now)
+        ])
+        await serviceState.setFetchOpenTicketsError(URLError(.cancelled))
+
+        let viewModel = TicketsViewModel(
+            ticketStore: ticketStore,
+            shopmonkeyAPI: api,
+            dateProvider: TicketsDateProvider(date: now)
+        )
+        await viewModel.loadCachedState()
+        await viewModel.refreshOpenTickets(forceRemote: true)
+
+        #expect(viewModel.errorMessage == nil)
+        #expect(viewModel.tickets.map(\.id) == ["cached_1"])
+        #expect(viewModel.filteredTickets.map(\.id) == ["cached_1"])
     }
 }

@@ -94,6 +94,7 @@ final class TicketsViewModel: ObservableObject {
             errorMessage = nil
             applyFilter()
         } catch {
+            guard !isRequestCancellation(error) else { return }
             activeTicketID = await ticketStore.activeTicketID()
             tickets = await ticketStore.loadOpenTickets()
             lastUpdated = await ticketStore.lastRefreshedAt()
@@ -128,6 +129,16 @@ final class TicketsViewModel: ObservableObject {
 
     func setActiveTicketID(_ ticketID: String?) async {
         await ticketStore.setActiveTicketID(ticketID)
+        activeTicketID = await ticketStore.activeTicketID()
+        applyFilter()
+    }
+
+    func clearActiveTicketContext() async {
+        let existingActiveTicketID = await ticketStore.activeTicketID()
+        if let existingActiveTicketID {
+            await ticketStore.setSelectedServiceID(nil, forTicketID: existingActiveTicketID)
+        }
+        await ticketStore.setActiveTicketID(nil)
         activeTicketID = await ticketStore.activeTicketID()
         applyFilter()
     }

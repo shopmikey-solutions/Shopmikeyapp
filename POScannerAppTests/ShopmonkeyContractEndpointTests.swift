@@ -114,6 +114,37 @@ struct ShopmonkeyContractEndpointTests {
         #expect(services.first?.id == "svc_1")
     }
 
+    @Test func fetchServicesTreatsNotFoundAsNoServices() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ShopmonkeyContractURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        ShopmonkeyContractURLProtocol.requestHandler = { request in
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+
+            #expect(request.httpMethod == "GET")
+            #expect(url.path == "/v3/order/order_missing/service")
+
+            let body = Data("{}".utf8)
+            guard let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, body)
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyAPI.baseURL,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+        let api = ShopmonkeyAPI(client: client)
+
+        let services = try await api.fetchServices(orderId: "order_missing")
+        #expect(services.isEmpty)
+    }
+
     @Test func contractsDocContainsEndpointRegistryEntries() throws {
         let contractPath = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

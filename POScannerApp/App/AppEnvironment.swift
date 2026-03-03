@@ -710,7 +710,8 @@ struct AppEnvironment {
 }
 
 private struct AppEnvironmentKey: EnvironmentKey {
-    static var defaultValue: AppEnvironment { .preview }
+    // Default to live behavior so missing injections never fall back to preview in-memory state.
+    static var defaultValue: AppEnvironment { .live() }
 }
 
 extension EnvironmentValues {

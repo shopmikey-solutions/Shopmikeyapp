@@ -16,66 +16,74 @@ struct InventoryView: View {
     @State private var isLoading = true
 
     var body: some View {
-        List {
-            Section {
-                NavigationLink {
-                    InventoryLookupView(environment: environment)
-                } label: {
-                    Label("Scan Barcode", systemImage: "barcode.viewfinder")
-                }
-                .accessibilityIdentifier("inventory.scanBarcodeLink")
+        ZStack {
+            List {
+                Section {
+                    NavigationLink {
+                        InventoryLookupView(environment: environment)
+                    } label: {
+                        Label("Scan Barcode", systemImage: "barcode.viewfinder")
+                    }
+                    .accessibilityIdentifier("inventory.scanBarcodeLink")
 
-                NavigationLink {
-                    POBuilderView(environment: environment)
-                } label: {
-                    Label("PO Draft", systemImage: "doc.plaintext")
-                }
-                .accessibilityIdentifier("inventory.poDraftLink")
+                    NavigationLink {
+                        POBuilderView(environment: environment)
+                    } label: {
+                        Label("PO Draft", systemImage: "doc.plaintext")
+                    }
+                    .accessibilityIdentifier("inventory.poDraftLink")
 
-                NavigationLink {
-                    PurchaseOrdersView(environment: environment)
-                } label: {
-                    Label("Purchase Orders", systemImage: "list.bullet.rectangle")
+                    NavigationLink {
+                        PurchaseOrdersView(environment: environment)
+                    } label: {
+                        Label("Purchase Orders", systemImage: "list.bullet.rectangle")
+                    }
+                    .accessibilityIdentifier("inventory.purchaseOrdersLink")
                 }
-                .accessibilityIdentifier("inventory.purchaseOrdersLink")
-            }
 
-            if isLoading {
-                ProgressView("Loading inventory…")
-                    .accessibilityIdentifier("inventory.loading")
-            } else if items.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("No inventory pulled yet")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Use Pull to refresh your local inventory cache.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 6)
-                .accessibilityIdentifier("inventory.emptyState")
-            } else {
-                ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(item.displayPartNumber)
-                                .font(.headline)
+                if !isLoading, items.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("No inventory pulled yet")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Use Pull to refresh your local inventory cache.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 6)
+                    .accessibilityIdentifier("inventory.emptyState")
+                } else {
+                    ForEach(items) { item in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.description)
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+
+                                Text(item.displayPartNumber)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+
                             Spacer()
+
                             Text("QOH \(item.normalizedQuantityOnHand.formatted(.number.precision(.fractionLength(0...2))))")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
-                        Text(item.description)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
                     }
+                }
+
+                if let lastUpdatedAt {
+                    Text("Last updated: \(lastUpdatedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("inventory.lastUpdated")
                 }
             }
 
-            if let lastUpdatedAt {
-                Text("Last updated: \(lastUpdatedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("inventory.lastUpdated")
+            if isLoading {
+                CenteredLoadingView(label: "Loading inventory…")
+                    .accessibilityIdentifier("inventory.loading")
             }
         }
         .navigationTitle("Inventory")

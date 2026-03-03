@@ -149,6 +149,7 @@ struct PurchaseOrderDetailView: View {
             detail = await environment.purchaseOrderStore.loadPurchaseOrderDetail(id: purchaseOrderID)
             errorMessage = nil
         } catch {
+            guard !isRequestCancellation(error) else { return }
             errorMessage = "Could not refresh purchase order details."
         }
     }

@@ -22,96 +22,100 @@ struct PurchaseOrdersView: View {
     @State private var isStale = false
 
     var body: some View {
-        List {
-            if isStale && !stalePromptDismissed {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Purchase order data may be stale.")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Refresh before using this data for receive actions.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button("Refresh") {
-                            Task { await refreshFromAPI() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("purchaseOrders.staleRefreshButton")
+        ZStack {
+            List {
+                if isStale && !stalePromptDismissed {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Purchase order data may be stale.")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Refresh before using this data for receive actions.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Button("Refresh") {
+                                Task { await refreshFromAPI() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("purchaseOrders.staleRefreshButton")
 
-                        Button("Cancel") {
-                            stalePromptDismissed = true
+                            Button("Cancel") {
+                                stalePromptDismissed = true
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("purchaseOrders.staleCancelButton")
                         }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("purchaseOrders.staleCancelButton")
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityIdentifier("purchaseOrders.stalePrompt")
+                }
+
+                if purchaseOrders.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("No open purchase orders")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Pull or refresh to update your local purchase order cache.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 6)
+                    .accessibilityIdentifier("purchaseOrders.emptyState")
+                } else {
+                    ForEach(purchaseOrders) { purchaseOrder in
+                        NavigationLink {
+                            PurchaseOrderDetailView(
+                                environment: environment,
+                                purchaseOrderID: purchaseOrder.id
+                            )
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(purchaseOrder.vendorName ?? "Unknown Vendor")
+                                        .font(.headline)
+                                    Spacer()
+                                    Text(purchaseOrder.status ?? "Unknown")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                HStack {
+                                    if let totalLineCount = purchaseOrder.totalLineCount {
+                                        Text("Lines: \(totalLineCount)")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    if let updatedAt = purchaseOrder.updatedAt ?? purchaseOrder.createdAt {
+                                        Spacer()
+                                        Text(updatedAt.formatted(date: .abbreviated, time: .shortened))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        .accessibilityIdentifier("purchaseOrders.row.\(purchaseOrder.id)")
+                    }
+
+                    if hasMorePages {
+                        Button("Load More") {
+                            Task { await loadNextPage() }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .accessibilityIdentifier("purchaseOrders.loadMore")
                     }
                 }
-                .padding(.vertical, 4)
-                .accessibilityIdentifier("purchaseOrders.stalePrompt")
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("purchaseOrders.errorMessage")
+                }
             }
 
             if isRefreshing, purchaseOrders.isEmpty {
-                ProgressView("Loading purchase orders…")
+                CenteredLoadingView(label: "Loading purchase orders…")
                     .accessibilityIdentifier("purchaseOrders.loading")
-            } else if purchaseOrders.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("No open purchase orders")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Pull or refresh to update your local purchase order cache.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 6)
-                .accessibilityIdentifier("purchaseOrders.emptyState")
-            } else {
-                ForEach(purchaseOrders) { purchaseOrder in
-                    NavigationLink {
-                        PurchaseOrderDetailView(
-                            environment: environment,
-                            purchaseOrderID: purchaseOrder.id
-                        )
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(purchaseOrder.vendorName ?? "Unknown Vendor")
-                                    .font(.headline)
-                                Spacer()
-                                Text(purchaseOrder.status ?? "Unknown")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            HStack {
-                                if let totalLineCount = purchaseOrder.totalLineCount {
-                                    Text("Lines: \(totalLineCount)")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                if let updatedAt = purchaseOrder.updatedAt ?? purchaseOrder.createdAt {
-                                    Spacer()
-                                    Text(updatedAt.formatted(date: .abbreviated, time: .shortened))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("purchaseOrders.row.\(purchaseOrder.id)")
-                }
-
-                if hasMorePages {
-                    Button("Load More") {
-                        Task { await loadNextPage() }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .accessibilityIdentifier("purchaseOrders.loadMore")
-                }
-            }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .accessibilityIdentifier("purchaseOrders.errorMessage")
             }
         }
         .navigationTitle("Purchase Orders")
@@ -192,6 +196,7 @@ struct PurchaseOrdersView: View {
             stalePromptDismissed = !isStale
             errorMessage = nil
         } catch {
+            guard !isRequestCancellation(error) else { return }
             errorMessage = "Could not refresh purchase orders."
         }
     }

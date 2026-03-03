@@ -313,6 +313,33 @@ final class POScannerAppUITests: XCTestCase {
     }
 
     @MainActor
+    func testScanBarcodeNextStepScreenAppears() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-test-scan-next-step"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["ShopMikey"].waitForExistence(timeout: 5))
+        let scanTab = app.tabBars.buttons["Scan"]
+        if scanTab.exists {
+            scanTab.tap()
+        }
+
+        let fixtureButton = app.buttons["scanHub.openNextStepFixture"]
+        if let scanList = scrollContainer(in: app) {
+            ensureVisible(fixtureButton, in: scanList)
+        }
+        XCTAssertTrue(fixtureButton.waitForExistence(timeout: 5))
+        fixtureButton.tap()
+
+        XCTAssertTrue(app.navigationBars["Next step"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.tables["scanNextStep.root"].waitForExistence(timeout: 5)
+                || app.collectionViews["scanNextStep.root"].waitForExistence(timeout: 5)
+                || app.otherElements["scanNextStep.root"].waitForExistence(timeout: 5)
+        )
+    }
+
+    @MainActor
     func testDiagnosticsCenterNavigation() throws {
         let app = XCUIApplication()
         app.launch()

@@ -11,6 +11,7 @@ import ShopmikeyCoreModels
 final class ScanHubViewModel: ObservableObject {
     @Published private(set) var lastScannedCode: String?
     @Published private(set) var scanSuggestion: ScanSuggestion = .none
+    @Published private(set) var activeTicketID: String?
     @Published private(set) var activeTicketLabel: String?
     @Published private(set) var activeServiceID: String?
     @Published private(set) var activeReceivingPurchaseOrderID: String?
@@ -44,6 +45,7 @@ final class ScanHubViewModel: ObservableObject {
 
     func refreshContext() async {
         let activeTicket = await ticketStore.loadActiveTicket()
+        activeTicketID = activeTicket?.id
         activeTicketLabel = activeTicket.map { ticket in
             ticket.displayNumber ?? ticket.number ?? ticket.id
         }

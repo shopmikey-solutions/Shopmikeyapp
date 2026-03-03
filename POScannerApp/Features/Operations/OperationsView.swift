@@ -31,10 +31,9 @@ struct OperationsView: View {
     var body: some View {
         List {
             summarySection
-            quickNavigationSection
             lowStockSection
         }
-        .navigationTitle("Operations")
+        .navigationTitle("Dashboard")
         .accessibilityIdentifier("operations.list")
         .refreshable {
             await viewModel.refresh()
@@ -53,37 +52,57 @@ struct OperationsView: View {
                 ],
                 spacing: 10
             ) {
-                OperationsMetricCard(
-                    title: "Low Stock",
-                    value: "\(viewModel.lowStockItems.count)",
-                    detail: "Qty on hand ≤ 1",
-                    tint: .orange
-                )
-                .accessibilityIdentifier("operations.metric.lowStock")
+                Button {
+                    requestTabSwitch(.inventory)
+                } label: {
+                    OperationsMetricCard(
+                        title: "Low Stock",
+                        value: "\(viewModel.lowStockItems.count)",
+                        detail: "Qty on hand ≤ 1",
+                        tint: .orange
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("dashboard.card.lowStock")
 
-                OperationsMetricCard(
-                    title: "Open POs",
-                    value: "\(viewModel.openPurchaseOrderCount)",
-                    detail: "Read-only cache",
-                    tint: .blue
-                )
-                .accessibilityIdentifier("operations.metric.openPOs")
+                Button {
+                    requestTabSwitch(.inventory)
+                } label: {
+                    OperationsMetricCard(
+                        title: "Open POs",
+                        value: "\(viewModel.openPurchaseOrderCount)",
+                        detail: "From latest sync",
+                        tint: .blue
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("dashboard.card.openPOs")
 
-                OperationsMetricCard(
-                    title: "Open Tickets",
-                    value: "\(viewModel.openTicketCount)",
-                    detail: "Read-only cache",
-                    tint: .green
-                )
-                .accessibilityIdentifier("operations.metric.openTickets")
+                Button {
+                    requestTabSwitch(.tickets)
+                } label: {
+                    OperationsMetricCard(
+                        title: "Open Tickets",
+                        value: "\(viewModel.openTicketCount)",
+                        detail: "From latest sync",
+                        tint: .green
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("dashboard.card.openTickets")
 
-                OperationsMetricCard(
-                    title: "Sync Queue",
-                    value: "\(viewModel.pendingSyncCount)",
-                    detail: "Failed: \(viewModel.failedSyncCount)",
-                    tint: viewModel.failedSyncCount > 0 ? .red : .indigo
-                )
-                .accessibilityIdentifier("operations.metric.syncQueue")
+                Button {
+                    requestTabSwitch(.settings)
+                } label: {
+                    OperationsMetricCard(
+                        title: "Pending updates",
+                        value: "\(viewModel.pendingSyncCount)",
+                        detail: "Failed updates: \(viewModel.failedSyncCount)",
+                        tint: viewModel.failedSyncCount > 0 ? .red : .indigo
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("dashboard.card.pendingUpdates")
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
 
@@ -93,38 +112,11 @@ struct OperationsView: View {
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("operations.lastRefreshed")
             }
-        }
-    }
 
-    private var quickNavigationSection: some View {
-        Section("Quick Navigation") {
-            Button {
-                requestTabSwitch(.inventory)
-            } label: {
-                Label("Go to Inventory", systemImage: "shippingbox")
-            }
-            .accessibilityIdentifier("operations.goToInventory")
-
-            Button {
-                requestTabSwitch(.inventory)
-            } label: {
-                Label("Go to Purchase Orders", systemImage: "list.bullet.rectangle")
-            }
-            .accessibilityIdentifier("operations.goToPurchaseOrders")
-
-            Button {
-                requestTabSwitch(.tickets)
-            } label: {
-                Label("Go to Tickets", systemImage: "wrench.and.screwdriver")
-            }
-            .accessibilityIdentifier("operations.goToTickets")
-
-            Button {
-                requestTabSwitch(.settings)
-            } label: {
-                Label("Go to Sync Health", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .accessibilityIdentifier("operations.goToSyncHealth")
+            Text("Tip: Tap a card to open that area.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("dashboard.cardHint")
         }
     }
 

@@ -132,7 +132,6 @@ final class ReviewViewModel: ObservableObject {
 
     private var vendorLookupTask: Task<Void, Never>?
     private var lineItemSuggestionTask: Task<Void, Never>?
-    private var purchaseOrderLookupTask: Task<Void, Never>?
     private var todayMetricsTask: Task<Void, Never>?
     private var pendingTodayMetricsReload: Bool = false
     private var lastTodayMetricsLoadAt: Date?
@@ -212,20 +211,12 @@ final class ReviewViewModel: ObservableObject {
             scheduleVendorLookup(for: suggestedVendorName, debounce: false)
         }
 
-        let poLookupSeed = Self.trimmedValue(poReference) ?? suggestedPONumber
-        if isExperimentalLinkingEnabled, let poLookupSeed, !poLookupSeed.isEmpty {
-            schedulePurchaseOrderLookup(for: poLookupSeed, debounce: false)
-        }
-
         var shouldApplyInitialSuggestions = true
         if let draftSnapshot {
             restore(from: draftSnapshot)
             shouldApplyInitialSuggestions = false
             if trimmedOrNil(selectedVendorId) == nil, !vendorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 scheduleVendorLookup(for: vendorName, debounce: false)
-            }
-            if isExperimentalLinkingEnabled, !poReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                schedulePurchaseOrderLookup(for: poReference, debounce: false)
             }
         }
 
@@ -241,7 +232,6 @@ final class ReviewViewModel: ObservableObject {
             .debug("ReviewViewModel deinit: cancelling outstanding tasks.")
         vendorLookupTask?.cancel()
         lineItemSuggestionTask?.cancel()
-        purchaseOrderLookupTask?.cancel()
         todayMetricsTask?.cancel()
         submissionActivityEndTask?.cancel()
         draftAutosaveTask?.cancel()
@@ -448,7 +438,7 @@ final class ReviewViewModel: ObservableObject {
             orderId: resolvedOrderID,
             serviceId: resolvedServiceID,
             items: items,
-            allowExistingPOLinking: experimentalOrderPOLinkingSetting
+            allowExistingPOLinking: false
         )
     }
 
@@ -768,22 +758,7 @@ final class ReviewViewModel: ObservableObject {
 
     func setPOReference(_ value: String) {
         poReference = value
-
-        guard isExperimentalLinkingEnabled else {
-            purchaseOrderLookupTask?.cancel()
-            purchaseOrderMatchMessage = nil
-            return
-        }
-
-        if let selectedPO = selectedPurchaseOrder,
-           autoMatchedPurchaseOrderID == selectedPO.id,
-           normalizePurchaseOrderReference(value) != normalizePurchaseOrderReference(selectedPO.number) {
-            selectedPurchaseOrder = nil
-            selectedPOId = nil
-            autoMatchedPurchaseOrderID = nil
-        }
-
-        schedulePurchaseOrderLookup(for: value, debounce: true)
+        purchaseOrderMatchMessage = nil
     }
 
     func applyProductionPolishMode() {
@@ -1356,75 +1331,6 @@ final class ReviewViewModel: ObservableObject {
         }
     }
 
-    private func schedulePurchaseOrderLookup(for rawValue: String, debounce: Bool) {
-        purchaseOrderLookupTask?.cancel()
-
-        let query = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizePurchaseOrderReference(query) != nil else {
-            if let selectedPO = selectedPurchaseOrder, autoMatchedPurchaseOrderID == selectedPO.id {
-                selectedPurchaseOrder = nil
-                selectedPOId = nil
-                autoMatchedPurchaseOrderID = nil
-            }
-            purchaseOrderMatchMessage = nil
-            return
-        }
-
-        purchaseOrderLookupTask = Task { [weak self] in
-            if debounce {
-                try? await Task.sleep(nanoseconds: 350_000_000)
-            }
-            guard !Task.isCancelled, let self else { return }
-
-            do {
-                let purchaseOrders = try await self.shopmonkeyService.getPurchaseOrders()
-                guard !Task.isCancelled else { return }
-                self.applyPurchaseOrderLookupResult(query: query, purchaseOrders: purchaseOrders)
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.purchaseOrderMatchMessage = nil
-            }
-        }
-    }
-
-    private func applyPurchaseOrderLookupResult(query: String, purchaseOrders: [PurchaseOrderResponse]) {
-        guard let match = bestPurchaseOrderMatch(for: query, in: purchaseOrders) else {
-            if let selectedPO = selectedPurchaseOrder, autoMatchedPurchaseOrderID == selectedPO.id {
-                selectedPurchaseOrder = nil
-                selectedPOId = nil
-                autoMatchedPurchaseOrderID = nil
-            }
-            purchaseOrderMatchMessage = "No Shopmonkey PO match for \(query). Attach/Restock will create a new draft PO."
-            return
-        }
-
-        if match.isDraft {
-            selectPurchaseOrder(match, isAutoMatch: true)
-            return
-        }
-
-        if let selectedPO = selectedPurchaseOrder, autoMatchedPurchaseOrderID == selectedPO.id {
-            selectedPurchaseOrder = nil
-            selectedPOId = nil
-            autoMatchedPurchaseOrderID = nil
-        }
-
-        purchaseOrderMatchMessage = "Found Shopmonkey PO \(match.number ?? match.id) in \(match.status). Draft is required to update."
-    }
-
-    private func bestPurchaseOrderMatch(for query: String, in purchaseOrders: [PurchaseOrderResponse]) -> PurchaseOrderResponse? {
-        guard let normalizedQuery = normalizePurchaseOrderReference(query) else { return nil }
-        let matches = purchaseOrders.filter { purchaseOrder in
-            normalizePurchaseOrderReference(purchaseOrder.number) == normalizedQuery
-        }
-
-        if let draftMatch = matches.first(where: \.isDraft) {
-            return draftMatch
-        }
-
-        return matches.first
-    }
-
     private func applyVendorAutoSelectionIfNeeded(_ ranked: [RankedVendorMatch], query: String) {
         guard let top = ranked.first else {
             selectedVendorId = nil
@@ -1501,21 +1407,6 @@ final class ReviewViewModel: ObservableObject {
 
     private func rankVendorSuggestions(_ vendors: [VendorSummary], query: String) -> [RankedVendorMatch] {
         VendorMatcher.rankVendors(vendors, query: query, minimumScore: VendorMatcher.minimumSuggestionScore)
-    }
-
-    private func normalizePurchaseOrderReference(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-            return nil
-        }
-
-        let normalized = value
-            .uppercased()
-            .unicodeScalars
-            .filter { CharacterSet.alphanumerics.contains($0) }
-            .map(String.init)
-            .joined()
-
-        return normalized.isEmpty ? nil : normalized
     }
 
     private var effectivePONumber: String? {
@@ -2066,14 +1957,6 @@ final class ReviewViewModel: ObservableObject {
 
     private var ignoreTaxAndTotalsSetting: Bool {
         UserDefaults.standard.bool(forKey: "ignoreTaxAndTotals")
-    }
-
-    private var isExperimentalLinkingEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "experimentalOrderPOLinking")
-    }
-
-    private var experimentalOrderPOLinkingSetting: Bool {
-        isExperimentalLinkingEnabled
     }
 
     private let taxRate: Decimal = Decimal(string: "0.13") ?? (Decimal(13) / Decimal(100))

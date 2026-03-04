@@ -166,4 +166,48 @@ struct PurchaseOrderFetchDecodeTests {
         #expect(NSDecimalNumber(decimal: feeLine.quantityOrdered).doubleValue == 1.0)
         #expect(NSDecimalNumber(decimal: feeLine.unitCost ?? 0).doubleValue == 2.5)
     }
+
+    @Test func fetchOpenPurchaseOrdersPrefersCanonicalIDOverNumber() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PurchaseOrderURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        PurchaseOrderURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            #expect(url.path == "/v3/purchase_order")
+
+            let body = Data(
+                #"""
+                {
+                  "data": [
+                    {
+                      "number": "PO-1697",
+                      "id": "po_internal_1697",
+                      "status": "Draft",
+                      "parts": [
+                        { "name": "Pad", "quantity": 1, "cost_cents": 1200 }
+                      ]
+                    }
+                  ]
+                }
+                """#.utf8
+            )
+
+            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, body)
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+
+        let api = ShopmonkeyAPI(client: client)
+        let purchaseOrders = try await api.fetchOpenPurchaseOrders()
+        #expect(purchaseOrders.count == 1)
+        #expect(purchaseOrders.first?.id == "po_internal_1697")
+    }
 }

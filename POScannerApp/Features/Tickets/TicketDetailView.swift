@@ -42,9 +42,15 @@ struct TicketDetailView: View {
         }
         .onChange(of: selectedServiceID) { _, value in
             Task {
-                await environment.ticketStore.setSelectedServiceID(value, forTicketID: ticketID)
+                await environment.ticketStore.setSelectedServiceID(value, forTicketID: resolvedTicketID)
             }
         }
+    }
+
+    private var resolvedTicketID: String {
+        guard let ticket else { return ticketID }
+        let normalized = ticket.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? ticketID : normalized
     }
 
     private var summarySection: some View {
@@ -88,10 +94,10 @@ struct TicketDetailView: View {
                 if activeTicketID != nil {
                     Button("Clear Active Ticket") {
                         Task {
-                            await environment.ticketStore.setSelectedServiceID(nil, forTicketID: ticketID)
+                            await environment.ticketStore.setSelectedServiceID(nil, forTicketID: resolvedTicketID)
                             await environment.ticketStore.setActiveTicketID(nil)
                             activeTicketID = await environment.ticketStore.activeTicketID()
-                            selectedServiceID = await environment.ticketStore.selectedServiceID(forTicketID: ticketID)
+                            selectedServiceID = await environment.ticketStore.selectedServiceID(forTicketID: resolvedTicketID)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -194,13 +200,23 @@ struct TicketDetailView: View {
 
         if let cached = await environment.ticketStore.loadTicket(id: ticketID) {
             ticket = cached
+            if selectedServiceID == nil {
+                selectedServiceID = await environment.ticketStore.selectedServiceID(forTicketID: cached.id)
+            }
         }
 
         if forceRemote || ticket == nil {
             do {
                 let fetched = try await environment.shopmonkeyAPI.fetchTicket(id: ticketID)
                 await environment.ticketStore.save(ticket: fetched)
-                ticket = await environment.ticketStore.loadTicket(id: ticketID)
+                ticket = await environment.ticketStore.loadTicket(id: fetched.id) ?? fetched
+                if selectedServiceID == nil {
+                    selectedServiceID = await environment.ticketStore.selectedServiceID(forTicketID: fetched.id)
+                }
+                if activeTicketID == ticketID, fetched.id != ticketID {
+                    await environment.ticketStore.setActiveTicketID(fetched.id)
+                    activeTicketID = await environment.ticketStore.activeTicketID()
+                }
                 errorMessage = nil
             } catch {
                 guard !isRequestCancellation(error) else { return }
@@ -217,11 +233,12 @@ struct TicketDetailView: View {
         }
 
         do {
-            let fetchedServices = try await environment.shopmonkeyAPI.fetchServices(orderId: ticketID)
+            let serviceContextTicketID = resolvedTicketID
+            let fetchedServices = try await environment.shopmonkeyAPI.fetchServices(orderId: serviceContextTicketID)
             services = fetchedServices
             if fetchedServices.count == 1, let only = fetchedServices.first {
                 selectedServiceID = only.id
-                await environment.ticketStore.setSelectedServiceID(only.id, forTicketID: ticketID)
+                await environment.ticketStore.setSelectedServiceID(only.id, forTicketID: serviceContextTicketID)
             }
             if selectedServiceID == nil, fetchedServices.isEmpty {
                 errorMessage = "No services available for this ticket."

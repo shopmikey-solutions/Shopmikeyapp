@@ -157,7 +157,7 @@ struct ShopmonkeyAPISandboxTests {
         let session = URLSession(configuration: configuration)
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { throw APIError.missingToken },
             fallbackRecorder: fallbackRecorder()
@@ -224,7 +224,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             sleeper: { seconds in await recorder.record(seconds) },
@@ -259,7 +259,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()
@@ -293,7 +293,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()
@@ -336,7 +336,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()
@@ -357,7 +357,7 @@ struct ShopmonkeyAPISandboxTests {
         let session = URLSession(configuration: configuration)
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()
@@ -431,7 +431,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()
@@ -471,7 +471,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()
@@ -502,7 +502,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()
@@ -558,7 +558,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()
@@ -651,7 +651,7 @@ struct ShopmonkeyAPISandboxTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             fallbackRecorder: fallbackRecorder()

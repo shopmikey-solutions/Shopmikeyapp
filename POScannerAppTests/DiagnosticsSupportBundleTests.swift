@@ -87,7 +87,7 @@ struct DiagnosticsSupportBundleTests {
         )
         let bundle = builder.makeBundle(
             from: [operation],
-            shopmonkeyBaseURL: ShopmonkeyBaseURL.sandbox,
+            shopmonkeyBaseURL: ShopmonkeyBaseURL.sandboxV3,
             authConfigured: true,
             networkFailures: [failureEntry]
         )

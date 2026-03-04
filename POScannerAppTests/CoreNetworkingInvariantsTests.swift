@@ -71,7 +71,7 @@ struct CoreNetworkingInvariantsTests {
         let counter = TokenCounter()
         let tokenProvider = TokenProviderActorAdapter(fetchToken: { await counter.fetch() })
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: tokenProvider
         )
@@ -112,7 +112,7 @@ struct CoreNetworkingInvariantsTests {
         let tokenProvider = TokenProviderActorAdapter(fetchToken: { "token" })
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             tokenProvider: tokenProvider,
             fallbackRecorder: fallbackRecorder,
             diagnosticsRecorder: diagnostics

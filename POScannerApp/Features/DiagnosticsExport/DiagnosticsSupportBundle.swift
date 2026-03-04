@@ -123,7 +123,7 @@ struct DiagnosticsSupportBundleBuilder {
 
     func makeBundle(
         from operations: [SyncOperation],
-        shopmonkeyBaseURL: URL = ShopmonkeyBaseURL.sandbox,
+        shopmonkeyBaseURL: URL = ShopmonkeyBaseURL.sandboxV3,
         authConfigured: Bool = false,
         networkFailures: [NetworkDiagnosticsEntry] = []
     ) -> DiagnosticsSupportBundle {

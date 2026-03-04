@@ -60,7 +60,7 @@ struct ShopmonkeyContractEndpointTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" }
         )
@@ -103,7 +103,7 @@ struct ShopmonkeyContractEndpointTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" }
         )
@@ -135,7 +135,7 @@ struct ShopmonkeyContractEndpointTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" }
         )

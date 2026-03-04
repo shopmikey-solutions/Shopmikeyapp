@@ -176,4 +176,70 @@ struct TicketFetchDecodeTests {
         #expect(NSDecimalNumber(decimal: line.unitPrice ?? 0).doubleValue == 59.95)
         #expect(NSDecimalNumber(decimal: line.extendedPrice ?? 0).doubleValue == 119.9)
     }
+
+    @Test func fetchTicketDecodesLineItemsNestedUnderServices() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TicketURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        TicketURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            #expect(url.path == "/v3/order/order_nested_service_lines")
+
+            let body = Data(
+                #"""
+                {
+                  "data": {
+                    "id": "order_nested_service_lines",
+                    "ticket_number": "RO-3101",
+                    "status": "Open",
+                    "services": [
+                      {
+                        "id": "svc_1",
+                        "name": "Brake Service",
+                        "parts": [
+                          {
+                            "id": "svc_part_1",
+                            "description": "Front Brake Pad Set",
+                            "part_number": "PAD-101",
+                            "quantity": 2,
+                            "unit_price": 79.95
+                          }
+                        ],
+                        "labor": [
+                          {
+                            "id": "svc_labor_1",
+                            "description": "Brake Labor",
+                            "quantity": 1,
+                            "unit_price": 120
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """#.utf8
+            )
+
+            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                throw URLError(.badServerResponse)
+            }
+
+            return (response, body)
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+
+        let api = ShopmonkeyAPI(client: client)
+        let ticket = try await api.fetchTicket(id: "order_nested_service_lines")
+
+        #expect(ticket.id == "order_nested_service_lines")
+        #expect(ticket.lineItems.count == 2)
+        #expect(ticket.lineItems.map(\.id).contains("svc_part_1"))
+        #expect(ticket.lineItems.map(\.id).contains("svc_labor_1"))
+    }
 }

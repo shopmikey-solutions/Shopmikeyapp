@@ -17,6 +17,9 @@ Contract source policy:
 | Fetch open tickets | `GET` | `/order` | capability-proved required |
 | Fetch ticket detail | `GET` | `/order/{id}` | capability-proved required |
 | Fetch services for order/ticket | `GET` | `/order/{orderId}/service` | capability-proved required |
+| Fetch order parts (line-item hydration) | `GET` | `/order/{orderId}/part` | Official docs: [Shopmonkey Order resource](https://shopmonkey.dev/resources/order) (`Get Order Parts`) |
+| Fetch order tires (line-item hydration) | `GET` | `/order/{orderId}/tire` | Official docs: [Shopmonkey Order resource](https://shopmonkey.dev/resources/order) (`Get Order Tires`) |
+| Optional service detail fallback (tenant capability only) | `GET` | `/order/{orderId}/service/{id}` | capability-proved optional (undocumented GET behavior in public docs) |
 | Add part to selected service (ticket mutation) | `POST` | `/order/{orderId}/service/{serviceId}/part` | Official docs: [Shopmonkey Part resource](https://shopmonkey.dev/resources/part) (`Add Part to Service`) |
 | Legacy direct ticket line add (deprecated fallback candidate; not used by mutation flow) | `POST` | `/order/{ticketId}/part` | capability-proved required |
 | Fetch inventory parts | `POST` | `/inventory_part/search` | capability-proved required |

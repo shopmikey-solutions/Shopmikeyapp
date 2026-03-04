@@ -207,7 +207,7 @@ struct ShopmonkeyContractEndpointTests {
         #expect(services.first?.name == "Brake Service")
     }
 
-    @Test func fetchServicesRetriesWithCanonicalOrderIDWhenPublicIDWasUsedInitially() async throws {
+    @Test func fetchServicesRetriesWithCanonicalOrderIDWhenInitialServiceResponseIsEmpty() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ShopmonkeyContractURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -223,8 +223,8 @@ struct ShopmonkeyContractEndpointTests {
 
             switch url.path {
             case "/v3/order/1697/service":
-                let body = Data("{}".utf8)
-                guard let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil) else {
+                let body = Data(#"{"data":[]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
                     throw URLError(.badServerResponse)
                 }
                 return (response, body)
@@ -284,6 +284,8 @@ struct ShopmonkeyContractEndpointTests {
 
         #expect(markdown.contains("/order/{orderId}/service/{serviceId}/part"))
         #expect(markdown.contains("/order/{orderId}/service"))
+        #expect(markdown.contains("/order/{orderId}/part"))
+        #expect(markdown.contains("/order/{orderId}/tire"))
         #expect(markdown.contains("/order/{id}"))
         #expect(markdown.contains("/order"))
     }

@@ -284,4 +284,237 @@ struct TicketFetchDecodeTests {
         #expect(ticket.lineItems.map(\.id).contains("svc_part_1"))
         #expect(ticket.lineItems.map(\.id).contains("svc_labor_1"))
     }
+
+    @Test func fetchTicketHydratesLineItemsFromServiceDetailsWhenOrderPayloadIsSparse() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TicketURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        var seenPaths: [String] = []
+        TicketURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            seenPaths.append(url.path)
+
+            switch url.path {
+            case "/v3/order/1697":
+                let body: Data
+                if seenPaths.filter({ $0 == "/v3/order/1697" }).count == 1 {
+                    body = Data(
+                        #"""
+                        {
+                          "data": {
+                            "id": "1697",
+                            "order_id": "order_1697",
+                            "ticket_number": "RO-1697",
+                            "status": "Open"
+                          }
+                        }
+                        """#.utf8
+                    )
+                } else {
+                    body = Data(
+                        #"""
+                        {
+                          "data": {
+                            "id": "1697",
+                            "order_id": "order_1697"
+                          }
+                        }
+                        """#.utf8
+                    )
+                }
+
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/1697/service":
+                guard let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, Data("{}".utf8))
+
+            case "/v3/order/order_1697/service":
+                let body = Data(#"{"data":[{"id":"svc_1","name":"Brake Service"}]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/order_1697/part":
+                let body = Data(#"{"data":[]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/order_1697/tire":
+                let body = Data(#"{"data":[]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/order_1697/service/svc_1":
+                let body = Data(
+                    #"""
+                    {
+                      "data": {
+                        "id": "svc_1",
+                        "order_id": "order_1697",
+                        "parts": [
+                          {
+                            "id": "svc_part_1",
+                            "description": "Brake Pad",
+                            "part_number": "PAD-001",
+                            "quantity": 2,
+                            "unit_price": 54.5
+                          }
+                        ],
+                        "labors": [
+                          {
+                            "id": "svc_labor_1",
+                            "description": "Install labor",
+                            "hours": 1,
+                            "rate_cents": 12000
+                          }
+                        ]
+                      }
+                    }
+                    """#.utf8
+                )
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+        let api = ShopmonkeyAPI(client: client)
+
+        let ticket = try await api.fetchTicket(id: "1697")
+        #expect(ticket.id == "1697")
+        #expect(ticket.lineItems.map(\.id).contains("svc_part_1"))
+        #expect(ticket.lineItems.map(\.id).contains("svc_labor_1"))
+        #expect(
+            seenPaths == [
+                "/v3/order/1697",
+                "/v3/order/1697/service",
+                "/v3/order/1697",
+                "/v3/order/order_1697/service",
+                "/v3/order/order_1697/part",
+                "/v3/order/order_1697/tire",
+                "/v3/order/order_1697/service/svc_1"
+            ]
+        )
+    }
+
+    @Test func fetchTicketHydratesLineItemsFromOrderPartEndpointWhenServiceEndpointReturnsEmptyList() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TicketURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        var seenPaths: [String] = []
+        TicketURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            seenPaths.append(url.path)
+
+            switch url.path {
+            case "/v3/order/1697":
+                let body = Data(
+                    #"""
+                    {
+                      "data": {
+                        "id": "1697",
+                        "order_id": "order_1697",
+                        "ticket_number": "RO-1697",
+                        "status": "Open"
+                      }
+                    }
+                    """#.utf8
+                )
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/1697/service":
+                let body = Data(#"{"data":[]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/order_1697/service":
+                let body = Data(#"{"data":[]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/order_1697/part":
+                let body = Data(
+                    #"""
+                    {
+                      "data": [
+                        {
+                          "id": "part_1",
+                          "type": "part",
+                          "part_number": "PAD-001",
+                          "description": "Front Brake Pads",
+                          "quantity": 2,
+                          "unit_price": 54.5
+                        }
+                      ]
+                    }
+                    """#.utf8
+                )
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/order_1697/tire":
+                let body = Data(#"{"data":[]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+        let api = ShopmonkeyAPI(client: client)
+
+        let ticket = try await api.fetchTicket(id: "1697")
+        #expect(ticket.id == "1697")
+        #expect(ticket.lineItems.map(\.id) == ["part_1"])
+        #expect(ticket.lineItems.first?.kind == "part")
+        #expect(
+            seenPaths == [
+                "/v3/order/1697",
+                "/v3/order/1697/service",
+                "/v3/order/1697",
+                "/v3/order/order_1697/service",
+                "/v3/order/order_1697/part",
+                "/v3/order/order_1697/tire"
+            ]
+        )
+    }
 }

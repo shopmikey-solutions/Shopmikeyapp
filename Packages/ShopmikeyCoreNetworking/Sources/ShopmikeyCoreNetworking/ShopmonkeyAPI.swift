@@ -376,6 +376,17 @@ private enum CaseInsensitiveJSONLookup {
             return nil
         }
     }
+
+    static func firstNonEmpty(_ values: [String?]) -> String? {
+        for value in values {
+            guard let value else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
 }
 
 /// Shopmonkey sandbox API wrapper.
@@ -591,14 +602,8 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
             throw APIError.invalidURL
         }
 
-        do {
-            return try await fetchServicesFromServiceEndpoint(orderId: safeOrderId)
-        } catch let error as APIError {
-            if case .serverError(404) = error {
-                return try await recoverServicesAfterNotFound(orderId: safeOrderId)
-            }
-            throw error
-        }
+        let resolved = try await fetchServicesWithResolvedOrderID(orderId: safeOrderId)
+        return resolved.services
     }
 
     /// GET /order
@@ -620,7 +625,12 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
 
         let url = try makeURL(path: "/order/\(safeID)")
         let decoded: SingleOrWrapped<TicketEnvelope> = try await client.perform(.get, url: url)
-        return decoded.value.ticketModel(includeLineItems: true)
+        var ticket = decoded.value.ticketModel(includeLineItems: true)
+        if ticket.lineItems.isEmpty {
+            // Some tenants return sparse order payloads from `/order/{id}` and require follow-up scoped reads.
+            ticket = await hydrateTicketLineItemsFromServiceDetailsIfNeeded(ticket)
+        }
+        return ticket
     }
 
     /// POST /order/{ticketId}/part
@@ -758,32 +768,56 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         return Self.normalizeServices(decoded.values)
     }
 
-    private func recoverServicesAfterNotFound(orderId: String) async throws -> [ServiceSummary] {
+    private func fetchServicesWithResolvedOrderID(orderId: String) async throws -> (services: [ServiceSummary], resolvedOrderID: String) {
+        do {
+            let services = try await fetchServicesFromServiceEndpoint(orderId: orderId)
+            if !services.isEmpty {
+                return (services: services, resolvedOrderID: orderId)
+            }
+            // Some tenants return a sparse 200 [] for public IDs; resolve canonical IDs via order detail.
+            return try await recoverServicesUsingOrderDetail(orderId: orderId)
+        } catch let error as APIError {
+            if isRouteUnavailable(error) || isValidationError(error) {
+                return try await recoverServicesUsingOrderDetail(orderId: orderId)
+            }
+            throw error
+        }
+    }
+
+    private func recoverServicesUsingOrderDetail(orderId: String) async throws -> (services: [ServiceSummary], resolvedOrderID: String) {
         do {
             let orderDetail = try await fetchOrderDetailEnvelope(orderId: orderId)
+            let canonicalOrderID = orderDetail.alternateOrderIDs.first(where: {
+                !$0.isEmpty && $0.caseInsensitiveCompare(orderId) != .orderedSame
+            }) ?? orderDetail.alternateOrderIDs.first(where: { !$0.isEmpty }) ?? orderId
+
             if !orderDetail.services.isEmpty {
-                return Self.normalizeServices(orderDetail.services)
+                return (
+                    services: Self.normalizeServices(orderDetail.services),
+                    resolvedOrderID: canonicalOrderID
+                )
             }
 
-            for alternateOrderID in orderDetail.alternateOrderIDs where alternateOrderID != orderId {
+            for alternateOrderID in orderDetail.alternateOrderIDs where alternateOrderID.caseInsensitiveCompare(orderId) != .orderedSame {
                 do {
                     let resolved = try await fetchServicesFromServiceEndpoint(orderId: alternateOrderID)
                     if !resolved.isEmpty {
-                        return resolved
+                        return (services: resolved, resolvedOrderID: alternateOrderID)
                     }
                 } catch let apiError as APIError {
-                    if case .serverError(404) = apiError {
+                    if isRouteUnavailable(apiError) || isValidationError(apiError) {
                         continue
                     }
                     throw apiError
                 }
             }
 
-            return []
+            // Keep canonical ID even when no service list is available so downstream reads can still succeed.
+            return (services: [], resolvedOrderID: canonicalOrderID)
         } catch let apiError as APIError {
-            if case .serverError(404) = apiError {
+            if isRouteUnavailable(apiError) || isValidationError(apiError) {
                 // Service lists are optional for some tickets/orders.
-                return []
+                return (services: [], resolvedOrderID: orderId)
             }
             throw apiError
         }
@@ -793,6 +827,196 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         let url = try makeURL(path: "/order/\(orderId)")
         let decoded: SingleOrWrapped<OrderDetailEnvelope> = try await client.perform(.get, url: url)
         return decoded.value
+    }
+
+    private func hydrateTicketLineItemsFromServiceDetailsIfNeeded(_ ticket: TicketModel) async -> TicketModel {
+        guard ticket.lineItems.isEmpty else { return ticket }
+
+        do {
+            let resolved = try await fetchServicesWithResolvedOrderID(orderId: ticket.id)
+
+            var merged: [TicketLineItem] = []
+            var seen: Set<String> = []
+            func append(_ lineItems: [TicketLineItem]) {
+                for lineItem in lineItems {
+                    let dedupeKey = lineItem.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if dedupeKey.isEmpty {
+                        merged.append(lineItem)
+                        continue
+                    }
+                    guard seen.insert(dedupeKey).inserted else { continue }
+                    merged.append(lineItem)
+                }
+            }
+
+            let orderScoped = try await fetchOrderScopedLineItems(orderId: resolved.resolvedOrderID)
+            append(orderScoped)
+
+            // Best-effort fallback for tenants that expose service detail GET payloads.
+            if merged.isEmpty {
+                for service in resolved.services {
+                    let safeServiceID = service.id.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !safeServiceID.isEmpty else { continue }
+
+                    let lineItems = try await fetchServiceDetailLineItems(
+                        orderId: resolved.resolvedOrderID,
+                        serviceId: safeServiceID
+                    )
+                    append(lineItems)
+                }
+            }
+
+            guard !merged.isEmpty else { return ticket }
+            var hydrated = ticket
+            hydrated.lineItems = merged
+            return hydrated
+        } catch {
+            // Hydration is best-effort; keep the base ticket payload available.
+            return ticket
+        }
+    }
+
+    private func fetchOrderScopedLineItems(orderId: String) async throws -> [TicketLineItem] {
+        let safeOrderID = orderId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeOrderID.isEmpty else { return [] }
+
+        let endpoints: [(path: String, containerKey: String)] = [
+            ("/order/\(safeOrderID)/part", "parts"),
+            ("/order/\(safeOrderID)/tire", "tires")
+        ]
+
+        var merged: [TicketLineItem] = []
+        var seen: Set<String> = []
+
+        for endpoint in endpoints {
+            do {
+                let url = try makeURL(path: endpoint.path)
+                let payload: JSONValue = try await client.perform(.get, url: url)
+                let lineItems = Self.parseOrderScopedLineItems(
+                    payload: payload,
+                    containerKey: endpoint.containerKey,
+                    ticketID: safeOrderID
+                )
+
+                for lineItem in lineItems {
+                    let dedupeKey = lineItem.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if dedupeKey.isEmpty {
+                        merged.append(lineItem)
+                        continue
+                    }
+                    guard seen.insert(dedupeKey).inserted else { continue }
+                    merged.append(lineItem)
+                }
+            } catch let apiError as APIError {
+                if isRouteUnavailable(apiError) || isValidationError(apiError) {
+                    continue
+                }
+                throw apiError
+            }
+        }
+
+        return merged
+    }
+
+    private func fetchServiceDetailLineItems(orderId: String, serviceId: String) async throws -> [TicketLineItem] {
+        let safeOrderID = orderId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeServiceID = serviceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeOrderID.isEmpty, !safeServiceID.isEmpty else { return [] }
+
+        do {
+            let url = try makeURL(path: "/order/\(safeOrderID)/service/\(safeServiceID)")
+            let payload: JSONValue = try await client.perform(.get, url: url)
+            return Self.parseServiceDetailLineItems(
+                payload: payload,
+                fallbackOrderID: safeOrderID
+            )
+        } catch let apiError as APIError {
+            if isRouteUnavailable(apiError) {
+                return []
+            }
+            throw apiError
+        }
+    }
+
+    private static func parseServiceDetailLineItems(payload: JSONValue, fallbackOrderID: String) -> [TicketLineItem] {
+        guard case .object(let rootObject) = payload else { return [] }
+        let serviceObject = resolveServiceObject(from: rootObject)
+        let resolvedOrderID = CaseInsensitiveJSONLookup.firstNonEmpty([
+            CaseInsensitiveJSONLookup.string(in: serviceObject, keys: ["order_id", "orderId"]),
+            CaseInsensitiveJSONLookup.string(in: rootObject, keys: ["order_id", "orderId"]),
+            fallbackOrderID
+        ]) ?? fallbackOrderID
+
+        let fromServiceObject = TicketEnvelope.parseLineItems(from: serviceObject, ticketID: resolvedOrderID)
+        if !fromServiceObject.isEmpty {
+            return fromServiceObject
+        }
+        return TicketEnvelope.parseLineItems(from: rootObject, ticketID: resolvedOrderID)
+    }
+
+    private static func parseOrderScopedLineItems(
+        payload: JSONValue,
+        containerKey: String,
+        ticketID: String
+    ) -> [TicketLineItem] {
+        func parse(from object: [String: JSONValue]) -> [TicketLineItem] {
+            let direct = TicketEnvelope.parseLineItems(from: object, ticketID: ticketID)
+            if !direct.isEmpty {
+                return direct
+            }
+
+            let candidateArray = CaseInsensitiveJSONLookup.array(
+                in: object,
+                keys: [containerKey, "line_items", "lineItems", "items", "data", "results"]
+            )
+            guard !candidateArray.isEmpty else { return [] }
+
+            let wrappedObject: [String: JSONValue] = [containerKey: .array(candidateArray)]
+            return TicketEnvelope.parseLineItems(from: wrappedObject, ticketID: ticketID)
+        }
+
+        switch payload {
+        case .object(let rootObject):
+            let rootParsed = parse(from: rootObject)
+            if !rootParsed.isEmpty {
+                return rootParsed
+            }
+
+            if let nested = CaseInsensitiveJSONLookup.object(in: rootObject, keys: ["data", "result"]) {
+                let nestedParsed = parse(from: nested)
+                if !nestedParsed.isEmpty {
+                    return nestedParsed
+                }
+            }
+
+            if let first = CaseInsensitiveJSONLookup.firstObject(in: rootObject, keys: ["data", "result", "results"]) {
+                let firstParsed = parse(from: first)
+                if !firstParsed.isEmpty {
+                    return firstParsed
+                }
+            }
+
+            return []
+
+        case .array(let values):
+            let wrappedObject: [String: JSONValue] = [containerKey: .array(values)]
+            return TicketEnvelope.parseLineItems(from: wrappedObject, ticketID: ticketID)
+
+        default:
+            return []
+        }
+    }
+
+    private static func resolveServiceObject(from rootObject: [String: JSONValue]) -> [String: JSONValue] {
+        if let nested = CaseInsensitiveJSONLookup.object(in: rootObject, keys: ["service"]) {
+            return nested
+        }
+
+        if let first = CaseInsensitiveJSONLookup.firstObject(in: rootObject, keys: ["data", "result", "results"]) {
+            return first
+        }
+
+        return rootObject
     }
 
     private static func normalizeServices(_ services: [ServiceSummary]) -> [ServiceSummary] {
@@ -3269,7 +3493,7 @@ private struct TicketEnvelope: Decodable {
         return root
     }
 
-    private static func parseLineItems(from object: [String: JSONValue], ticketID: String) -> [TicketLineItem] {
+    fileprivate static func parseLineItems(from object: [String: JSONValue], ticketID: String) -> [TicketLineItem] {
         var parsed: [TicketLineItem] = []
         var index = 0
 

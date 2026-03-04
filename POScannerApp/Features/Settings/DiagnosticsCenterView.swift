@@ -29,9 +29,6 @@ struct DiagnosticsCenterView: View {
             await viewModel.setTelemetryEnabled(viewModel.isTelemetryEnabled, clearWhenDisabled: false)
             await viewModel.refreshTelemetrySummary()
         }
-        .onChange(of: viewModel.experimentalOrderPOLinking) { _, _ in
-            AppHaptics.selection()
-        }
         .onChange(of: viewModel.isTelemetryEnabled) { _, enabled in
             AppHaptics.selection()
             Task {
@@ -161,13 +158,6 @@ struct DiagnosticsCenterView: View {
     #if DEBUG
     private var advancedSection: some View {
         Section("Advanced") {
-            Toggle("Experimental Ticket and PO Linking", isOn: $viewModel.experimentalOrderPOLinking)
-                .accessibilityIdentifier("diagnosticsCenter.experimentalLinkingToggle")
-
-            Text("Advanced tooling for support and development workflows.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
             fallbackAnalyticsContent
             telemetryContent
         }

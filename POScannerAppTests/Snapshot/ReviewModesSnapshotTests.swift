@@ -5,20 +5,6 @@ import XCTest
 
 @MainActor
 final class ReviewModesSnapshotTests: XCTestCase {
-    private let experimentalOrderPOLinkingKey = "experimentalOrderPOLinking"
-    private var previousExperimentalOrderPOLinkingValue: Bool = false
-
-    override func setUp() {
-        super.setUp()
-        previousExperimentalOrderPOLinkingValue = UserDefaults.standard.bool(forKey: experimentalOrderPOLinkingKey)
-        UserDefaults.standard.set(true, forKey: experimentalOrderPOLinkingKey)
-    }
-
-    override func tearDown() {
-        UserDefaults.standard.set(previousExperimentalOrderPOLinkingValue, forKey: experimentalOrderPOLinkingKey)
-        super.tearDown()
-    }
-
     func testAttachLightDefault() {
         SnapshotTestSupport.assertSnapshot(
             name: "Review_Attach__light__L",

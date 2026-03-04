@@ -19,7 +19,6 @@ struct ReviewView: View {
         case service
     }
 
-    @AppStorage("experimentalOrderPOLinking") private var experimentalOrderPOLinking: Bool = false
     @StateObject var viewModel: ReviewViewModel
     @State private var focusNeedsReviewOnly: Bool = false
     @State private var hasLoadedInitialMetrics: Bool = false
@@ -100,17 +99,12 @@ struct ReviewView: View {
             }
 
             Section("Shopmonkey Destination") {
-                if experimentalOrderPOLinking {
-                    submissionModePicker
-                    submissionContextLinks
-                } else {
-                    Text("Production mode keeps this simple: add scanned lines to a Shopmonkey draft purchase order.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Production mode keeps this simple: add scanned lines to a Shopmonkey draft purchase order.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
 
                 taxBehaviorRow
-                Text(experimentalOrderPOLinking ? viewModel.modeGuidanceText : "Enable Experimental Order / PO Linking in Settings > Diagnostics for advanced add-to-order and add-to-PO tools.")
+                Text("Attach creates or updates a draft purchase order. Only Shopmonkey draft POs can be targeted.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -243,17 +237,10 @@ struct ReviewView: View {
                 hasLoadedInitialMetrics = true
                 viewModel.loadTodayMetrics()
             }
-            if !experimentalOrderPOLinking {
-                viewModel.applyProductionPolishMode()
-            }
+            viewModel.applyProductionPolishMode()
         }
         .onDisappear {
             Task { await viewModel.persistDraftOnExitIfNeeded() }
-        }
-        .onChange(of: experimentalOrderPOLinking) { _, enabled in
-            if !enabled {
-                viewModel.applyProductionPolishMode()
-            }
         }
         .onChange(of: viewModel.modeUI) { _, _ in
             AppHaptics.selection()
@@ -566,133 +553,6 @@ struct ReviewView: View {
                 }
                 .font(.footnote)
             }
-
-            if experimentalOrderPOLinking, let poMatch = viewModel.purchaseOrderMatchMessage, !poMatch.isEmpty {
-                Text(poMatch)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var submissionModePicker: some View {
-        NativeSegmentedControl(
-            options: ReviewViewModel.ModeUI.allCases,
-            titleForOption: modeTitle(for:),
-            selection: $viewModel.modeUI,
-            accessibilityIdentifier: "review.modePicker"
-        )
-    }
-
-    @ViewBuilder
-    private var submissionContextLinks: some View {
-        switch viewModel.modeUI {
-        case .attach:
-            NavigationLink("Select Draft Purchase Order") {
-                PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
-                    viewModel.selectPurchaseOrder(purchaseOrder, forceAttachMode: true)
-                }
-            }
-
-            if let selectedPO = viewModel.selectedPurchaseOrder {
-                LabeledContent("Selected PO", value: selectedPO.number ?? selectedPO.id)
-                Label(
-                    selectedPO.isDraft ? "Draft PO ready" : "PO is \(selectedPO.status)",
-                    systemImage: selectedPO.isDraft ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
-                )
-                .font(.footnote)
-                .foregroundStyle(selectedPO.isDraft ? AppSurfaceStyle.success : AppSurfaceStyle.warning)
-            } else {
-                Text("No PO selected. Submitting in Attach mode creates a new draft purchase order.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            TextField("Order ID (optional PO link)", text: orderIdBinding)
-                .focused($focusedField, equals: .order)
-                .submitLabel(.done)
-
-        case .quickAdd:
-            Text("Add to Order is inventory-first: barcode/SKU lines post directly to a Shopmonkey order service.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            NavigationLink("Select Shopmonkey Order") {
-                OrderPickerView(service: viewModel.shopmonkeyService) { order in
-                    viewModel.selectOrder(order)
-                }
-            }
-
-            if let selectedOrder = viewModel.selectedOrder {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(selectedOrder.orderName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                         ? (selectedOrder.orderName ?? selectedOrder.displayTitle)
-                         : selectedOrder.displayTitle)
-                        .font(.subheadline.weight(.semibold))
-                    if let number = selectedOrder.number?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       !number.isEmpty {
-                        Text("Order #\(number)")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let customer = selectedOrder.customerName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       !customer.isEmpty {
-                        Text(customer)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            TextField("Order ID", text: orderIdBinding)
-                .focused($focusedField, equals: .order)
-                .submitLabel(.next)
-
-            if !orderIdBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                NavigationLink("Select Ticket / Service") {
-                    ServicePickerView(
-                        service: viewModel.shopmonkeyService,
-                        orderId: orderIdBinding.wrappedValue
-                    ) { service in
-                        viewModel.selectService(service)
-                    }
-                }
-            }
-
-            TextField("Ticket / Service ID", text: serviceIdBinding)
-                .focused($focusedField, equals: .service)
-                .submitLabel(.done)
-
-            NavigationLink("Link to Draft PO (optional)") {
-                PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
-                    viewModel.selectPurchaseOrder(purchaseOrder)
-                }
-            }
-
-        case .restock:
-            Text("Restock PO keeps inventory procurement in a draft purchase order workflow.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            NavigationLink("Select Draft Purchase Order") {
-                PurchaseOrderPickerView(service: viewModel.shopmonkeyService) { purchaseOrder in
-                    viewModel.selectPurchaseOrder(purchaseOrder)
-                }
-            }
-
-            if let selectedPO = viewModel.selectedPurchaseOrder {
-                LabeledContent("Selected PO", value: selectedPO.number ?? selectedPO.id)
-                Label(
-                    selectedPO.isDraft ? "Draft PO selected" : "PO is \(selectedPO.status)",
-                    systemImage: selectedPO.isDraft ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
-                )
-                .font(.footnote)
-                .foregroundStyle(selectedPO.isDraft ? AppSurfaceStyle.success : AppSurfaceStyle.warning)
-            }
-
-            TextField("Order ID (optional)", text: orderIdBinding)
-                .focused($focusedField, equals: .order)
-                .submitLabel(.done)
         }
     }
 
@@ -1033,42 +893,8 @@ struct ReviewView: View {
         return nil
     }
 
-    private var orderIdBinding: Binding<String> {
-        Binding(
-            get: { viewModel.orderId },
-            set: { viewModel.setOrderIdManually($0) }
-        )
-    }
-
-    private var serviceIdBinding: Binding<String> {
-        Binding(
-            get: { viewModel.serviceId },
-            set: { viewModel.setServiceIdManually($0) }
-        )
-    }
-
-    private func modeTitle(for mode: ReviewViewModel.ModeUI) -> String {
-        switch mode {
-        case .attach:
-            return "Add to PO"
-        case .quickAdd:
-            return "Add to Order"
-        case .restock:
-            return "Restock PO"
-        }
-    }
-
     private var submitButtonTitle: String {
-        if !experimentalOrderPOLinking {
-            return "Add to Purchase Order"
-        }
-
-        switch viewModel.modeUI {
-        case .attach, .restock:
-            return "Add to Purchase Order"
-        case .quickAdd:
-            return "Add to Order"
-        }
+        "Add to Purchase Order"
     }
 
     private func advanceKeyboardFocus() {

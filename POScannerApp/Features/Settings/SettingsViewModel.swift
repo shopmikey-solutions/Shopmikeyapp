@@ -45,7 +45,6 @@ final class SettingsViewModel: ObservableObject {
     private var clipboardClearTask: Task<Void, Never>?
 
     @AppStorage("ignoreTaxAndTotals") var ignoreTaxAndTotals: Bool = false
-    @AppStorage("experimentalOrderPOLinking") var experimentalOrderPOLinking: Bool = false
     @AppStorage("settings.requireAuthForToken") var isBiometricRequired: Bool = false
     @AppStorage(TelemetryQueue.enabledPreferenceKey) var isTelemetryEnabled: Bool = false
 

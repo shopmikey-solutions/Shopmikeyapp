@@ -207,6 +207,74 @@ struct ShopmonkeyContractEndpointTests {
         #expect(services.first?.name == "Brake Service")
     }
 
+    @Test func fetchServicesRetriesWithCanonicalOrderIDWhenPublicIDWasUsedInitially() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ShopmonkeyContractURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        var seenPaths: [String] = []
+        ShopmonkeyContractURLProtocol.requestHandler = { request in
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+
+            #expect(request.httpMethod == "GET")
+            seenPaths.append(url.path)
+
+            switch url.path {
+            case "/v3/order/1697/service":
+                let body = Data("{}".utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/1697":
+                let body = Data(
+                    #"""
+                    {
+                      "data": {
+                        "public_id": "1697",
+                        "id": "order_1697"
+                      }
+                    }
+                    """#.utf8
+                )
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/order_1697/service":
+                let body = Data(#"{"data":[{"id":"svc_1697","name":"Brake Service"}]}"#.utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+        let api = ShopmonkeyAPI(client: client)
+
+        let services = try await api.fetchServices(orderId: "1697")
+        #expect(services.map(\.id) == ["svc_1697"])
+        #expect(
+            seenPaths == [
+                "/v3/order/1697/service",
+                "/v3/order/1697",
+                "/v3/order/order_1697/service"
+            ]
+        )
+    }
+
     @Test func contractsDocContainsEndpointRegistryEntries() throws {
         let contractPath = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

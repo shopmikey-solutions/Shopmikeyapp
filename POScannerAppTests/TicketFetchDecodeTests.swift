@@ -177,6 +177,48 @@ struct TicketFetchDecodeTests {
         #expect(NSDecimalNumber(decimal: line.extendedPrice ?? 0).doubleValue == 119.9)
     }
 
+    @Test func fetchOpenTicketsPrefersCanonicalIDOverPublicIDWhenBothExist() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TicketURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        TicketURLProtocol.requestHandler = { request in
+            guard let url = request.url else { throw URLError(.badURL) }
+            #expect(url.path == "/v3/order")
+
+            let body = Data(
+                #"""
+                {
+                  "data": [
+                    {
+                      "public_id": "1697",
+                      "id": "order_1697",
+                      "ticket_number": "RO-1697",
+                      "status": "Open"
+                    }
+                  ]
+                }
+                """#.utf8
+            )
+
+            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, body)
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+        let api = ShopmonkeyAPI(client: client)
+
+        let tickets = try await api.fetchOpenTickets()
+        #expect(tickets.count == 1)
+        #expect(tickets.first?.id == "order_1697")
+    }
+
     @Test func fetchTicketDecodesLineItemsNestedUnderServices() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TicketURLProtocol.self]

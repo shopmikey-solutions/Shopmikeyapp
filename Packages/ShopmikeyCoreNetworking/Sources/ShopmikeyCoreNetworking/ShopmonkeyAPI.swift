@@ -294,6 +294,90 @@ private struct InventoryPartSearchRequest: Encodable {
     let skip: Int
 }
 
+private enum CaseInsensitiveJSONLookup {
+    static func value(in object: [String: JSONValue], forKey key: String) -> JSONValue? {
+        if let exact = object[key] {
+            return exact
+        }
+
+        let loweredKey = key.lowercased()
+        return object.first(where: { $0.key.lowercased() == loweredKey })?.value
+    }
+
+    static func scalar(in object: [String: JSONValue], keys: [String]) -> JSONValue? {
+        for key in keys {
+            if let value = value(in: object, forKey: key) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    static func string(in object: [String: JSONValue], keys: [String]) -> String? {
+        guard let value = scalar(in: object, keys: keys),
+              let scalar = scalarString(from: value) else {
+            return nil
+        }
+
+        let trimmed = scalar.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func object(in object: [String: JSONValue], keys: [String]) -> [String: JSONValue]? {
+        for key in keys {
+            guard let value = value(in: object, forKey: key) else { continue }
+            if case .object(let nested) = value {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    static func firstObject(in object: [String: JSONValue], keys: [String]) -> [String: JSONValue]? {
+        for key in keys {
+            guard let value = value(in: object, forKey: key) else { continue }
+            switch value {
+            case .object(let nested):
+                return nested
+            case .array(let values):
+                for entry in values {
+                    if case .object(let nested) = entry {
+                        return nested
+                    }
+                }
+            default:
+                break
+            }
+        }
+        return nil
+    }
+
+    static func array(in object: [String: JSONValue], keys: [String]) -> [JSONValue] {
+        for key in keys {
+            guard let value = value(in: object, forKey: key) else { continue }
+            if case .array(let values) = value {
+                return values
+            }
+        }
+        return []
+    }
+
+    static func scalarString(from value: JSONValue) -> String? {
+        switch value {
+        case .string(let value):
+            return value
+        case .int(let value):
+            return String(value)
+        case .double(let value):
+            return String(value)
+        case .bool(let value):
+            return value ? "true" : "false"
+        default:
+            return nil
+        }
+    }
+}
+
 /// Shopmonkey sandbox API wrapper.
 public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
     private let client: APIClient
@@ -1823,32 +1907,23 @@ public struct CreateVendorResponse: Decodable, Sendable {
     }
 
     private static func firstString(keys: [String], in value: JSONValue) -> String? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        return firstString(matching: lookup, in: value)
-    }
-
-    private static func firstString(matching keys: Set<String>, in value: JSONValue) -> String? {
         switch value {
         case .object(let object):
-            for (rawKey, candidate) in object {
-                if keys.contains(rawKey.lowercased()),
-                   let scalar = scalarString(from: candidate),
-                   !scalar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return scalar
-                }
+            if let scalar = CaseInsensitiveJSONLookup.string(in: object, keys: keys) {
+                return scalar
             }
 
             // Prefer common envelope keys before recursive fallback scan.
             let envelopeKeys = ["data", "result", "vendor", "response"]
             for key in envelopeKeys {
-                if let nested = object[key],
-                   let found = firstString(matching: keys, in: nested) {
+                if let nested = CaseInsensitiveJSONLookup.value(in: object, forKey: key),
+                   let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
 
             for nested in object.values {
-                if let found = firstString(matching: keys, in: nested) {
+                if let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
@@ -1856,7 +1931,7 @@ public struct CreateVendorResponse: Decodable, Sendable {
 
         case .array(let values):
             for nested in values {
-                if let found = firstString(matching: keys, in: nested) {
+                if let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
@@ -1898,21 +1973,6 @@ public struct CreateVendorResponse: Decodable, Sendable {
             return nil
 
         default:
-            return nil
-        }
-    }
-
-    private static func scalarString(from value: JSONValue) -> String? {
-        switch value {
-        case .string(let raw):
-            return raw
-        case .int(let raw):
-            return String(raw)
-        case .double(let raw):
-            return String(raw)
-        case .bool(let raw):
-            return raw ? "true" : "false"
-        case .null, .object, .array:
             return nil
         }
     }
@@ -2323,32 +2383,23 @@ public struct CreatePurchaseOrderResponse: Decodable, Sendable {
     }
 
     private static func firstString(keys: [String], in value: JSONValue) -> String? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        return firstString(matching: lookup, in: value)
-    }
-
-    private static func firstString(matching keys: Set<String>, in value: JSONValue) -> String? {
         switch value {
         case .object(let object):
-            for (rawKey, candidate) in object {
-                if keys.contains(rawKey.lowercased()),
-                   let scalar = scalarString(from: candidate),
-                   !scalar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return scalar
-                }
+            if let scalar = CaseInsensitiveJSONLookup.string(in: object, keys: keys) {
+                return scalar
             }
 
             // Prefer common envelope keys before recursive fallback scan.
             let envelopeKeys = ["data", "result", "purchase_order", "purchaseOrder", "response"]
             for key in envelopeKeys {
-                if let nested = object[key],
-                   let found = firstString(matching: keys, in: nested) {
+                if let nested = CaseInsensitiveJSONLookup.value(in: object, forKey: key),
+                   let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
 
             for nested in object.values {
-                if let found = firstString(matching: keys, in: nested) {
+                if let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
@@ -2357,7 +2408,7 @@ public struct CreatePurchaseOrderResponse: Decodable, Sendable {
 
         case .array(let values):
             for nested in values {
-                if let found = firstString(matching: keys, in: nested) {
+                if let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
@@ -2399,21 +2450,6 @@ public struct CreatePurchaseOrderResponse: Decodable, Sendable {
             }
             return nil
 
-        default:
-            return nil
-        }
-    }
-
-    private static func scalarString(from value: JSONValue) -> String? {
-        switch value {
-        case .string(let value):
-            return value
-        case .int(let value):
-            return String(value)
-        case .double(let value):
-            return String(value)
-        case .bool(let value):
-            return value ? "true" : "false"
         default:
             return nil
         }
@@ -2600,31 +2636,22 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
     }
 
     private static func firstString(keys: [String], in value: JSONValue) -> String? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        return firstString(matching: lookup, in: value)
-    }
-
-    private static func firstString(matching keys: Set<String>, in value: JSONValue) -> String? {
         switch value {
         case .object(let object):
-            for (rawKey, candidate) in object {
-                if keys.contains(rawKey.lowercased()),
-                   let scalar = scalarString(from: candidate),
-                   !scalar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return scalar
-                }
+            if let scalar = CaseInsensitiveJSONLookup.string(in: object, keys: keys) {
+                return scalar
             }
 
             let envelopeKeys = ["data", "result", "purchase_order", "purchaseOrder", "response"]
             for key in envelopeKeys {
-                if let nested = object[key],
-                   let found = firstString(matching: keys, in: nested) {
+                if let nested = CaseInsensitiveJSONLookup.value(in: object, forKey: key),
+                   let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
 
             for nested in object.values {
-                if let found = firstString(matching: keys, in: nested) {
+                if let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
@@ -2632,28 +2659,13 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
 
         case .array(let values):
             for nested in values {
-                if let found = firstString(matching: keys, in: nested) {
+                if let found = firstString(keys: keys, in: nested) {
                     return found
                 }
             }
             return nil
 
         default:
-            return nil
-        }
-    }
-
-    private static func scalarString(from value: JSONValue) -> String? {
-        switch value {
-        case .string(let raw):
-            return raw
-        case .int(let raw):
-            return String(raw)
-        case .double(let raw):
-            return String(raw)
-        case .bool(let raw):
-            return raw ? "true" : "false"
-        case .null, .object, .array:
             return nil
         }
     }
@@ -2756,6 +2768,10 @@ public struct PurchaseOrderResponse: Decodable, Identifiable, Sendable {
         default:
             return nil
         }
+    }
+
+    private static func scalarString(from value: JSONValue) -> String? {
+        CaseInsensitiveJSONLookup.scalarString(from: value)
     }
 
     private static func scalarInt(from value: JSONValue) -> Int? {
@@ -2945,11 +2961,7 @@ private struct TicketPartLineItemCreateResponse: Decodable {
     }
 
     private static func scalar(in object: [String: JSONValue], keys: [String]) -> JSONValue? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            return value
-        }
-        return nil
+        CaseInsensitiveJSONLookup.scalar(in: object, keys: keys)
     }
 
     private static func string(in object: [String: JSONValue], keys: [String]) -> String? {
@@ -3031,8 +3043,10 @@ private struct OrderDetailEnvelope: Decodable {
         rootObject: [String: JSONValue]
     ) -> [String] {
         let candidates = [
-            string(in: orderObject, keys: ["id", "public_id", "publicId"]),
-            string(in: rootObject, keys: ["id", "public_id", "publicId"]),
+            string(in: orderObject, keys: ["id"]),
+            string(in: rootObject, keys: ["id"]),
+            string(in: orderObject, keys: ["public_id", "publicId"]),
+            string(in: rootObject, keys: ["public_id", "publicId"]),
             string(in: orderObject, keys: ["order_id", "orderId"]),
             string(in: rootObject, keys: ["order_id", "orderId"])
         ]
@@ -3138,44 +3152,15 @@ private struct OrderDetailEnvelope: Decodable {
     }
 
     private static func object(in object: [String: JSONValue], keys: [String]) -> [String: JSONValue]? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            if case .object(let nested) = value {
-                return nested
-            }
-        }
-        return nil
+        CaseInsensitiveJSONLookup.object(in: object, keys: keys)
     }
 
     private static func firstObject(in object: [String: JSONValue], keys: [String]) -> [String: JSONValue]? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            switch value {
-            case .object(let nested):
-                return nested
-            case .array(let values):
-                for entry in values {
-                    if case .object(let nested) = entry {
-                        return nested
-                    }
-                }
-            default:
-                break
-            }
-        }
-        return nil
+        CaseInsensitiveJSONLookup.firstObject(in: object, keys: keys)
     }
 
     private static func string(in object: [String: JSONValue], keys: [String]) -> String? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            guard let scalar = scalarString(from: value) else { continue }
-            let trimmed = scalar.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return nil
+        CaseInsensitiveJSONLookup.string(in: object, keys: keys)
     }
 
     private static func firstNonEmpty(_ candidates: [String?]) -> String? {
@@ -3187,21 +3172,6 @@ private struct OrderDetailEnvelope: Decodable {
             }
         }
         return nil
-    }
-
-    private static func scalarString(from value: JSONValue) -> String? {
-        switch value {
-        case .string(let value):
-            return value
-        case .int(let value):
-            return String(value)
-        case .double(let value):
-            return String(value)
-        case .bool(let value):
-            return value ? "true" : "false"
-        default:
-            return nil
-        }
     }
 }
 
@@ -3383,64 +3353,24 @@ private struct TicketEnvelope: Decodable {
 
     private static func object(in object: [String: JSONValue]?, keys: [String]) -> [String: JSONValue]? {
         guard let object else { return nil }
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            if case .object(let nested) = value {
-                return nested
-            }
-        }
-        return nil
+        return CaseInsensitiveJSONLookup.object(in: object, keys: keys)
     }
 
     private static func firstObject(in object: [String: JSONValue], keys: [String]) -> [String: JSONValue]? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            switch value {
-            case .object(let nested):
-                return nested
-            case .array(let values):
-                for entry in values {
-                    if case .object(let nested) = entry {
-                        return nested
-                    }
-                }
-            default:
-                break
-            }
-        }
-        return nil
+        CaseInsensitiveJSONLookup.firstObject(in: object, keys: keys)
     }
 
     private static func objectArray(in object: [String: JSONValue], keys: [String]) -> [JSONValue] {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            if case .array(let values) = value {
-                return values
-            }
-        }
-        return []
+        CaseInsensitiveJSONLookup.array(in: object, keys: keys)
     }
 
     private static func scalar(in object: [String: JSONValue], keys: [String]) -> JSONValue? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            return value
-        }
-        return nil
+        CaseInsensitiveJSONLookup.scalar(in: object, keys: keys)
     }
 
     private static func string(in object: [String: JSONValue]?, keys: [String]) -> String? {
         guard let object else { return nil }
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            if let scalar = scalarString(from: value) {
-                let trimmed = scalar.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-        }
-        return nil
+        return CaseInsensitiveJSONLookup.string(in: object, keys: keys)
     }
 
     private static func firstNonEmpty(_ candidates: [String?]) -> String? {
@@ -3483,21 +3413,6 @@ private struct TicketEnvelope: Decodable {
             }
         }
         return nil
-    }
-
-    private static func scalarString(from value: JSONValue) -> String? {
-        switch value {
-        case .string(let value):
-            return value
-        case .int(let value):
-            return String(value)
-        case .double(let value):
-            return String(value)
-        case .bool(let value):
-            return value ? "true" : "false"
-        default:
-            return nil
-        }
     }
 
     private static let iso8601Formatter: ISO8601DateFormatter = {
@@ -3615,47 +3530,16 @@ public struct OrderSummary: Decodable, Identifiable, Sendable {
 
     private static func object(in object: [String: JSONValue]?, keys: [String]) -> [String: JSONValue]? {
         guard let object else { return nil }
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            if case .object(let nested) = value {
-                return nested
-            }
-        }
-        return nil
+        return CaseInsensitiveJSONLookup.object(in: object, keys: keys)
     }
 
     private static func firstObject(in object: [String: JSONValue], keys: [String]) -> [String: JSONValue]? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            switch value {
-            case .object(let nested):
-                return nested
-            case .array(let values):
-                for entry in values {
-                    if case .object(let nested) = entry {
-                        return nested
-                    }
-                }
-            default:
-                break
-            }
-        }
-        return nil
+        CaseInsensitiveJSONLookup.firstObject(in: object, keys: keys)
     }
 
     private static func string(in object: [String: JSONValue]?, keys: [String]) -> String? {
         guard let object else { return nil }
-        let lookup = Set(keys.map { $0.lowercased() })
-
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            if let scalar = scalarString(from: value) {
-                let trimmed = scalar.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-        }
-        return nil
+        return CaseInsensitiveJSONLookup.string(in: object, keys: keys)
     }
 
     private static func firstNonEmpty(_ candidates: [String?]) -> String? {
@@ -3669,20 +3553,6 @@ public struct OrderSummary: Decodable, Identifiable, Sendable {
         return nil
     }
 
-    private static func scalarString(from value: JSONValue) -> String? {
-        switch value {
-        case .string(let value):
-            return value
-        case .int(let value):
-            return String(value)
-        case .double(let value):
-            return String(value)
-        case .bool(let value):
-            return value ? "true" : "false"
-        default:
-            return nil
-        }
-    }
 }
 
 public struct ServiceSummary: Decodable, Identifiable, Sendable {
@@ -3719,15 +3589,7 @@ public struct ServiceSummary: Decodable, Identifiable, Sendable {
     }
 
     private static func string(in object: [String: JSONValue], keys: [String]) -> String? {
-        let lookup = Set(keys.map { $0.lowercased() })
-        for (rawKey, value) in object where lookup.contains(rawKey.lowercased()) {
-            guard let scalar = scalarString(from: value) else { continue }
-            let trimmed = scalar.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return nil
+        CaseInsensitiveJSONLookup.string(in: object, keys: keys)
     }
 
     private static func firstNonEmpty(_ values: [String?]) -> String? {
@@ -3741,18 +3603,4 @@ public struct ServiceSummary: Decodable, Identifiable, Sendable {
         return nil
     }
 
-    private static func scalarString(from value: JSONValue) -> String? {
-        switch value {
-        case .string(let value):
-            return value
-        case .int(let value):
-            return String(value)
-        case .double(let value):
-            return String(value)
-        case .bool(let value):
-            return value ? "true" : "false"
-        default:
-            return nil
-        }
-    }
 }

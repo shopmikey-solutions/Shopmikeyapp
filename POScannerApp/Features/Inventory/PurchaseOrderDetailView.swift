@@ -16,96 +16,90 @@ struct PurchaseOrderDetailView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        List {
-            if let detail {
-                Section("Summary") {
-                    detailRow(label: "Vendor", value: detail.vendorName ?? "Unknown Vendor")
-                    detailRow(label: "Status", value: detail.status ?? "Unknown")
-                    if isRefreshing {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Refreshing details…")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+        ZStack {
+            List {
+                if let detail {
+                    Section("Summary") {
+                        detailRow(label: "Vendor", value: detail.vendorName ?? "Unknown Vendor")
+                        detailRow(label: "Status", value: detail.status ?? "Unknown")
+                        if let updatedAt = detail.updatedAt ?? detail.createdAt {
+                            detailRow(
+                                label: "Updated",
+                                value: updatedAt.formatted(date: .abbreviated, time: .shortened)
+                            )
                         }
-                        .accessibilityIdentifier("purchaseOrder.detail.refreshing")
-                    }
-                    if let updatedAt = detail.updatedAt ?? detail.createdAt {
-                        detailRow(
-                            label: "Updated",
-                            value: updatedAt.formatted(date: .abbreviated, time: .shortened)
-                        )
+
+                        NavigationLink {
+                            ReceiveItemView(
+                                environment: environment,
+                                purchaseOrderID: purchaseOrderID
+                            )
+                        } label: {
+                            Label("Receive Items", systemImage: "barcode.viewfinder")
+                        }
+                        .accessibilityIdentifier("purchaseOrder.detail.receiveItemsLink")
                     }
 
-                    NavigationLink {
-                        ReceiveItemView(
-                            environment: environment,
-                            purchaseOrderID: purchaseOrderID
-                        )
-                    } label: {
-                        Label("Receive Items", systemImage: "barcode.viewfinder")
-                    }
-                    .accessibilityIdentifier("purchaseOrder.detail.receiveItemsLink")
-                }
+                    Section("Line Items") {
+                        if detail.lineItems.isEmpty {
+                            Text("No line items available.")
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("purchaseOrder.detail.emptyLineItems")
+                        } else {
+                            ForEach(detail.lineItems) { lineItem in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(lineItem.description)
+                                        .font(.headline)
 
-                Section("Line Items") {
-                    if detail.lineItems.isEmpty {
-                        Text("No line items available.")
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("purchaseOrder.detail.emptyLineItems")
-                    } else {
-                        ForEach(detail.lineItems) { lineItem in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(lineItem.description)
-                                    .font(.headline)
-
-                                HStack {
-                                    Text("Ordered: \(decimalString(lineItem.quantityOrdered))")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                    if let quantityReceived = lineItem.quantityReceived {
-                                        Text("Received: \(decimalString(quantityReceived))")
+                                    HStack {
+                                        Text("Ordered: \(decimalString(lineItem.quantityOrdered))")
                                             .font(.subheadline)
                                             .foregroundStyle(.secondary)
+                                        if let quantityReceived = lineItem.quantityReceived {
+                                            Text("Received: \(decimalString(quantityReceived))")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
-                                }
 
-                                if let partNumber = normalizedOptionalString(lineItem.partNumber) {
-                                    Text("PN: \(partNumber)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    if let partNumber = normalizedOptionalString(lineItem.partNumber) {
+                                        Text("PN: \(partNumber)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            } else if isRefreshing {
-                Section {
-                    ProgressView("Loading purchase order...")
-                        .accessibilityIdentifier("purchaseOrder.detail.loading")
-                }
-            } else {
-                Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Purchase order details unavailable")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Refresh to load cached detail for this purchase order.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                } else {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Purchase order details unavailable")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Refresh to load cached detail for this purchase order.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 6)
+                        .accessibilityIdentifier("purchaseOrder.detail.empty")
                     }
-                    .padding(.vertical, 6)
-                    .accessibilityIdentifier("purchaseOrder.detail.empty")
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("purchaseOrder.detail.errorMessage")
+                    }
                 }
             }
 
-            if let errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("purchaseOrder.detail.errorMessage")
-                }
+            if isRefreshing {
+                CenteredLoadingView(
+                    label: detail == nil ? "Loading purchase order…" : "Refreshing purchase order…"
+                )
+                .accessibilityIdentifier("purchaseOrder.detail.loading")
             }
         }
         .navigationTitle("PO Detail")
@@ -114,7 +108,7 @@ struct PurchaseOrderDetailView: View {
         .animation(.easeInOut(duration: 0.2), value: detail?.lineItems.count ?? 0)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(isRefreshing ? "Refreshing…" : "Refresh") {
+                Button("Refresh") {
                     Task { await refreshDetail() }
                 }
                 .disabled(isRefreshing)
@@ -150,7 +144,10 @@ struct PurchaseOrderDetailView: View {
             errorMessage = nil
         } catch {
             guard !isRequestCancellation(error) else { return }
-            errorMessage = "Could not refresh purchase order details."
+            errorMessage = authErrorMessage(
+                for: error,
+                isAuthConfigured: environment.keychainService.tokenExists()
+            ) ?? "Could not refresh purchase order details."
         }
     }
 

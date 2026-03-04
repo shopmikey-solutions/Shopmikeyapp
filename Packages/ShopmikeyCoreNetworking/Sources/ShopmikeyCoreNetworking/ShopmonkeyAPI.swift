@@ -297,30 +297,23 @@ private struct InventoryPartSearchRequest: Encodable {
 /// Shopmonkey sandbox API wrapper.
 public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
     #if DEBUG
-    // sandbox only
-    private let baseURL = URL(string: "https://sandbox-api.shopmonkey.cloud/v3")!
+    public static let baseURL: URL = ShopmonkeyBaseURL.sandbox
     #else
     #error("Production API not allowed in this build.")
     #endif
 
-    /// Exposed for dependency wiring and tests (still sandbox-only).
-    public static var baseURL: URL {
-        #if DEBUG
-        return URL(string: "https://sandbox-api.shopmonkey.cloud/v3")!
-        #else
-        #error("Production API not allowed in this build.")
-        #endif
-    }
-
+    private let baseURL: URL
     private let client: APIClient
     private let diagnosticsRecorder: NetworkDiagnosticsRecorder
     private let fallbackRecorder: any FallbackAnalyticsRecording
 
     public init(
         client: APIClient,
+        baseURL: URL = ShopmonkeyAPI.baseURL,
         fallbackRecorder: any FallbackAnalyticsRecording = NoopFallbackAnalyticsRecorder(),
         diagnosticsRecorder: NetworkDiagnosticsRecorder = .shared
     ) {
+        self.baseURL = baseURL
         self.client = client
         self.fallbackRecorder = fallbackRecorder
         self.diagnosticsRecorder = diagnosticsRecorder

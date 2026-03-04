@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreNetworking
 
 struct DiagnosticsCenterView: View {
     @ObservedObject var viewModel: SettingsViewModel
@@ -144,7 +145,12 @@ struct DiagnosticsCenterView: View {
             .accessibilityIdentifier("diagnosticsCenter.syncQueue")
 
             NavigationLink {
-                DiagnosticsExportView(syncOperationQueue: viewModel.environment.syncOperationQueue)
+                DiagnosticsExportView(
+                    syncOperationQueue: viewModel.environment.syncOperationQueue,
+                    networkDiagnostics: viewModel.environment.networkDiagnostics,
+                    authConfigured: { viewModel.environment.keychainService.tokenExists() },
+                    shopmonkeyBaseURL: ShopmonkeyBaseURL.sandbox
+                )
             } label: {
                 Label("Share Diagnostics", systemImage: "square.and.arrow.up")
             }

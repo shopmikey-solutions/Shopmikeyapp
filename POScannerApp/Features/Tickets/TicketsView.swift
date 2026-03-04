@@ -17,7 +17,8 @@ struct TicketsView: View {
             wrappedValue: TicketsViewModel(
                 ticketStore: environment.ticketStore,
                 shopmonkeyAPI: environment.shopmonkeyAPI,
-                dateProvider: environment.dateProvider
+                dateProvider: environment.dateProvider,
+                isAuthConfigured: { environment.keychainService.tokenExists() }
             )
         )
     }

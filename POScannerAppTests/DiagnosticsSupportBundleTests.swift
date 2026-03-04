@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import ShopmikeyCoreNetworking
 import ShopmikeyCoreSync
 import Testing
 @testable import POScannerApp
@@ -15,6 +16,8 @@ struct DiagnosticsSupportBundleTests {
             schemaVersion: 1,
             generatedAt: "2026-03-02T18:30:00Z",
             app: .init(bundleId: "com.shopmikey.app", version: "1.2.3", build: "456"),
+            shopmonkeyBaseURL: "https://sandbox-api.shopmonkey.cloud/v3",
+            authConfigured: true,
             syncHealthSummary: .init(pendingQueued: 1, retrying: 2, inProgress: 3, failed: 4),
             operations: [
                 .init(
@@ -27,6 +30,14 @@ struct DiagnosticsSupportBundleTests {
                     nextAttemptAt: nil,
                     lastErrorCode: nil
                 )
+            ],
+            lastNetworkFailures: [
+                .init(
+                    endpointPath: "/v3/order/:id/service",
+                    statusCode: 401,
+                    urlErrorCode: nil,
+                    timestamp: "2026-03-02T18:20:00Z"
+                )
             ]
         )
 
@@ -37,6 +48,9 @@ struct DiagnosticsSupportBundleTests {
         #expect(text.contains("\"generatedAt\""))
         #expect(text.contains("\"app\""))
         #expect(text.contains("\"operations\""))
+        #expect(text.contains("\"shopmonkeyBaseURL\""))
+        #expect(text.contains("\"authConfigured\""))
+        #expect(text.contains("\"lastNetworkFailures\""))
     }
 
     @Test
@@ -63,7 +77,20 @@ struct DiagnosticsSupportBundleTests {
             outputDirectory: FileManager.default.temporaryDirectory
         )
 
-        let bundle = builder.makeBundle(from: [operation])
+        let failureEntry = NetworkDiagnosticsEntry(
+            method: "GET",
+            url: "https://sandbox-api.shopmonkey.cloud/v3/order/ORDER123/service",
+            statusCode: 403,
+            requestBodyPreview: "{\"barcode\":\"12345\"}",
+            responseBodyPreview: nil,
+            errorSummary: "The operation couldn’t be completed. (NSURLErrorDomain error -1009.)"
+        )
+        let bundle = builder.makeBundle(
+            from: [operation],
+            shopmonkeyBaseURL: ShopmonkeyBaseURL.sandbox,
+            authConfigured: true,
+            networkFailures: [failureEntry]
+        )
         let data = try encode(bundle: bundle)
         let text = String(decoding: data, as: UTF8.self)
 
@@ -72,6 +99,13 @@ struct DiagnosticsSupportBundleTests {
         #expect(!text.contains("barcode"))
         #expect(!text.contains("payload"))
         #expect(!text.contains("__smk_receive_key__"))
+        #expect(!text.contains("ORDER123"))
+
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let failures = try #require(json["lastNetworkFailures"] as? [[String: Any]])
+        let firstFailure = try #require(failures.first)
+        let endpointPath = try #require(firstFailure["endpointPath"] as? String)
+        #expect(endpointPath == "/v3/order/:id/service")
     }
 
     private func encode(bundle: DiagnosticsSupportBundle) throws -> Data {

@@ -197,7 +197,10 @@ struct PurchaseOrdersView: View {
             errorMessage = nil
         } catch {
             guard !isRequestCancellation(error) else { return }
-            errorMessage = "Could not refresh purchase orders."
+            errorMessage = authErrorMessage(
+                for: error,
+                isAuthConfigured: environment.keychainService.tokenExists()
+            ) ?? "Could not refresh purchase orders."
         }
     }
 }

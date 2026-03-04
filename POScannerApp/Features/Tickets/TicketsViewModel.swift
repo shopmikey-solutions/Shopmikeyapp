@@ -39,17 +39,20 @@ final class TicketsViewModel: ObservableObject {
     private let ticketStore: any TicketStoring
     private let shopmonkeyAPI: any ShopmonkeyServicing
     private let dateProvider: any DateProviding
+    private let isAuthConfigured: () -> Bool
 
     private let recentDaysDefault = 30
 
     init(
         ticketStore: any TicketStoring,
         shopmonkeyAPI: any ShopmonkeyServicing,
-        dateProvider: any DateProviding = SystemDateProvider()
+        dateProvider: any DateProviding = SystemDateProvider(),
+        isAuthConfigured: @escaping () -> Bool = { true }
     ) {
         self.ticketStore = ticketStore
         self.shopmonkeyAPI = shopmonkeyAPI
         self.dateProvider = dateProvider
+        self.isAuthConfigured = isAuthConfigured
     }
 
     func loadCachedState() async {
@@ -98,7 +101,8 @@ final class TicketsViewModel: ObservableObject {
             activeTicketID = await ticketStore.activeTicketID()
             tickets = await ticketStore.loadOpenTickets()
             lastUpdated = await ticketStore.lastRefreshedAt()
-            errorMessage = "Could not refresh tickets."
+            errorMessage = authErrorMessage(for: error, isAuthConfigured: isAuthConfigured())
+                ?? "Could not refresh tickets."
             applyFilter()
         }
     }

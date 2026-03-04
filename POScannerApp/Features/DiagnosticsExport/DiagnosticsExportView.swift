@@ -4,14 +4,25 @@
 //
 
 import SwiftUI
+import ShopmikeyCoreNetworking
 import ShopmikeyCoreSync
 
 struct DiagnosticsExportView: View {
     @StateObject private var viewModel: DiagnosticsExportViewModel
 
-    init(syncOperationQueue: SyncOperationQueueStore) {
+    init(
+        syncOperationQueue: SyncOperationQueueStore,
+        networkDiagnostics: NetworkDiagnosticsRecorder,
+        authConfigured: @escaping () -> Bool,
+        shopmonkeyBaseURL: URL
+    ) {
         _viewModel = StateObject(
-            wrappedValue: DiagnosticsExportViewModel(syncOperationQueue: syncOperationQueue)
+            wrappedValue: DiagnosticsExportViewModel(
+                syncOperationQueue: syncOperationQueue,
+                networkDiagnostics: networkDiagnostics,
+                authConfigured: authConfigured,
+                shopmonkeyBaseURL: shopmonkeyBaseURL
+            )
         )
     }
 

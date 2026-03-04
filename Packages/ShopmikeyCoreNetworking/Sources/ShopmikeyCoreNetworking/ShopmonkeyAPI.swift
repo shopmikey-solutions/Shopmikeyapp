@@ -296,24 +296,15 @@ private struct InventoryPartSearchRequest: Encodable {
 
 /// Shopmonkey sandbox API wrapper.
 public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
-    #if DEBUG
-    public static let baseURL: URL = ShopmonkeyBaseURL.sandbox
-    #else
-    #error("Production API not allowed in this build.")
-    #endif
-
-    private let baseURL: URL
     private let client: APIClient
     private let diagnosticsRecorder: NetworkDiagnosticsRecorder
     private let fallbackRecorder: any FallbackAnalyticsRecording
 
     public init(
         client: APIClient,
-        baseURL: URL = ShopmonkeyAPI.baseURL,
         fallbackRecorder: any FallbackAnalyticsRecording = NoopFallbackAnalyticsRecorder(),
         diagnosticsRecorder: NetworkDiagnosticsRecorder = .shared
     ) {
-        self.baseURL = baseURL
         self.client = client
         self.fallbackRecorder = fallbackRecorder
         self.diagnosticsRecorder = diagnosticsRecorder
@@ -616,7 +607,7 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
     /// Lightweight connectivity check used by Settings.
     /// - Important: Treats any 2xx as success and does not decode the response body.
     public func testConnection() async throws {
-        let url = baseURL.appendingPathComponent("order")
+        let url = try makeURL(path: "/order")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
 
@@ -683,6 +674,8 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
     // MARK: - URL building
 
     private func makeURL(path: String, queryItems: [URLQueryItem] = []) throws -> URL {
+        let baseURL = ShopmonkeyBaseURL.sandboxV3
+
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw APIError.invalidURL
         }

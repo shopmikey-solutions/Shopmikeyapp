@@ -81,7 +81,7 @@ struct PurchaseOrderReceivingDecodeTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" }
         )
@@ -151,7 +151,7 @@ struct PurchaseOrderReceivingDecodeTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" }
         )

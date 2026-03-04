@@ -149,7 +149,7 @@ struct DiagnosticsCenterView: View {
                     syncOperationQueue: viewModel.environment.syncOperationQueue,
                     networkDiagnostics: viewModel.environment.networkDiagnostics,
                     authConfigured: { viewModel.environment.keychainService.tokenExists() },
-                    shopmonkeyBaseURL: ShopmonkeyBaseURL.sandbox
+                    shopmonkeyBaseURL: ShopmonkeyBaseURL.sandboxV3
                 )
             } label: {
                 Label("Share Diagnostics", systemImage: "square.and.arrow.up")

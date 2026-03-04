@@ -737,7 +737,7 @@ extension AppEnvironment {
         }
 
         let apiClient = APIClient(
-            baseURL: ShopmonkeyBaseURL.sandbox,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             tokenProvider: {
                 do {
                     return try keychainService.retrieveToken()
@@ -869,7 +869,7 @@ extension AppEnvironment {
         }
 
         let apiClient = APIClient(
-            baseURL: ShopmonkeyBaseURL.sandbox,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             tokenProvider: { throw APIError.missingToken },
             fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics
@@ -953,7 +953,7 @@ extension AppEnvironment {
         }
 
         let apiClient = APIClient(
-            baseURL: ShopmonkeyBaseURL.sandbox,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             tokenProvider: { throw APIError.missingToken },
             fallbackRecorder: fallbackAnalyticsRecorder,
             diagnosticsRecorder: networkDiagnostics

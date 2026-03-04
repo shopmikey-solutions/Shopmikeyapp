@@ -18,7 +18,7 @@ private func makeReviewTestEnvironment(draftFileURL: URL) -> AppEnvironment {
     let reviewDraftStore = ReviewDraftStore(fileURL: draftFileURL)
     let localNotificationService = LocalNotificationService()
     let apiClient = APIClient(
-        baseURL: ShopmonkeyAPI.baseURL,
+        baseURL: ShopmonkeyBaseURL.sandboxV3,
         tokenProvider: { throw APIError.missingToken },
         diagnosticsRecorder: networkDiagnostics
     )

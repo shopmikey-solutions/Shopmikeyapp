@@ -63,7 +63,7 @@ struct DecodePerformanceTests {
         }
 
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" }
         )

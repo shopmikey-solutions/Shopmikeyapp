@@ -88,7 +88,7 @@ struct APIClientRetryAfterTests {
 
         let recorder = SleepRecorder()
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             sleeper: { seconds in await recorder.record(seconds) },
@@ -161,7 +161,7 @@ struct APIClientRetryAfterTests {
         struct OkResponse: Decodable { let ok: Bool }
         let recorder = SleepRecorder()
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             sleeper: { seconds in await recorder.record(seconds) },
@@ -211,7 +211,7 @@ struct APIClientRetryAfterTests {
         struct OkResponse: Decodable { let ok: Bool }
         let recorder = SleepRecorder()
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             sleeper: { seconds in await recorder.record(seconds) },
@@ -276,7 +276,7 @@ struct APIClientRetryAfterTests {
         struct OkResponse: Decodable { let ok: Bool }
         let recorder = SleepRecorder()
         let client = APIClient(
-            baseURL: ShopmonkeyAPI.baseURL,
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
             urlSession: session,
             tokenProvider: { "token" },
             sleeper: { seconds in await recorder.record(seconds) },

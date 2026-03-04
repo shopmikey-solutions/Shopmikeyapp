@@ -119,19 +119,25 @@ struct ShopmonkeyContractEndpointTests {
         configuration.protocolClasses = [ShopmonkeyContractURLProtocol.self]
         let session = URLSession(configuration: configuration)
 
+        var seenPaths: [String] = []
         ShopmonkeyContractURLProtocol.requestHandler = { request in
             guard let url = request.url else {
                 throw URLError(.badURL)
             }
 
             #expect(request.httpMethod == "GET")
-            #expect(url.path == "/v3/order/order_missing/service")
+            seenPaths.append(url.path)
 
-            let body = Data("{}".utf8)
-            guard let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil) else {
-                throw URLError(.badServerResponse)
+            switch url.path {
+            case "/v3/order/order_missing/service", "/v3/order/order_missing":
+                let body = Data("{}".utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+            default:
+                throw URLError(.unsupportedURL)
             }
-            return (response, body)
         }
 
         let client = APIClient(
@@ -143,6 +149,62 @@ struct ShopmonkeyContractEndpointTests {
 
         let services = try await api.fetchServices(orderId: "order_missing")
         #expect(services.isEmpty)
+        #expect(seenPaths == ["/v3/order/order_missing/service", "/v3/order/order_missing"])
+    }
+
+    @Test func fetchServicesFallsBackToOrderDetailServicesWhenServiceRouteIsNotFound() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ShopmonkeyContractURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        ShopmonkeyContractURLProtocol.requestHandler = { request in
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+
+            #expect(request.httpMethod == "GET")
+
+            switch url.path {
+            case "/v3/order/order_legacy/service":
+                let body = Data("{}".utf8)
+                guard let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            case "/v3/order/order_legacy":
+                let body = Data(
+                    #"""
+                    {
+                      "data": {
+                        "id": "order_legacy",
+                        "services": [
+                          { "service_id": "svc_fallback_1", "name": "Brake Service" }
+                        ]
+                      }
+                    }
+                    """#.utf8
+                )
+                guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+                    throw URLError(.badServerResponse)
+                }
+                return (response, body)
+
+            default:
+                throw URLError(.unsupportedURL)
+            }
+        }
+
+        let client = APIClient(
+            baseURL: ShopmonkeyBaseURL.sandboxV3,
+            urlSession: session,
+            tokenProvider: { "token" }
+        )
+        let api = ShopmonkeyAPI(client: client)
+
+        let services = try await api.fetchServices(orderId: "order_legacy")
+        #expect(services.map(\.id) == ["svc_fallback_1"])
+        #expect(services.first?.name == "Brake Service")
     }
 
     @Test func contractsDocContainsEndpointRegistryEntries() throws {

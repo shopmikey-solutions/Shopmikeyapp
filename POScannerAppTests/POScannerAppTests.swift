@@ -12,6 +12,7 @@ import ShopmikeyCoreNetworking
 struct SandboxInvariantTests {
     @Test func baseURLIsSandbox() async throws {
         #expect(ShopmonkeyAPI.baseURL.host == "sandbox-api.shopmonkey.cloud")
+        #expect(ShopmonkeyAPI.baseURL.absoluteString == ShopmonkeyBaseURL.sandbox.absoluteString)
     }
 }
 

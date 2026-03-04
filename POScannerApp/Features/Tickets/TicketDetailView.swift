@@ -204,8 +204,14 @@ struct TicketDetailView: View {
                 errorMessage = nil
             } catch {
                 guard !isRequestCancellation(error) else { return }
+                let authMessage = authErrorMessage(
+                    for: error,
+                    isAuthConfigured: environment.keychainService.tokenExists()
+                )
                 if ticket == nil {
-                    errorMessage = "Could not load ticket details."
+                    errorMessage = authMessage ?? "Could not load ticket details."
+                } else if let authMessage {
+                    errorMessage = authMessage
                 }
             }
         }
@@ -228,7 +234,12 @@ struct TicketDetailView: View {
             guard !isRequestCancellation(error) else { return }
             services = []
             if selectedServiceID == nil {
-                errorMessage = "Could not load services for this ticket. Use a cached service selection before mutating."
+                let authMessage = authErrorMessage(
+                    for: error,
+                    isAuthConfigured: environment.keychainService.tokenExists()
+                )
+                errorMessage = authMessage
+                    ?? "Could not load services for this ticket. Use a cached service selection before mutating."
             }
         }
     }

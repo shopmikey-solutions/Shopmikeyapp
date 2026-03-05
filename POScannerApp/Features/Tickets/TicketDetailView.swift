@@ -38,7 +38,7 @@ struct TicketDetailView: View {
             await load(forceRemote: true)
         }
         .task {
-            await load(forceRemote: false)
+            await load(forceRemote: true)
         }
         .onChange(of: selectedServiceID) { _, value in
             Task {

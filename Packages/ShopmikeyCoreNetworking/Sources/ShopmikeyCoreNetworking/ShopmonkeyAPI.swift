@@ -623,7 +623,25 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
             throw APIError.invalidURL
         }
 
-        let url = try makeURL(path: "/order/\(safeID)")
+        do {
+            return try await fetchTicketDetail(orderId: safeID)
+        } catch let apiError as APIError {
+            if isRouteUnavailable(apiError) || isValidationError(apiError),
+               let canonicalOrderID = await resolveCanonicalOrderIDFromOrderListBestEffort(orderIdentifier: safeID),
+               canonicalOrderID.caseInsensitiveCompare(safeID) != .orderedSame {
+                return try await fetchTicketDetail(orderId: canonicalOrderID)
+            }
+            throw apiError
+        }
+    }
+
+    private func fetchTicketDetail(orderId: String) async throws -> TicketModel {
+        let safeOrderID = orderId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeOrderID.isEmpty else {
+            throw APIError.invalidURL
+        }
+
+        let url = try makeURL(path: "/order/\(safeOrderID)")
         let decoded: SingleOrWrapped<TicketEnvelope> = try await client.perform(.get, url: url)
         var ticket = decoded.value.ticketModel(includeLineItems: true)
         if ticket.lineItems.isEmpty {
@@ -812,14 +830,74 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
                 }
             }
 
+            if let canonicalFromOrderList = await resolveCanonicalOrderIDFromOrderListBestEffort(orderIdentifier: orderId),
+               canonicalFromOrderList.caseInsensitiveCompare(orderId) != .orderedSame,
+               !orderDetail.alternateOrderIDs.contains(where: {
+                   $0.caseInsensitiveCompare(canonicalFromOrderList) == .orderedSame
+               }) {
+                do {
+                    let resolved = try await fetchServicesFromServiceEndpoint(orderId: canonicalFromOrderList)
+                    if !resolved.isEmpty {
+                        return (services: resolved, resolvedOrderID: canonicalFromOrderList)
+                    }
+                } catch let apiError as APIError {
+                    if !isRouteUnavailable(apiError) && !isValidationError(apiError) {
+                        throw apiError
+                    }
+                }
+            }
+
             // Keep canonical ID even when no service list is available so downstream reads can still succeed.
             return (services: [], resolvedOrderID: canonicalOrderID)
         } catch let apiError as APIError {
             if isRouteUnavailable(apiError) || isValidationError(apiError) {
+                if let canonicalFromOrderList = await resolveCanonicalOrderIDFromOrderListBestEffort(orderIdentifier: orderId),
+                   canonicalFromOrderList.caseInsensitiveCompare(orderId) != .orderedSame {
+                    do {
+                        let resolved = try await fetchServicesFromServiceEndpoint(orderId: canonicalFromOrderList)
+                        if !resolved.isEmpty {
+                            return (services: resolved, resolvedOrderID: canonicalFromOrderList)
+                        }
+                    } catch let fallbackError as APIError {
+                        if !isRouteUnavailable(fallbackError) && !isValidationError(fallbackError) {
+                            throw fallbackError
+                        }
+                    }
+                }
                 // Service lists are optional for some tickets/orders.
                 return (services: [], resolvedOrderID: orderId)
             }
             throw apiError
+        }
+    }
+
+    private func resolveCanonicalOrderIDFromOrderList(orderIdentifier: String) async throws -> String? {
+        let normalizedIdentifier = orderIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedIdentifier.isEmpty else { return nil }
+
+        let orders = try await fetchOrders()
+        if let exactIDMatch = orders.first(where: {
+            $0.id.caseInsensitiveCompare(normalizedIdentifier) == .orderedSame
+        }) {
+            return exactIDMatch.id
+        }
+
+        if let numberMatch = orders.first(where: {
+            guard let number = $0.number else { return false }
+            return number.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(normalizedIdentifier) == .orderedSame
+        }) {
+            return numberMatch.id
+        }
+
+        return nil
+    }
+
+    private func resolveCanonicalOrderIDFromOrderListBestEffort(orderIdentifier: String) async -> String? {
+        do {
+            return try await resolveCanonicalOrderIDFromOrderList(orderIdentifier: orderIdentifier)
+        } catch {
+            return nil
         }
     }
 
@@ -849,6 +927,9 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
                 }
             }
 
+            let serviceScoped = try await fetchLineItemsFromServiceEndpoint(orderId: resolved.resolvedOrderID)
+            append(serviceScoped)
+
             let orderScoped = try await fetchOrderScopedLineItems(orderId: resolved.resolvedOrderID)
             append(orderScoped)
 
@@ -873,6 +954,22 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         } catch {
             // Hydration is best-effort; keep the base ticket payload available.
             return ticket
+        }
+    }
+
+    private func fetchLineItemsFromServiceEndpoint(orderId: String) async throws -> [TicketLineItem] {
+        let safeOrderID = orderId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !safeOrderID.isEmpty else { return [] }
+
+        let url = try makeURL(path: "/order/\(safeOrderID)/service")
+        do {
+            let payload: JSONValue = try await client.perform(.get, url: url)
+            return Self.parseServiceEndpointLineItems(payload: payload, fallbackOrderID: safeOrderID)
+        } catch let apiError as APIError {
+            if isRouteUnavailable(apiError) || isValidationError(apiError) {
+                return []
+            }
+            throw apiError
         }
     }
 
@@ -1005,6 +1102,96 @@ public struct ShopmonkeyAPI: ShopmonkeyServicing, Sendable {
         default:
             return []
         }
+    }
+
+    private static func parseServiceEndpointLineItems(payload: JSONValue, fallbackOrderID: String) -> [TicketLineItem] {
+        let serviceObjects = parseServiceObjects(from: payload)
+        guard !serviceObjects.isEmpty else { return [] }
+
+        var merged: [TicketLineItem] = []
+        var seen: Set<String> = []
+
+        for serviceObject in serviceObjects {
+            let resolvedOrderID = CaseInsensitiveJSONLookup.firstNonEmpty([
+                CaseInsensitiveJSONLookup.string(in: serviceObject, keys: ["order_id", "orderId"]),
+                fallbackOrderID
+            ]) ?? fallbackOrderID
+
+            let parsed = TicketEnvelope.parseLineItems(from: serviceObject, ticketID: resolvedOrderID)
+            for lineItem in parsed {
+                let dedupeKey = lineItem.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if dedupeKey.isEmpty {
+                    merged.append(lineItem)
+                    continue
+                }
+                guard seen.insert(dedupeKey).inserted else { continue }
+                merged.append(lineItem)
+            }
+        }
+
+        return merged
+    }
+
+    private static func parseServiceObjects(from payload: JSONValue) -> [[String: JSONValue]] {
+        switch payload {
+        case .object(let rootObject):
+            if let nestedObject = CaseInsensitiveJSONLookup.object(in: rootObject, keys: ["data", "result"]),
+               looksLikeServiceObject(nestedObject) {
+                return [nestedObject]
+            }
+
+            var parsed: [[String: JSONValue]] = []
+            for key in ["data", "result", "results", "services", "service"] {
+                if let value = CaseInsensitiveJSONLookup.value(in: rootObject, forKey: key) {
+                    parsed.append(contentsOf: objects(from: value))
+                }
+            }
+
+            if parsed.isEmpty, looksLikeServiceObject(rootObject) {
+                return [rootObject]
+            }
+            return parsed
+
+        case .array(let values):
+            return values.flatMap { objects(from: $0) }
+
+        default:
+            return []
+        }
+    }
+
+    private static func objects(from value: JSONValue) -> [[String: JSONValue]] {
+        switch value {
+        case .object(let object):
+            if looksLikeServiceObject(object) {
+                return [object]
+            }
+            return []
+
+        case .array(let values):
+            return values.compactMap { value in
+                guard case .object(let object) = value, looksLikeServiceObject(object) else {
+                    return nil
+                }
+                return object
+            }
+
+        default:
+            return []
+        }
+    }
+
+    private static func looksLikeServiceObject(_ object: [String: JSONValue]) -> Bool {
+        guard CaseInsensitiveJSONLookup.string(
+            in: object,
+            keys: ["id", "public_id", "publicId", "service_id", "serviceId", "order_service_id", "orderServiceId"]
+        ) != nil else {
+            return false
+        }
+
+        return !CaseInsensitiveJSONLookup.array(in: object, keys: ["parts", "labors", "labor", "fees", "tires"]).isEmpty
+            || CaseInsensitiveJSONLookup.string(in: object, keys: ["name", "display_name", "displayName", "description"]) != nil
+            || CaseInsensitiveJSONLookup.scalar(in: object, keys: ["lineItemOrder", "line_item_order", "authorizationStatus"]) != nil
     }
 
     private static func resolveServiceObject(from rootObject: [String: JSONValue]) -> [String: JSONValue] {
@@ -3459,7 +3646,9 @@ private struct TicketEnvelope: Decodable {
         ])
         updatedAt = Self.firstDate([
             Self.string(in: ticketObject, keys: ["updated_at", "updatedAt", "modified_at", "modifiedAt"]),
-            Self.string(in: rootObject, keys: ["updated_at", "updatedAt", "modified_at", "modifiedAt"])
+            Self.string(in: ticketObject, keys: ["updated_date", "updatedDate", "created_date", "createdDate"]),
+            Self.string(in: rootObject, keys: ["updated_at", "updatedAt", "modified_at", "modifiedAt"]),
+            Self.string(in: rootObject, keys: ["updated_date", "updatedDate", "created_date", "createdDate"])
         ])
         lineItems = Self.parseLineItems(from: ticketObject, ticketID: resolvedID)
     }
@@ -3542,6 +3731,7 @@ private struct TicketEnvelope: Decodable {
 
         let quantity = firstDecimal([
             scalar(in: object, keys: ["quantity", "qty"]),
+            scalar(in: object, keys: ["hours", "labor_hours", "laborHours"]),
             .int(0)
         ]) ?? 0
 
@@ -3561,7 +3751,10 @@ private struct TicketEnvelope: Decodable {
             quantity: quantity,
             unitPrice: firstDecimal([
                 scalar(in: object, keys: ["unit_price", "unitPrice", "price", "cost"]),
-                scalar(in: object, keys: ["unit_cost", "unitCost"])
+                scalar(in: object, keys: ["unit_cost", "unitCost"]),
+                centsScalarToDecimal(scalar(in: object, keys: ["rate_cents", "rateCents"])),
+                centsScalarToDecimal(scalar(in: object, keys: ["retail_cost_cents", "retailCostCents"])),
+                centsScalarToDecimal(scalar(in: object, keys: ["wholesale_cost_cents", "wholesaleCostCents"]))
             ]),
             extendedPrice: firstDecimal([
                 scalar(in: object, keys: ["extended_price", "extendedPrice", "line_total", "lineTotal", "amount"])
@@ -3606,6 +3799,28 @@ private struct TicketEnvelope: Decodable {
             }
         }
         return nil
+    }
+
+    private static func centsScalarToDecimal(_ value: JSONValue?) -> JSONValue? {
+        guard let value else { return nil }
+        switch value {
+        case .int(let cents):
+            return .double(Double(cents) / 100)
+        case .double(let cents):
+            guard cents.isFinite else { return nil }
+            return .double(cents / 100)
+        case .string(let raw):
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let cents = Decimal(string: trimmed) {
+                let normalized = NSDecimalNumber(decimal: cents / 100).doubleValue
+                if normalized.isFinite {
+                    return .double(normalized)
+                }
+            }
+            return nil
+        default:
+            return nil
+        }
     }
 
     private static func firstDate(_ candidates: [String?]) -> Date? {
